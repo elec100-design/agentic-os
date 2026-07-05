@@ -1,3 +1,6 @@
+import os
+os.environ["AOS_DISABLE_WORKER"] = "1"
+
 import pytest
 
 from app import config

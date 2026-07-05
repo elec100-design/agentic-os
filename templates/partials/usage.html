@@ -1,0 +1,16 @@
+<h2>사용량 (24시간)</h2>
+<table>
+  <tr><th>서비스</th><th>성공</th><th>실패</th><th>제한</th><th>상태</th></tr>
+  {% for p in providers %}
+  <tr>
+    <td>{{ p }}</td>
+    <td>{{ counts.get(p, {}).get('ok', 0) }}</td>
+    <td>{{ counts.get(p, {}).get('failed', 0) }}</td>
+    <td>{{ counts.get(p, {}).get('rate_limited', 0) }}</td>
+    <td>
+      {% if p in limits %}🔴 제한 중 — {{ limits[p] }} 재개
+      {% else %}🟢 사용 가능{% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
