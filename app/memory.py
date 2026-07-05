@@ -50,7 +50,7 @@ def search_notes(query, limit=5):
     vault = str(config.VAULT_PATH)
     try:
         out = subprocess.run(
-            ["rg", "-il", "--sort", "modified", "--glob", "*.md", query, vault],
+            ["rg", "-il", "--sortr", "modified", "--glob", "*.md", query, vault],
             capture_output=True, text=True, timeout=10,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
