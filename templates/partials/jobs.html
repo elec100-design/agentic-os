@@ -1,0 +1,20 @@
+<h2>작업 큐</h2>
+<table>
+  <tr><th>#</th><th>프롬프트</th><th>모델</th><th>상태</th><th></th></tr>
+  {% for j in jobs %}
+  <tr class="status-{{ j['status'] }}">
+    <td>{{ j['id'] }}</td>
+    <td><a href="/jobs/{{ j['id'] }}">{{ j['prompt'][:50] }}</a></td>
+    <td>{{ j['provider'] }}</td>
+    <td>
+      {{ j['status'] }}
+      {% if j['status'] == 'rate_limited' %}<br><small>재개: {{ j['resume_at'] }}</small>{% endif %}
+    </td>
+    <td>
+      {% if j['status'] in ('queued', 'running', 'rate_limited') %}
+      <form method="post" action="/jobs/{{ j['id'] }}/cancel"><button>취소</button></form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>

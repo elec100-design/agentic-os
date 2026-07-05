@@ -1,0 +1,9 @@
+<h2>메모리</h2>
+<form hx-get="/partials/memory" hx-target="#memory">
+  <input type="search" name="q" value="{{ q }}" placeholder="노트 검색…">
+</form>
+<ul>
+  {% for n in notes %}
+  <li title="{{ n['path'] }}">{{ n['name'] }}</li>
+  {% endfor %}
+</ul>

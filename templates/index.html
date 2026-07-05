@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<h1>Agentic OS</h1>
+
+<section class="panel dispatch">
+  <form method="post" action="/jobs">
+    <textarea name="prompt" rows="3" required placeholder="무엇을 할까요?"></textarea>
+    <div class="controls">
+      <label><input type="radio" name="provider" value="auto" checked> 자동</label>
+      <label><input type="radio" name="provider" value="claude"> Claude</label>
+      <label><input type="radio" name="provider" value="gemini"> Gemini</label>
+      <label><input type="radio" name="provider" value="grok"> Grok</label>
+      <label><input type="radio" name="provider" value="hermes"> Hermes</label>
+      <label><input type="checkbox" name="attach_memory" value="true"> 관련 메모리 첨부</label>
+      <label>타임아웃(분): <input type="number" name="timeout_min" min="1" style="width:4em"></label>
+      <button type="submit">전송</button>
+    </div>
+  </form>
+</section>
+
+<section class="panel" id="jobs" hx-get="/partials/jobs" hx-trigger="load, every 3s"></section>
+
+<div class="row">
+  <section class="panel" id="usage" hx-get="/partials/usage" hx-trigger="load, every 10s"></section>
+  <section class="panel" id="memory" hx-get="/partials/memory" hx-trigger="load"></section>
+</div>
+</body>
+</html>

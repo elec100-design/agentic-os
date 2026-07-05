@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>작업 #{{ job['id'] }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<p><a href="/">← 대시보드</a></p>
+<h1>작업 #{{ job['id'] }} <small>({{ job['provider'] }} / {{ job['status'] }})</small></h1>
+<h2>프롬프트</h2>
+<pre>{{ job['prompt'] }}</pre>
+{% if job['error'] %}<p class="error">⚠️ {{ job['error'] }}</p>{% endif %}
+<h2>출력</h2>
+<pre id="out">{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>
+<script>
+const status = "{{ job['status'] }}";
+if (["queued", "running", "rate_limited"].includes(status)) {
+  const es = new EventSource("/jobs/{{ job['id'] }}/stream");
+  es.onmessage = (e) => {
+    document.getElementById("out").textContent += JSON.parse(e.data);
+  };
+  es.addEventListener("status", () => { es.close(); location.reload(); });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.elec100.agentic-os</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/macmini/Documents/Agentic OS/.venv/bin/python3</string>
+    <string>-m</string>
+    <string>uvicorn</string>
+    <string>app.main:app</string>
+    <string>--host</string>
+    <string>127.0.0.1</string>
+    <string>--port</string>
+    <string>8899</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/macmini/Documents/Agentic OS</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/macmini/Documents/Agentic OS/data/aos.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/macmini/Documents/Agentic OS/data/aos.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/macmini/.local/bin:/Users/macmini/.grok/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>HOME</key>
+    <string>/Users/macmini</string>
+  </dict>
+</dict>
+</plist>
