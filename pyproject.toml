@@ -1,3 +1,7 @@
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    # starlette 내부의 httpx→httpx2 이행 안내 — 우리 코드가 아님
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
+]

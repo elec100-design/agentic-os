@@ -62,3 +62,9 @@ def test_job_detail_page(tmp_env):
         r = client.get(f"/jobs/{job_id}")
         assert r.status_code == 200
         assert "상세 페이지 테스트" in r.text
+
+def test_missing_job_returns_404(tmp_env):
+    with _client(tmp_env) as client:
+        assert client.get("/jobs/99999").status_code == 404
+        assert client.post("/jobs/99999/cancel", follow_redirects=False).status_code == 404
+        assert client.get("/jobs/99999/stream").status_code == 404

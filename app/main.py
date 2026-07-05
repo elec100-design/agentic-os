@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -70,12 +70,16 @@ def create_job(
 def job_detail(request: Request, job_id: int):
     conn = db.get_conn()
     job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse(request, "job.html", {"job": job})
 
 
 @app.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: int):
     conn = db.get_conn()
+    if db.get_job(conn, job_id) is None:
+        raise HTTPException(status_code=404)
     db.update_job(conn, job_id, status="failed", error="cancelled",
                   finished_at=db.now_iso())
     if worker.current["job_id"] == job_id and worker.current["proc"]:
@@ -85,6 +89,9 @@ def cancel_job(job_id: int):
 
 @app.get("/jobs/{job_id}/stream")
 async def stream_job(job_id: int):
+    if db.get_job(db.get_conn(), job_id) is None:
+        raise HTTPException(status_code=404)
+
     async def gen():
         sent = 0
         while True:
