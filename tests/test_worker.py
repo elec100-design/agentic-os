@@ -110,7 +110,9 @@ async def test_worker_loop_fails_job_over_max_attempts(tmp_env):
     db.update_job(conn, job_id, attempts=config.MAX_ATTEMPTS)
     stop = asyncio.Event()
     providers = {"fake": FakeProvider(["sh", "-c", "echo hi"])}
-    task = asyncio.create_task(worker.worker_loop(stop, providers=providers, save=False))
+    task = asyncio.create_task(
+        worker.worker_loop(stop, providers=providers, save=False, poll_sec=0.1)
+    )
     for _ in range(100):
         await asyncio.sleep(0.05)
         if db.get_job(conn, job_id)["status"] == "failed":
@@ -128,3 +130,35 @@ async def test_run_job_strips_api_key_env(tmp_env, monkeypatch):
     conn, job, providers = _setup(tmp_env, p)
     await worker.run_job(conn, job, providers=providers, save=False)
     assert db.get_job(conn, job["id"])["output"].strip() == "key=none"
+
+
+class ExplodingProvider(FakeProvider):
+    """parse_output이 항상 예외를 던지는 테스트용 어댑터."""
+
+    def parse_output(self, stdout, stderr, exit_code):
+        raise RuntimeError("boom")
+
+
+async def test_worker_loop_survives_run_job_exception(tmp_env):
+    conn = db.get_conn(config.DB_PATH)
+    bad_id = db.create_job(conn, "터짐", "bad")
+    good_id = db.create_job(conn, "정상", "fake")
+    stop = asyncio.Event()
+    providers = {
+        "bad": ExplodingProvider(["sh", "-c", "echo x"]),
+        "fake": FakeProvider(["sh", "-c", "echo ok"]),
+    }
+    task = asyncio.create_task(
+        worker.worker_loop(stop, providers=providers, save=False, poll_sec=0.1)
+    )
+    for _ in range(100):
+        await asyncio.sleep(0.05)
+        if db.get_job(conn, good_id)["status"] == "done":
+            break
+    stop.set()
+    await task
+    bad = db.get_job(conn, bad_id)
+    good = db.get_job(conn, good_id)
+    assert bad["status"] == "failed"
+    assert "worker error" in bad["error"]
+    assert good["status"] == "done"

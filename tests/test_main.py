@@ -68,3 +68,58 @@ def test_missing_job_returns_404(tmp_env):
         assert client.get("/jobs/99999").status_code == 404
         assert client.post("/jobs/99999/cancel", follow_redirects=False).status_code == 404
         assert client.get("/jobs/99999/stream").status_code == 404
+
+
+def test_create_job_rejects_unknown_provider(tmp_env):
+    from app import config, db
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "p", "provider": "claud"},
+                        follow_redirects=False)
+        assert r.status_code == 400
+    conn = db.get_conn(config.DB_PATH)
+    assert db.list_jobs(conn) == []
+
+
+async def test_stream_does_not_treat_rate_limited_as_terminal(tmp_env):
+    # Drive gen()'s generator directly (bypassing the HTTP/SSE transport) so
+    # the test stays fast and deterministic.
+    from app import config, db
+    from app.main import stream_job
+
+    conn = db.get_conn(config.DB_PATH)
+    job_id = db.create_job(conn, "p", "claude")
+    db.update_job(conn, job_id, status="rate_limited",
+                  resume_at="2999-01-01T00:00:00+00:00", output="hello")
+
+    response = await stream_job(job_id)
+    agen = response.body_iterator
+    first_chunk = await agen.__anext__()
+    assert "event: status" not in first_chunk
+
+    # flipping to done should now be the only way to end the stream
+    db.update_job(conn, job_id, status="done", output="hello")
+    got_status = False
+    async for chunk in agen:
+        if "event: status" in chunk:
+            got_status = True
+            break
+    assert got_status
+
+
+def test_cross_origin_post_is_blocked(tmp_env):
+    from app import config, db
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "p", "provider": "claude"},
+                        headers={"origin": "https://evil.example"},
+                        follow_redirects=False)
+        assert r.status_code == 403
+    conn = db.get_conn(config.DB_PATH)
+    assert db.list_jobs(conn) == []
+
+
+def test_same_origin_post_is_allowed(tmp_env):
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "p", "provider": "claude"},
+                        headers={"origin": "http://localhost:8899"},
+                        follow_redirects=False)
+        assert r.status_code == 303

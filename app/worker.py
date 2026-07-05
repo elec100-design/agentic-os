@@ -113,16 +113,20 @@ async def run_job(conn, job, providers=None, save=True):
             db.update_job(conn, job["id"], error=f"memory_save_failed: {e}")
 
 
-async def worker_loop(stop_event=None, providers=None, save=True):
+async def worker_loop(stop_event=None, providers=None, save=True, poll_sec=None):
     conn = db.get_conn()
     db.recover_running(conn)
     while not (stop_event and stop_event.is_set()):
         job = db.claim_next_job(conn)
         if job is None:
-            await asyncio.sleep(0.1 if stop_event else config.WORKER_POLL_SEC)
+            await asyncio.sleep(poll_sec or config.WORKER_POLL_SEC)
             continue
         if job["attempts"] > config.MAX_ATTEMPTS:
             db.update_job(conn, job["id"], status="failed",
                           error="max attempts exceeded", finished_at=db.now_iso())
             continue
-        await run_job(conn, job, providers=providers, save=save)
+        try:
+            await run_job(conn, job, providers=providers, save=save)
+        except Exception as e:  # 큐는 어떤 작업이 터져도 살아있어야 한다
+            db.update_job(conn, job["id"], status="failed",
+                          error=f"worker error: {e!r}", finished_at=db.now_iso())

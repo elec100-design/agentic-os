@@ -56,3 +56,9 @@ def test_build_context_includes_matching_note(tmp_env):
     ctx = memory.build_context("코끼리")
     assert "코끼리는 크다" in ctx
     assert ctx.endswith("---\n\n")
+
+
+def test_build_context_extracts_keywords_from_multi_word_query(tmp_env):
+    memory.save_note("코끼리 연구", "claude", "코끼리는 크다", when=datetime(2026, 7, 5))
+    ctx = memory.build_context("코끼리 연구에 대해 알려줘? (참고자료+요약)")
+    assert "코끼리는 크다" in ctx

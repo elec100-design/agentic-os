@@ -39,6 +39,15 @@ def test_claude_parse_non_json_falls_back():
     assert r.session_id is None
 
 
+def test_claude_parse_non_dict_json_falls_back():
+    r = ClaudeProvider().parse_output('["a"]', "", 0)
+    assert r.text == '["a"]'
+    assert r.session_id is None
+    r2 = ClaudeProvider().parse_output("null", "", 0)
+    assert r2.text == "null"
+    assert r2.session_id is None
+
+
 def test_claude_rate_limit_with_epoch():
     out = "Claude AI usage limit reached|1751719800"
     ra = ClaudeProvider().detect_rate_limit(out, 1, now=NOW)

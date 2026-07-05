@@ -4,17 +4,25 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import config, db, memory, worker
-from app.providers import route_auto
+from app.providers import PROVIDERS, route_auto
 
 BASE = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
+
+ALLOWED_ORIGINS = {"localhost:8899", "127.0.0.1:8899"}
 
 
 @asynccontextmanager
@@ -31,6 +39,15 @@ async def lifespan(app):
 
 app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+
+
+@app.middleware("http")
+async def block_cross_origin_posts(request, call_next):
+    if request.method == "POST":
+        origin = request.headers.get("origin")
+        if origin and urlparse(origin).netloc not in ALLOWED_ORIGINS:
+            return PlainTextResponse("forbidden", status_code=403)
+    return await call_next(request)
 
 
 def _usage_context(conn):
@@ -58,6 +75,8 @@ def create_job(
 ):
     if provider == "auto":
         provider = route_auto(prompt)
+    if provider not in PROVIDERS:
+        raise HTTPException(status_code=400, detail="unknown provider")
     if attach_memory:
         prompt = memory.build_context(prompt) + prompt
     conn = db.get_conn()
@@ -103,7 +122,7 @@ async def stream_job(job_id: int):
             if len(out) > sent:
                 yield f"data: {json.dumps(out[sent:])}\n\n"
                 sent = len(out)
-            if job["status"] in ("done", "failed", "rate_limited"):
+            if job["status"] in ("done", "failed"):
                 yield f"event: status\ndata: {job['status']}\n\n"
                 break
             await asyncio.sleep(1)

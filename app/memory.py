@@ -50,7 +50,7 @@ def search_notes(query, limit=5):
     vault = str(config.VAULT_PATH)
     try:
         out = subprocess.run(
-            ["rg", "-il", "--sortr", "modified", "--glob", "*.md", query, vault],
+            ["rg", "-il", "-F", "--sortr", "modified", "--glob", "*.md", query, vault],
             capture_output=True, text=True, timeout=10,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
@@ -60,8 +60,21 @@ def search_notes(query, limit=5):
 
 
 def build_context(query, limit=3):
+    # dict.fromkeys dedupes while preserving order (set() iteration order for
+    # strings is hash-randomized per process, which would make tie-breaking
+    # among same-length tokens nondeterministic)
+    tokens = sorted(dict.fromkeys(re.findall(r"[\w가-힣]{3,}", query)),
+                     key=len, reverse=True)[:3]
+    notes = []
+    seen = set()
+    for token in tokens:
+        for note in search_notes(token, limit=limit):
+            if note["path"] not in seen:
+                seen.add(note["path"])
+                notes.append(note)
+    notes = notes[:limit]
     parts = []
-    for note in search_notes(query, limit=limit):
+    for note in notes:
         try:
             text = Path(note["path"]).read_text(encoding="utf-8")[:2000]
         except OSError:

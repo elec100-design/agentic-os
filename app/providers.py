@@ -40,6 +40,8 @@ class ClaudeProvider:
     def parse_output(self, stdout, stderr, exit_code):
         try:
             data = json.loads(stdout)
+            if not isinstance(data, dict):
+                return ParseResult(text=stdout or stderr)
             return ParseResult(
                 text=data.get("result", stdout), session_id=data.get("session_id")
             )
