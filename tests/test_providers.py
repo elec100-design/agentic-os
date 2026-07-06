@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 
 from app.providers import (
     PROVIDERS,
+    AntigravityProvider,
     ClaudeProvider,
-    GeminiProvider,
     GrokProvider,
     HermesProvider,
     route_auto,
@@ -66,23 +66,24 @@ def test_claude_no_limit_on_normal_error():
     assert ClaudeProvider().detect_rate_limit("some other error", 1, now=NOW) is None
 
 
-# --- Gemini ---
+# --- Antigravity (agy) ---
 
-def test_gemini_build_and_resume():
-    p = GeminiProvider()
-    assert p.build_command("hi") == ["gemini", "-p", "hi"]
+def test_antigravity_build_and_resume():
+    p = AntigravityProvider()
+    assert p.build_command("hi") == ["agy", "-p", "hi"]
     resumed = p.build_command("hi", session_id="latest")
-    assert "--resume" in resumed and "latest" in resumed
+    assert resumed[:2] == ["agy", "-p"]
+    assert "-c" in resumed
 
 
-def test_gemini_rate_limit():
-    p = GeminiProvider()
+def test_antigravity_rate_limit():
+    p = AntigravityProvider()
     assert p.detect_rate_limit("Error 429: RESOURCE_EXHAUSTED", 1, now=NOW) == NOW + timedelta(minutes=60)
     assert p.detect_rate_limit("fine", 1, now=NOW) is None
 
 
-def test_gemini_parse_records_session():
-    assert GeminiProvider().parse_output("out", "", 0).session_id == "latest"
+def test_antigravity_parse_records_session():
+    assert AntigravityProvider().parse_output("out", "", 0).session_id == "latest"
 
 
 # --- Grok ---
@@ -123,9 +124,9 @@ def test_claude_build_model_and_resume():
     assert cmd[-1] == "이어"
 
 
-def test_gemini_build_with_model():
-    cmd = GeminiProvider().build_command("hi", model="gemini-2.5-pro")
-    assert cmd == ["gemini", "-p", "hi", "--model", "gemini-2.5-pro"]
+def test_antigravity_build_with_model():
+    cmd = AntigravityProvider().build_command("hi", model="gemini-3-pro")
+    assert cmd == ["agy", "-p", "hi", "--model", "gemini-3-pro"]
 
 
 def test_grok_build_with_model():
@@ -135,14 +136,14 @@ def test_grok_build_with_model():
 
 def test_no_model_omits_flag():
     assert "--model" not in ClaudeProvider().build_command("x")
-    assert "--model" not in GeminiProvider().build_command("x")
+    assert "--model" not in AntigravityProvider().build_command("x")
     assert "--model" not in GrokProvider().build_command("x")
 
 
 # --- Registry & routing ---
 
 def test_registry_has_all_four():
-    assert set(PROVIDERS) == {"claude", "gemini", "grok", "hermes"}
+    assert set(PROVIDERS) == {"claude", "antigravity", "grok", "hermes"}
 
 
 def _remaining(**kw):
@@ -157,22 +158,22 @@ def test_route_auto_simple_goes_hermes():
 
 
 def test_route_auto_complex_picks_most_remaining():
-    st = _remaining(claude=15, gemini=70, grok=40)
+    st = _remaining(claude=15, antigravity=70, grok=40)
     prov, reason = route_auto("이 코드 리팩터링 구현해줘", usage_state=st)
-    assert prov == "gemini"
-    assert "gemini" in reason
+    assert prov == "antigravity"
+    assert "antigravity" in reason
 
 
 def test_route_auto_complex_skips_exhausted():
     st = {"claude": {"remaining": 0, "available": False},
-          "gemini": {"remaining": 30, "available": True},
+          "antigravity": {"remaining": 30, "available": True},
           "grok": {"remaining": 50, "available": True}}
     assert route_auto("버그 수정해줘", usage_state=st)[0] == "grok"
 
 
 def test_route_auto_all_exhausted_falls_back_hermes():
     st = {p: {"remaining": 0, "available": False}
-          for p in ("claude", "gemini", "grok")}
+          for p in ("claude", "antigravity", "grok")}
     assert route_auto("버그 수정 구현해줘", usage_state=st)[0] == "hermes"
 
 
@@ -186,6 +187,6 @@ def test_route_auto_long_prompt_is_complex():
 
 
 def test_route_auto_known_high_beats_unknown():
-    # grok만 잔여를 알고 90% 남음 → unknown(=50)인 claude/gemini보다 우선
+    # grok만 잔여를 알고 90% 남음 → unknown(=50)인 claude/antigravity보다 우선
     st = {"grok": {"remaining": 90, "available": True}}
     assert route_auto("코드 구현해줘", usage_state=st)[0] == "grok"

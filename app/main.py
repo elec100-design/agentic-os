@@ -23,6 +23,20 @@ from app.providers import PROVIDERS, route_auto
 BASE = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
+
+def asset_version():
+    """정적 파일(style.css/app.js) 캐시 무효화용 버전 = 최신 수정시각.
+    수정 후 서비스 재시작(=배포)마다 값이 바뀌어 브라우저가 새로 받는다."""
+    d = BASE / "static"
+    try:
+        return str(int(max(f.stat().st_mtime for f in d.glob("*.*"))))
+    except (ValueError, OSError):
+        return "0"
+
+
+# 템플릿에서 ?v={{ asset_v() }} 로 사용 (모든 템플릿 공통)
+templates.env.globals["asset_v"] = asset_version
+
 # same-origin POST는 포트 무관 허용되지만, tailscale serve처럼 프록시가 Host를
 # 다시 쓰는 경우를 대비해 tailnet 이름을 명시 허용한다.
 # 추가 origin은 AOS_EXTRA_ORIGINS(콤마 구분) 환경변수로도 넣을 수 있다.
@@ -46,8 +60,16 @@ async def lifespan(app):
         task.cancel()
 
 
+class NoCacheStaticFiles(StaticFiles):
+    """정적 파일에 no-cache를 붙여 브라우저가 매번 재검증(변경 시 새로 받음)하게 한다."""
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+
 app = FastAPI(lifespan=lifespan)
-app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
+app.mount("/static", NoCacheStaticFiles(directory=str(BASE / "static")), name="static")
 
 
 @app.middleware("http")
@@ -90,7 +112,7 @@ def usage_state(now=None):
     now = now or datetime.now(timezone.utc)
     cache = codexbar.read_cache()
     cached = cache.get("providers", {})
-    providers = ["claude", "gemini", "grok", "hermes"]
+    providers = ["claude", "antigravity", "grok", "hermes"]
     state = {}
     for p in providers:
         if p == "hermes":

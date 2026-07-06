@@ -5,6 +5,28 @@ document.getElementById("nav-toggle")?.addEventListener("click", () => {
   document.body.classList.toggle("nav-open");
 });
 
+// ---- 사용량 패널 접기/펼치기 (기본 접힘, 상태는 localStorage 유지) --------
+const usageSection = document.getElementById("usage");
+const USAGE_KEY = "aos-usage-open";
+function applyUsageState() {
+  if (!usageSection) return;
+  const open = localStorage.getItem(USAGE_KEY) === "1";
+  usageSection.classList.toggle("usage-open", open);
+  const btn = usageSection.querySelector(".usage-toggle");
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".usage-toggle") || !usageSection) return;
+  const open = !usageSection.classList.contains("usage-open");
+  localStorage.setItem(USAGE_KEY, open ? "1" : "0");
+  applyUsageState();
+});
+// 15초마다 htmx가 사용량 partial을 새로 갈아끼워도 접힘/펼침 상태를 다시 적용
+document.body.addEventListener("htmx:afterSwap", (e) => {
+  if (e.target && e.target.id === "usage") applyUsageState();
+});
+applyUsageState();
+
 // ---- 파일 첨부 칩 + 드래그 앤 드롭 -------------------------------------
 const composer = document.getElementById("composer");
 const fileInput = document.getElementById("file-input");
@@ -37,15 +59,26 @@ composer?.addEventListener("drop", (e) => {
   renderChips();
 });
 
-// ---- 프로바이더 선택 + 모델 피커 ---------------------------------------
+// ---- 에이전트/모델 선택 + 도구(+) 메뉴 ---------------------------------
 const providerInput = document.getElementById("provider-input");
 const modelInput = document.getElementById("model-input");
-const picker = document.getElementById("provider-picker");
-const modelPopup = document.getElementById("model-popup");
+const agentBtn = document.getElementById("agent-btn");
+const agentLabel = document.getElementById("agent-label");
+const agentPopup = document.getElementById("agent-popup");
+const toolsBtn = document.getElementById("tools-btn");
+const toolsPopup = document.getElementById("tools-popup");
 const chosenModel = {};                     // provider -> model id ("" = 기본값)
 
+// 팝업에 노출할 에이전트: 자동 + 지정 순서(claude/antigravity/grok/hermes)
+const AGENTS = [{ id: "auto", name: "자동" }].concat(
+  AGENT_ORDER.filter((p) => MODELS[p]).map((p) => ({ id: p, name: agentName(p) }))
+);
+
+function agentName(p) {
+  return p === "auto" ? "자동" : p.charAt(0).toUpperCase() + p.slice(1);
+}
 function defaultModel(p) {
-  const list = (MODELS[p] || []);
+  const list = MODELS[p] || [];
   const d = list.find((m) => m.default) || list[0];
   return d ? (d.model || "") : "";
 }
@@ -54,64 +87,105 @@ function modelLabel(p, id) {
   return m ? m.label : "";
 }
 
-function selectProvider(p, openPopup) {
-  providerInput.value = p;
-  for (const b of picker.querySelectorAll(".pill")) {
-    b.classList.toggle("active", b.dataset.provider === p);
+function refreshAgentLabel() {
+  const p = providerInput.value;
+  let text = agentName(p);
+  if (p !== "auto") {
+    const id = chosenModel[p] || "";
+    if (id && id !== defaultModel(p)) text += " · " + modelLabel(p, id);
   }
-  const id = p in chosenModel ? chosenModel[p] : "";
-  modelInput.value = id;
-  // 선택 프로바이더의 pill에 현재 모델 라벨 표시 (기본값이 아니면)
-  const pill = picker.querySelector(`.pill[data-provider="${p}"]`);
-  const label = pill?.querySelector(".pill-model");
-  if (label) label.textContent = (id && id !== defaultModel(p)) ? modelLabel(p, id) : "";
-  updateAutoHint();
-  if (openPopup && (MODELS[p] || []).length > 1) openModelPopup(pill, p);
-  else closeModelPopup();
+  agentLabel.textContent = text;
 }
 
-function openModelPopup(pill, p) {
-  const cur = p in chosenModel ? chosenModel[p] : "";
-  modelPopup.innerHTML = "";
+function selectProvider(p) {
+  providerInput.value = p;
+  modelInput.value = p === "auto" ? "" : (chosenModel[p] || "");
+  refreshAgentLabel();
+  updateAutoHint();
+}
+
+function renderAgentPopup() {
+  const cur = providerInput.value;
+  agentPopup.innerHTML = "";
   const head = document.createElement("div");
   head.className = "popup-head";
-  head.textContent = "모델";
-  modelPopup.appendChild(head);
-  for (const m of MODELS[p]) {
-    const id = m.model || "";
+  head.textContent = "에이전트";
+  agentPopup.appendChild(head);
+
+  for (const a of AGENTS) {
+    const multi = a.id !== "auto" && (MODELS[a.id] || []).length > 1;
     const row = document.createElement("button");
     row.type = "button";
     row.className = "popup-row";
-    const sel = (id === cur) || (!cur && m.default);
     row.innerHTML =
-      `<span class="popup-check">${sel ? "✓" : ""}</span>` +
-      `<span class="popup-label">${m.label}</span>` +
-      (m.default ? `<span class="popup-tag">기본값</span>` : "");
-    row.addEventListener("click", () => {
-      chosenModel[p] = id;
-      selectProvider(p, false);
-    });
-    modelPopup.appendChild(row);
+      `<span class="popup-check">${a.id === cur ? "✓" : ""}</span>` +
+      `<span class="popup-label">${a.name}</span>` +
+      (multi ? `<span class="popup-tag">모델</span>` : "");
+    row.addEventListener("click", () => { selectProvider(a.id); renderAgentPopup(); });
+    agentPopup.appendChild(row);
   }
-  const r = pill.getBoundingClientRect();
-  modelPopup.hidden = false;
-  modelPopup.style.top = (r.bottom + 6 + window.scrollY) + "px";
-  modelPopup.style.left = (r.left + window.scrollX) + "px";
-}
-function closeModelPopup() { if (modelPopup) modelPopup.hidden = true; }
 
-picker?.addEventListener("click", (e) => {
-  const pill = e.target.closest(".pill");
-  if (!pill) return;
-  const p = pill.dataset.provider;
-  const reopen = providerInput.value === p && modelPopup.hidden;
-  selectProvider(p, true && (reopen || providerInput.value !== p));
+  // 선택한 에이전트에 모델이 2개 이상이면 모델 섹션도 보여준다
+  if (cur !== "auto" && (MODELS[cur] || []).length > 1) {
+    const mh = document.createElement("div");
+    mh.className = "popup-head popup-head-sub";
+    mh.textContent = agentName(cur) + " 모델";
+    agentPopup.appendChild(mh);
+    const curModel = chosenModel[cur] || "";
+    for (const m of MODELS[cur]) {
+      const id = m.model || "";
+      const sel = (id === curModel) || (!curModel && m.default);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "popup-row";
+      row.innerHTML =
+        `<span class="popup-check">${sel ? "✓" : ""}</span>` +
+        `<span class="popup-label">${m.label}</span>` +
+        (m.default ? `<span class="popup-tag">기본값</span>` : "");
+      row.addEventListener("click", () => {
+        chosenModel[cur] = id;
+        selectProvider(cur);
+        renderAgentPopup();
+      });
+      agentPopup.appendChild(row);
+    }
+  }
+}
+
+function closeComposerPopups() {
+  if (agentPopup) agentPopup.hidden = true;
+  if (toolsPopup) toolsPopup.hidden = true;
+}
+function openComposerPopup(popup, anchor) {
+  closeComposerPopups();
+  popup.hidden = false;
+  const r = anchor.getBoundingClientRect();
+  const w = popup.offsetWidth || 200;
+  let left = r.left + window.scrollX;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - w - 8;
+  if (left > maxLeft) left = Math.max(8, maxLeft);
+  popup.style.top = (r.bottom + 6 + window.scrollY) + "px";
+  popup.style.left = left + "px";
+}
+
+agentBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!agentPopup.hidden) { closeComposerPopups(); return; }
+  renderAgentPopup();
+  openComposerPopup(agentPopup, agentBtn);
+});
+toolsBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!toolsPopup.hidden) { closeComposerPopups(); return; }
+  openComposerPopup(toolsPopup, toolsBtn);
 });
 document.addEventListener("click", (e) => {
-  if (!e.target.closest("#model-popup") && !e.target.closest(".provider-picker")) {
-    closeModelPopup();
-  }
+  if (e.target.closest("#agent-popup") || e.target.closest("#agent-btn")
+      || e.target.closest("#tools-popup") || e.target.closest("#tools-btn")) return;
+  closeComposerPopups();
 });
+window.addEventListener("resize", closeComposerPopups);
+refreshAgentLabel();
 
 // ---- 자동 모드 코칭 힌트 ------------------------------------------------
 const autoHint = document.getElementById("auto-hint");

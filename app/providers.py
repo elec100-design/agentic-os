@@ -59,16 +59,17 @@ class ClaudeProvider:
         return _default_resume_at(now)
 
 
-class GeminiProvider:
-    name = "gemini"
-    _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota", re.I)
+class AntigravityProvider:
+    # Google Antigravity CLI(`agy`) — 구글 OAuth 로그인 지원(시스템 키체인).
+    name = "antigravity"
+    _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit", re.I)
 
     def build_command(self, prompt, session_id=None, model=None):
-        cmd = ["gemini", "-p", prompt]
+        cmd = ["agy", "-p", prompt]
         if model:
             cmd += ["--model", model]
         if session_id:
-            cmd += ["--resume", session_id]
+            cmd += ["-c"]  # 최근 대화 이어가기
         return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
@@ -117,7 +118,7 @@ class HermesProvider:
 
 PROVIDERS = {
     p.name: p
-    for p in [ClaudeProvider(), GeminiProvider(), GrokProvider(), HermesProvider()]
+    for p in [ClaudeProvider(), AntigravityProvider(), GrokProvider(), HermesProvider()]
 }
 
 # 복잡한 작업 판별 키워드 — 매칭되거나 프롬프트가 길면 복잡한 작업으로 간주
@@ -128,7 +129,7 @@ _COMPLEX_KW = [
     "report", "plan", "research", "review", "fix", "bug", "write", "build",
 ]
 
-_CLOUD_ROUTED = ("claude", "gemini", "grok")
+_CLOUD_ROUTED = ("claude", "antigravity", "grok")
 # 잔여 사용량을 알 수 없는(CodexBar 미연동) 프로바이더의 기본 순위값.
 # 잔여를 아는 프로바이더가 이보다 많이 남으면 그쪽을 우선한다.
 _UNKNOWN_REMAINING = 50
@@ -164,7 +165,7 @@ def route_auto(prompt, usage_state=None):
         ranked.append((rank, _CLOUD_ROUTED.index(name), name, remaining))
     if not ranked:
         return "hermes", "클라우드 에이전트가 모두 소진되어 Hermes로 처리합니다"
-    # 잔여 많은 순, 동률이면 우선순위(claude>gemini>grok) 순
+    # 잔여 많은 순, 동률이면 우선순위(claude>antigravity>grok) 순
     ranked.sort(key=lambda x: (-x[0], x[1]))
     _, _, best, remaining = ranked[0]
     if remaining is None:

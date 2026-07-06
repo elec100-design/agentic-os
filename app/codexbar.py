@@ -22,7 +22,7 @@ def normalize(raw_items):
     state = {used(%)|None, remaining(%)|None, resetsAt(iso|None),
              windows[{title,used,resetsAt,desc}], available(bool|None),
              source, error(str|None)}
-    provider 이름은 CodexBar id를 우리 이름으로 되돌린 값(claude/gemini/grok).
+    provider 이름은 CodexBar id를 우리 이름으로 되돌린 값(claude/grok).
     """
     id_to_name = {v: k for k, v in config.CODEXBAR_PROVIDERS.items()}
     out = {}

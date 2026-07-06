@@ -23,9 +23,9 @@ GROK_ITEM = {
     "provider": "grok", "source": "grok-web",
     "usage": {"primary": {"usedPercent": 24, "resetsAt": "2026-07-08T21:48:38Z"}},
 }
-GEMINI_ERR = {
-    "provider": "gemini", "source": "auto",
-    "error": {"message": "Gemini API key auth not supported.", "kind": "provider"},
+GROK_ERR = {
+    "provider": "grok", "source": "auto",
+    "error": {"message": "auth not supported.", "kind": "provider"},
 }
 
 
@@ -50,8 +50,8 @@ def test_normalize_grok():
 
 
 def test_normalize_error_provider():
-    out = codexbar.normalize([GEMINI_ERR])
-    g = out["gemini"]
+    out = codexbar.normalize([GROK_ERR])
+    g = out["grok"]
     assert g["used"] is None
     assert g["available"] is None
     assert "not supported" in g["error"]
