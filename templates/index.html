@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agentic OS</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
 <script src="/static/htmx.min.js"></script>
 </head>
 <body class="with-sidebar">
@@ -129,6 +129,6 @@
 const MODELS = {{ provider_models | tojson }};
 const AGENT_ORDER = ['claude', 'antigravity', 'grok', 'hermes'];
 </script>
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v={{ asset_v() }}"></script>
 </body>
 </html>
