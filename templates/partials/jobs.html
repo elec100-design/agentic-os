@@ -2,20 +2,21 @@
 {% if not jobs %}
 <p class="empty-note">아직 작업이 없습니다. 위에서 첫 작업을 보내 보세요.</p>
 {% else %}
-<table>
-  <tr><th>#</th><th>프롬프트</th><th>에이전트</th><th>상태</th><th></th></tr>
+<table class="jobs-table">
+  <thead><tr><th>#</th><th>프롬프트</th><th>에이전트</th><th>상태</th><th></th></tr></thead>
+  <tbody>
   {% for j in jobs %}
   <tr>
-    <td>{{ j['id'] }}</td>
-    <td>
+    <td class="job-id">{{ j['id'] }}</td>
+    <td class="job-prompt">
       <a href="/jobs/{{ j['id'] }}">{{ j['prompt'][:50] }}</a>
       {% if j['workdir'] %}<span class="job-loc" title="{{ j['workdir'] }}">📁 {{ j['workdir'].split('/')[-1] }}</span>{% endif %}
     </td>
-    <td>
+    <td class="job-agent">
       <span class="provider-name">{{ j['provider'] }}</span>
       {% if j['model'] %}<br><span class="job-model">{{ j['model'] }}</span>{% endif %}
     </td>
-    <td>
+    <td class="job-status">
       <span class="badge badge-{{ j['status'] }}">{{ j['status'] }}</span>
       {% if j['status'] == 'rate_limited' %}<br><span class="resume-note">재개: {{ j['resume_at'] }}</span>{% endif %}
     </td>
@@ -30,5 +31,6 @@
     </td>
   </tr>
   {% endfor %}
+  </tbody>
 </table>
 {% endif %}

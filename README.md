@@ -14,7 +14,7 @@ Mac Mini에서 Claude, Gemini, SuperGrok, Hermes 유료 구독 CLI를 하나의 
 - **작업 큐** — SQLite 기반 순차 처리, 실시간 출력(SSE) 스트리밍, 취소·삭제
 - **자동 재개** — rate limit 감지 후 `resume_at` 시각까지 대기, CLI 세션으로 이어서 실행
 - **메모리 ↔ 작업큐 연동** — 노트에 hover하면 고정/이름변경/그룹/보관/삭제 메뉴, 노트 클릭 시 해당 세션 이어가기. 한쪽을 지우면 반대쪽도 함께 정리
-- **작업 위치 연동** — 로컬 폴더나 GitHub 리포를 등록해 그 디렉터리에서 작업 실행
+- **작업 위치 연동** — 팝업으로 맥 폴더를 탐색해 고르거나(Finder식), `gh` 로그인 계정의 GitHub 리포·브랜치를 골라 클론해 그 디렉터리에서 작업 실행
 - **파일 첨부** — 드래그앤드롭으로 사진·파일을 프롬프트에 첨부
 - **사용량 패널** — 에이전트별 실제 사용률(%)과 리셋까지 남은 시간 표시
 - **외부 접속** — Tailscale serve로 tailnet 내 HTTPS 접근 (아이폰·맥북)
@@ -102,6 +102,12 @@ tailscale serve --https=443 off  # 해제
 
 접속할 아이폰·맥북도 같은 tailnet에 로그인되어 있어야 합니다. 로컬 와이파이엔 노출되지 않습니다.
 
+### 파일 접근 권한 (macOS TCC)
+
+작업은 맥에서 launchd로 도는 프로세스와 그 자식 CLI가 수행하므로, 파일 읽기/쓰기는 그 프로세스의 macOS 권한을 따릅니다. launchd가 실행하는 파이썬 바이너리에 Documents/Desktop/Downloads/iCloud/외장볼륨 접근이 이미 허용돼 있으면 아이폰에서 보낸 작업도 그 폴더들에서 파일을 읽고 씁니다(자식 CLI가 권한 상속).
+
+권한이 없는 특수 폴더는 원격에서 접근하면 macOS 승인창을 띄울 수 없어 조용히 실패합니다. 어떤 위치든 확실히 쓰려면 **시스템 설정 → 개인정보 보호 및 보안 → 전체 디스크 접근 권한**에 그 파이썬 바이너리(`.venv/bin/python3`의 실제 경로)를 추가하세요.
+
 ## 아키텍처
 
 단일 Python(FastAPI) 프로세스가 웹 대시보드, 백그라운드 큐 워커, 사용량 추적을 모두 담당합니다.
@@ -114,13 +120,14 @@ agentic-os/
 │   ├── providers.py   # 4개 CLI 어댑터 + 모델 플래그 + 사용량 기반 자동 라우팅
 │   ├── codexbar.py    # CodexBar 실측 사용량 조회 + 캐시
 │   ├── workspace.py   # 작업 위치(로컬 폴더 / GitHub 리포) 관리
+│   ├── github_cli.py  # gh CLI로 리포·브랜치 조회
 │   ├── memory.py      # Obsidian 볼트 읽기/쓰기 + 노트 상태(고정/그룹/보관)
 │   ├── db.py          # SQLite 접근 계층 + 마이그레이션
 │   └── config.py      # 설정값 (모델 목록, 사용량 새로고침 주기 등)
 ├── templates/         # Jinja2 + HTMX 화면 (사이드바, 컴포저, 노트, 작업)
 ├── static/            # style.css, app.js, htmx (vendored)
 ├── data/              # SQLite, 사용량 캐시, 노트 상태, 업로드, 워크스페이스 (git 제외)
-├── tests/             # 유닛 테스트 (108개)
+├── tests/             # 유닛 테스트 (122개)
 ├── launchd/           # launchd plist
 └── docs/              # 설계 문서
 ```
