@@ -1,16 +1,35 @@
-<h2>사용량 (24시간)</h2>
-<table>
-  <tr><th>서비스</th><th>성공</th><th>실패</th><th>제한</th><th>상태</th></tr>
-  {% for p in providers %}
-  <tr>
-    <td>{{ p }}</td>
-    <td>{{ counts.get(p, {}).get('ok', 0) }}</td>
-    <td>{{ counts.get(p, {}).get('failed', 0) }}</td>
-    <td>{{ counts.get(p, {}).get('rate_limited', 0) }}</td>
-    <td>
-      {% if p in limits %}🔴 제한 중 — {{ limits[p] }} 재개
-      {% else %}🟢 사용 가능{% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
+<div class="usage-head-row">
+  <h2>사용량</h2>
+  <span class="usage-updated">{{ updated_in }}</span>
+</div>
+{% for p in providers %}
+{% set u = usage[p] %}
+<div class="usage-row">
+  <div class="usage-head">
+    <span class="provider-name">{{ p }}</span>
+    {% if u.source == 'local' %}
+    <span class="usage-num">로컬 · 무제한</span>
+    {% elif u.source == 'codexbar' %}
+    <span class="usage-num{% if u.remaining <= 10 %} danger{% endif %}">{{ u.remaining }}% 남음</span>
+    {% else %}
+    <span class="usage-num muted">정보 없음</span>
+    {% endif %}
+  </div>
+
+  {% if u.source == 'codexbar' %}
+    {% for w in u.windows %}
+    <div class="usage-window">
+      <div class="usage-bar">
+        <div class="usage-fill{% if w.used >= 100 %} full{% elif w.used >= 80 %} warn{% endif %}" style="width: {{ w.used }}%"></div>
+      </div>
+      <div class="usage-wlabel">
+        <span>{{ w.title }} · {{ w.used }}%</span>
+        {% if w.resume_in %}<span class="usage-reset">{{ w.resume_in }} 후 리셋</span>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  {% elif u.source == 'none' %}
+    <div class="usage-note">CodexBar 연동 필요</div>
+  {% endif %}
+</div>
+{% endfor %}

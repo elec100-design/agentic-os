@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ note['name'] }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main class="page">
+<a class="back-link" href="/">← 대시보드</a>
+<h1 class="job-title">
+  {{ note['name'] }}
+  {% if note['provider'] %}<span class="job-meta provider-name">{{ note['provider'] }}</span>{% endif %}
+</h1>
+
+<h2 class="section-label">노트</h2>
+<pre>{{ note['body'] }}</pre>
+
+{% if can_resume %}
+<h2 class="section-label">이 세션 이어서 진행</h2>
+<form class="composer" method="post" action="/jobs">
+  <textarea name="prompt" rows="3" required placeholder="이어서 무엇을 할까요?"></textarea>
+  <input type="hidden" name="provider" value="{{ note['provider'] }}">
+  <input type="hidden" name="session_id" value="{{ note['session_id'] }}">
+  <div class="composer-bar">
+    <span class="resume-note">{{ note['provider'] }} 세션 {{ note['session_id'][:12] }}… 에서 이어집니다</span>
+    <span class="spacer"></span>
+    <button type="submit" class="send" aria-label="전송">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+      </svg>
+    </button>
+  </div>
+</form>
+{% else %}
+<h2 class="section-label">이 노트를 참고해 새 작업</h2>
+<form class="composer" method="post" action="/jobs">
+  <textarea name="prompt" rows="3" required placeholder="이 노트를 컨텍스트로 무엇을 할까요?"></textarea>
+  <input type="hidden" name="provider" value="auto">
+  <input type="hidden" name="context_note" value="{{ note['path'] }}">
+  <div class="composer-bar">
+    <span class="resume-note">노트 내용이 프롬프트 앞에 첨부됩니다</span>
+    <span class="spacer"></span>
+    <button type="submit" class="send" aria-label="전송">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+      </svg>
+    </button>
+  </div>
+</form>
+{% endif %}
+</main>
+</body>
+</html>

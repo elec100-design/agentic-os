@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   prompt TEXT NOT NULL,
   provider TEXT NOT NULL,
+  model TEXT,
   status TEXT NOT NULL DEFAULT 'queued',
   session_id TEXT,
   output TEXT NOT NULL DEFAULT '',
@@ -15,6 +16,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   resume_at TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
   timeout_sec INTEGER,
+  note_path TEXT,
+  workdir TEXT,
   created_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT
@@ -41,16 +44,46 @@ def get_conn(db_path=None):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 
-def create_job(conn, prompt, provider, timeout_sec=None):
+def _migrate(conn):
+    """기존 DB에 없는 컬럼을 더한다 (CREATE TABLE IF NOT EXISTS는 새 컬럼을 못 붙임)."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(jobs)")}
+    for col in ("model", "note_path", "workdir"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+    conn.commit()
+
+
+def create_job(conn, prompt, provider, timeout_sec=None, session_id=None,
+               model=None, workdir=None):
     cur = conn.execute(
-        "INSERT INTO jobs (prompt, provider, timeout_sec, created_at) VALUES (?, ?, ?, ?)",
-        (prompt, provider, timeout_sec, now_iso()),
+        "INSERT INTO jobs (prompt, provider, model, timeout_sec, session_id, "
+        "workdir, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (prompt, provider, model, timeout_sec, session_id, workdir, now_iso()),
     )
     conn.commit()
     return cur.lastrowid
+
+
+def delete_job(conn, job_id):
+    conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+    conn.commit()
+
+
+def delete_jobs_by_note(conn, note_path):
+    """노트에 연결된 작업 행을 삭제 (메모리↔작업큐 연동)."""
+    cur = conn.execute("DELETE FROM jobs WHERE note_path = ?", (note_path,))
+    conn.commit()
+    return cur.rowcount
+
+
+def relink_note_path(conn, old_path, new_path):
+    conn.execute("UPDATE jobs SET note_path = ? WHERE note_path = ?",
+                 (new_path, old_path))
+    conn.commit()
 
 
 def get_job(conn, job_id):

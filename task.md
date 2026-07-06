@@ -1,0 +1,52 @@
+# Agentic OS — 작업 내역
+
+완료/진행/예정 작업 추적. 로드맵은 [plan.md](plan.md) 참고.
+
+## 완료 (V2 — 2026-07)
+
+### UI 리디자인 (Claude Desktop 컨셉)
+- [x] 웜 페이퍼 톤 팔레트 + 세리프 헤드라인, 라이트/다크 모드
+- [x] 좌측 고정 사이드바 (모바일은 햄버거 오프캔버스)
+- [x] 사이드바에 메모리(위) + 사용량(아래) 배치
+
+### 메모리 (노트)
+- [x] 노트 hover 시 ··· 컨텍스트 메뉴: 고정 / 이름변경 / 그룹(새 그룹) / 보관 / 삭제
+- [x] 노트 상태를 볼트 밖 사이드카(`data/note_state.json`)에 저장 (MEMORY_DIR 노트만 관리)
+- [x] 노트 검색·클릭 → 해당 CLI 세션 이어가기 (완료 시 session_id를 frontmatter에 기록)
+- [x] 메모리 ↔ 작업큐 양방향 연동 (한쪽 삭제 시 반대쪽도 삭제, 이름변경 시 재연결)
+
+### 모델 선택
+- [x] 에이전트 pill 클릭 → 모델 선택 팝업 (config.PROVIDER_MODELS)
+- [x] jobs.model 컬럼 + `--model` 플래그 전달, 첫 항목 기본값(플래그 생략)
+
+### 사용량 (CodexBar 연동)
+- [x] `codexbar usage --format json`을 백그라운드로 주기 조회 → `data/usage_cache.json` 캐시
+- [x] 실제 사용률(%)·창별 리셋 카운트다운 표시 (claude/grok 실측)
+- [x] 계정 단위 창(primary/secondary)만 가용성 계산, 모델 스코프 창은 표시만
+
+### 자동 모드 (코칭)
+- [x] 단순 작업 → Hermes(로컬), 복잡 작업 → 실측 잔여 사용량 최다 에이전트
+- [x] `/api/recommend`로 실시간 라우팅 추천 힌트 (컴포저 debounce)
+
+### 입력 / 실행 위치
+- [x] 파일 첨부 버튼 + 드래그앤드롭 → `data/uploads/` 저장 후 경로를 프롬프트에 추가
+- [x] 작업 위치(workspace): 로컬 폴더 / GitHub 리포(clone) 등록, 작업을 해당 cwd에서 실행
+- [x] 등록된 경로만 실행 허용 (임의 경로 차단)
+
+### 외부 접속
+- [x] Tailscale serve로 tailnet 내 HTTPS 노출 (`https://macmini.tail22aa0a.ts.net`)
+- [x] CSRF 미들웨어 same-origin 비교로 개선 (포트 무관) + tailnet origin 허용
+
+### 운영
+- [x] jobs 테이블 마이그레이션 (model / note_path / workdir 컬럼)
+- [x] 폴더 이동으로 깨진 launchd plist 경로 복구
+- [x] 테스트 108개 통과
+
+## 진행/예정
+
+- [ ] Gemini 사용량 실측 — CodexBar에서 Google OAuth 로그인 필요 (현재 "연동 필요")
+- [ ] gemini/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
+- [ ] 멀티턴 채팅 UI
+- [ ] 병렬 작업 실행 (현재 동시 1개)
+- [ ] 벡터/임베딩 기반 메모리 검색
+- [ ] 토큰·비용 추적

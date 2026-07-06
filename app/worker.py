@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timezone
 
 from app import config, db, memory
-from app.providers import PROVIDERS
+from app.providers import CONTINUE_PROMPT, PROVIDERS
 
 # 실행 중인 작업 취소를 위해 main.py가 참조하는 공유 상태
 current = {"job_id": None, "proc": None}
@@ -29,15 +29,23 @@ async def run_job(conn, job, providers=None, save=True):
     providers = providers or PROVIDERS
     provider = providers[job["provider"]]
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
-    cmd = provider.build_command(job["prompt"], session_id=job["session_id"])
+    # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.
+    # 없는데 session_id가 있으면 사용자가 만든 세션 이어가기 → 본인 프롬프트.
+    send_prompt = job["prompt"]
+    if job["session_id"] and job["resume_at"]:
+        send_prompt = CONTINUE_PROMPT
+    cmd = provider.build_command(send_prompt, session_id=job["session_id"],
+                                 model=job["model"])
     start = datetime.now(timezone.utc)
 
+    workdir = job["workdir"] if job["workdir"] and os.path.isdir(job["workdir"]) else None
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=_clean_env(),
+            cwd=workdir,
         )
     except (FileNotFoundError, OSError) as e:
         db.update_job(conn, job["id"], status="failed", error=str(e),
@@ -108,7 +116,11 @@ async def run_job(conn, job, providers=None, save=True):
 
     if save:
         try:
-            memory.save_note(job["prompt"], provider.name, result.text)
+            note_path = memory.save_note(
+                job["prompt"], provider.name, result.text,
+                session_id=result.session_id or job["session_id"])
+            # 노트↔작업 연동을 위해 생성된 노트 경로를 작업에 기록
+            db.update_job(conn, job["id"], note_path=str(note_path.resolve()))
         except OSError as e:
             db.update_job(conn, job["id"], error=f"memory_save_failed: {e}")
 

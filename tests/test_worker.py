@@ -16,7 +16,7 @@ class FakeProvider:
         self.resume_at = resume_at
         self._session_id = session_id
 
-    def build_command(self, prompt, session_id=None):
+    def build_command(self, prompt, session_id=None, model=None):
         return self.cmd
 
     def parse_output(self, stdout, stderr, exit_code):
@@ -102,6 +102,26 @@ async def test_run_job_saves_memory_note(tmp_env):
     notes = list(config.MEMORY_DIR.glob("*.md"))
     assert len(notes) == 1
     assert "결과물" in notes[0].read_text(encoding="utf-8")
+
+
+async def test_run_job_records_note_path_on_job(tmp_env):
+    p = FakeProvider(["sh", "-c", "echo 결과물"])
+    conn, job, providers = _setup(tmp_env, p)
+    await worker.run_job(conn, job, providers=providers, save=True)
+    note = list(config.MEMORY_DIR.glob("*.md"))[0]
+    assert db.get_job(conn, job["id"])["note_path"] == str(note.resolve())
+
+
+async def test_run_job_runs_in_workdir(tmp_env, tmp_path):
+    workdir = tmp_path / "work"
+    workdir.mkdir()
+    p = FakeProvider(["sh", "-c", "pwd"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(workdir))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+    # pwd 출력이 workdir 여야 함 (macOS의 /private 심링크 고려해 endswith)
+    assert db.get_job(conn, job["id"])["output"].endswith(str(workdir.name))
 
 
 async def test_worker_loop_fails_job_over_max_attempts(tmp_env):

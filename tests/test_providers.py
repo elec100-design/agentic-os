@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
 from app.providers import (
-    CONTINUE_PROMPT,
     PROVIDERS,
     ClaudeProvider,
     GeminiProvider,
@@ -21,9 +20,9 @@ def test_claude_build_new():
 
 
 def test_claude_build_resume():
-    cmd = ClaudeProvider().build_command("안녕", session_id="abc-123")
+    cmd = ClaudeProvider().build_command("이어서 해줘", session_id="abc-123")
     assert "--resume" in cmd and "abc-123" in cmd
-    assert cmd[-1] == CONTINUE_PROMPT
+    assert cmd[-1] == "이어서 해줘"
 
 
 def test_claude_parse_json_output():
@@ -93,7 +92,7 @@ def test_grok_build_and_resume():
     assert p.build_command("hi") == ["grok", "-p", "hi"]
     resumed = p.build_command("hi", session_id="latest")
     assert resumed[:2] == ["grok", "-c"]
-    assert CONTINUE_PROMPT in resumed
+    assert "hi" in resumed
 
 
 def test_grok_rate_limit():
@@ -109,14 +108,84 @@ def test_hermes_build_and_never_limits():
     assert p.detect_rate_limit("rate limit", 1, now=NOW) is None
 
 
+# --- Model selection ---
+
+def test_claude_build_with_model():
+    cmd = ClaudeProvider().build_command("안녕", model="claude-opus-4-8")
+    assert "--model" in cmd and "claude-opus-4-8" in cmd
+    assert cmd[-1] == "안녕"
+
+
+def test_claude_build_model_and_resume():
+    cmd = ClaudeProvider().build_command("이어", session_id="s1", model="claude-sonnet-5")
+    assert "--model" in cmd and "claude-sonnet-5" in cmd
+    assert "--resume" in cmd and "s1" in cmd
+    assert cmd[-1] == "이어"
+
+
+def test_gemini_build_with_model():
+    cmd = GeminiProvider().build_command("hi", model="gemini-2.5-pro")
+    assert cmd == ["gemini", "-p", "hi", "--model", "gemini-2.5-pro"]
+
+
+def test_grok_build_with_model():
+    cmd = GrokProvider().build_command("hi", model="grok-4")
+    assert cmd == ["grok", "--model", "grok-4", "-p", "hi"]
+
+
+def test_no_model_omits_flag():
+    assert "--model" not in ClaudeProvider().build_command("x")
+    assert "--model" not in GeminiProvider().build_command("x")
+    assert "--model" not in GrokProvider().build_command("x")
+
+
 # --- Registry & routing ---
 
 def test_registry_has_all_four():
     assert set(PROVIDERS) == {"claude", "gemini", "grok", "hermes"}
 
 
-def test_route_auto():
-    assert route_auto("최신 뉴스 검색해줘") == "grok"
-    assert route_auto("이 PDF 문서 요약해줘") == "gemini"
-    assert route_auto("로컬 파일 정리해줘") == "hermes"
-    assert route_auto("버그 수정해줘") == "claude"
+def _remaining(**kw):
+    """provider -> remaining% 로 usage_state dict 생성."""
+    return {p: {"remaining": v, "available": v is None or v > 0}
+            for p, v in kw.items()}
+
+
+def test_route_auto_simple_goes_hermes():
+    assert route_auto("안녕하세요")[0] == "hermes"
+    assert route_auto("오늘 날짜 알려줘")[0] == "hermes"
+
+
+def test_route_auto_complex_picks_most_remaining():
+    st = _remaining(claude=15, gemini=70, grok=40)
+    prov, reason = route_auto("이 코드 리팩터링 구현해줘", usage_state=st)
+    assert prov == "gemini"
+    assert "gemini" in reason
+
+
+def test_route_auto_complex_skips_exhausted():
+    st = {"claude": {"remaining": 0, "available": False},
+          "gemini": {"remaining": 30, "available": True},
+          "grok": {"remaining": 50, "available": True}}
+    assert route_auto("버그 수정해줘", usage_state=st)[0] == "grok"
+
+
+def test_route_auto_all_exhausted_falls_back_hermes():
+    st = {p: {"remaining": 0, "available": False}
+          for p in ("claude", "gemini", "grok")}
+    assert route_auto("버그 수정 구현해줘", usage_state=st)[0] == "hermes"
+
+
+def test_route_auto_unknown_usage_uses_priority():
+    # 사용량 정보가 없으면(None) 우선순위 첫 번째 claude
+    assert route_auto("버그 수정 구현해줘")[0] == "claude"
+
+
+def test_route_auto_long_prompt_is_complex():
+    assert route_auto("가" * 200)[0] != "hermes"
+
+
+def test_route_auto_known_high_beats_unknown():
+    # grok만 잔여를 알고 90% 남음 → unknown(=50)인 claude/gemini보다 우선
+    st = {"grok": {"remaining": 90, "available": True}}
+    assert route_auto("코드 구현해줘", usage_state=st)[0] == "grok"

@@ -1,0 +1,13 @@
+<label class="timeout ws-label" title="작업이 실행될 폴더/리포">
+  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.5h5l1.2 1.5h6.8v6.5a1 1 0 0 1-1 1h-12a1 1 0 0 1-1-1z"/></svg>
+  <select name="workdir" class="ws-select" id="ws-select">
+    <option value="">기본(연동 안 함)</option>
+    {% for w in workspaces %}
+    <option value="{{ w.path }}" data-id="{{ w.id }}">{{ w.name }}{% if w.remote %} ⑂{% endif %}</option>
+    {% endfor %}
+  </select>
+</label>
+<button type="button" class="ws-btn ws-add" title="작업 폴더 또는 GitHub 리포 추가">＋</button>
+{% if workspaces %}
+<button type="button" class="ws-btn ws-remove" title="선택한 작업 위치 연동 해제">✕</button>
+{% endif %}
