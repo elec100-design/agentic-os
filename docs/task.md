@@ -51,14 +51,20 @@
 - [x] 모달이 안 닫히던 버그 — `.modal-overlay{display:flex}`가 `[hidden]` 덮어쓰던 문제, `[hidden]` 규칙 추가 + Esc 닫기
 - [x] 모바일(아이폰): 작업 큐 테이블 → 카드형 목록, 사이드바 로고/햄버거 겹침 해소, 본문 여백 축소
 
+### Antigravity·모바일 UI (V2.1)
+- [x] Gemini 제거, Antigravity CLI(`agy`) 도입 — `agy -p`/`-c`, 구글 OAuth, 모델 목록·자동 라우팅·프로바이더 목록 반영
+- [x] 사용량 패널: 기본 접힘(요약 칩), 헤더 터치 시 펼침(localStorage 유지)
+- [x] 모바일 가로 슬라이딩(러버밴드) 방지: `overflow-x`/`overscroll-behavior` 잠금
+- [x] 대화창 하단 정리: ＋도구 메뉴(파일·메모리·타임아웃), 에이전트 칩+모델 팝업 통합
+
 ### 외부 접속 / 권한
 - [x] Tailscale serve HTTPS 접속 + CSRF 허용목록에 tailnet 이름
 - [x] 파일 읽기/쓰기 권한 진단 — launchd 파이썬에 Documents/Desktop/Downloads/iCloud/외장볼륨 TCC 허용 확인, 자식 CLI가 상속(hermes 쓰기 실측)
 
 ## 진행/예정
 
-- [ ] Gemini 사용량 실측 — CodexBar에서 Google OAuth 로그인 필요 (현재 "연동 필요")
-- [ ] gemini/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
+- [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")
+- [ ] antigravity/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
 - [ ] 멀티턴 채팅 UI
 - [ ] 병렬 작업 실행 (현재 동시 1개)
 - [ ] 벡터/임베딩 기반 메모리 검색

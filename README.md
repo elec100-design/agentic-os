@@ -129,7 +129,7 @@ agentic-os/
 ├── data/              # SQLite, 사용량 캐시, 노트 상태, 업로드, 워크스페이스 (git 제외)
 ├── tests/             # 유닛 테스트 (122개)
 ├── launchd/           # launchd plist
-└── docs/              # 설계 문서
+└── docs/              # 로드맵·작업 내역·V1 설계 문서
 ```
 
 ### 작업 상태 머신
@@ -162,11 +162,11 @@ queued → running → done | failed | rate_limited → queued (재개)
 
 ## 문서
 
-- [개발 계획 (plan.md)](plan.md)
-- [작업 내역 (task.md)](task.md)
-- [V1 설계 명세](docs/superpowers/specs/2026-07-05-agentic-os-v1-design.md)
-- [V1 구현 계획](docs/superpowers/plans/2026-07-05-agentic-os-v1.md)
+- [개발 계획 (plan.md)](docs/plan.md)
+- [작업 내역 (task.md)](docs/task.md)
+- [V1 설계 명세](docs/2026-07-05-agentic-os-v1-design.md)
+- [V1 구현 계획](docs/2026-07-05-agentic-os-v1.md)
 
 ## 다음 계획
 
-Antigravity 사용량 실측 연동, 세션 재개 실측 보정, 멀티턴 채팅 UI, 병렬 작업 실행, 벡터/임베딩 검색, 토큰·비용 추적. 자세한 로드맵은 [plan.md](plan.md) 참고.
+Antigravity 사용량 실측 연동, 세션 재개 실측 보정, 멀티턴 채팅 UI, 병렬 작업 실행, 벡터/임베딩 검색, 토큰·비용 추적. 자세한 로드맵은 [plan.md](docs/plan.md) 참고.

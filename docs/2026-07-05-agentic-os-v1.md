@@ -1,5 +1,7 @@
 # Agentic OS V1 Implementation Plan
 
+> **Note:** V1 당시 문서. 프로덕션은 V2에서 Gemini 대신 **Antigravity CLI(`agy`)** 를 사용합니다. 경로: `docs/2026-07-05-agentic-os-v1-design.md` (구 `docs/superpowers/`).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Claude/Gemini/SuperGrok/Hermes 유료 구독 CLI를 하나의 로컬 웹 대시보드에서 호출하고, 사용 제한 시 자동 대기·재개하며, 결과를 Obsidian에 저장하는 단일 FastAPI 앱.
@@ -8,7 +10,7 @@
 
 **Tech Stack:** Python 3.11+, FastAPI, uvicorn, Jinja2, HTMX(vendored), SQLite(WAL), pytest + pytest-asyncio, launchd.
 
-**Spec:** `docs/superpowers/specs/2026-07-05-agentic-os-v1-design.md`
+**Spec:** `docs/2026-07-05-agentic-os-v1-design.md`
 
 ## Global Constraints
 

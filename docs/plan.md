@@ -1,6 +1,6 @@
 # Agentic OS — 개발 계획
 
-Mac Mini에서 Claude / Gemini / SuperGrok / Hermes 유료 구독 CLI를 하나의 로컬 웹
+Mac Mini에서 Claude / Antigravity / SuperGrok / Hermes 유료 구독 CLI를 하나의 로컬 웹
 대시보드로 통합하는 프로젝트의 로드맵. 완료 항목은 [task.md](task.md) 참고.
 
 ## 비전
@@ -28,9 +28,15 @@ Mac Mini에서 Claude / Gemini / SuperGrok / Hermes 유료 구독 CLI를 하나�
 - 메모리 ↔ 작업큐 양방향 연동
 - Tailscale serve로 tailnet 내 HTTPS 외부 접속
 
+### V2.1 — Antigravity·모바일 UI (완료)
+- Gemini → **Antigravity CLI(`agy`)** 교체: `agy -p`/`-c`, 구글 OAuth, 모델 선택·자동 라우팅 반영 (CodexBar 미지원 → 사용량 "정보 없음")
+- 사용량 패널: 기본 접힘(요약 칩), 헤더 터치 시 펼침(localStorage 유지)
+- 모바일 가로 슬라이딩(러버밴드) 방지
+- 대화창 하단 정리(Claude Desktop 스타일): ＋도구 메뉴(파일·메모리·타임아웃), 에이전트 칩+모델 팝업 통합
+
 ### V3 — 후보 (예정)
-- **Gemini 사용량 실측**: CodexBar Google OAuth 연동 마무리 (현재 "연동 필요")
-- **세션 재개 실측 보정**: gemini/grok의 `--resume`, 모델 id 실제 검증
+- **Antigravity 사용량 실측**: CodexBar 또는 별도 연동 (현재 "정보 없음")
+- **세션 재개 실측 보정**: antigravity/grok의 `--resume`, 모델 id 실제 검증
 - **멀티턴 채팅 UI**: 단발 디스패치 → 대화형
 - **병렬 작업 실행**: 현재 동시 1개 → 에이전트별 병렬
 - **벡터 검색**: 메모리 임베딩 기반 의미 검색

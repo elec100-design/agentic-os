@@ -1,5 +1,7 @@
 # Agentic OS V1 설계 (2026-07-05)
 
+> **Note:** V1 당시 설계 명세. 프로덕션(V2+)은 Gemini 대신 **Antigravity CLI(`agy`)** 를 사용합니다. 로드맵·최신 작업 내역은 [plan.md](plan.md), [task.md](task.md) 참고.
+
 ## 목적
 
 Mac Mini M4(16GB)에서 유료 구독 중인 Claude, Gemini, SuperGrok과 Hermes agent를
