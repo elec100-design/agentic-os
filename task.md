@@ -40,7 +40,20 @@
 ### 운영
 - [x] jobs 테이블 마이그레이션 (model / note_path / workdir 컬럼)
 - [x] 폴더 이동으로 깨진 launchd plist 경로 복구
-- [x] 테스트 108개 통과
+- [x] 테스트 통과 (현재 122개)
+
+### 작업 위치 선택 UI (팝업)
+- [x] 작업 폴더: 서버 파일시스템 탐색 팝업 (`/api/folders`, 홈 이하로 제한, Finder식)
+- [x] GitHub: `gh` 로그인 계정의 리포·브랜치 팝업 선택 후 클론 (app/github_cli.py, `gh repo clone`으로 private 지원)
+- [x] 추가 후 새 위치 자동 선택 (X-Workspace-Path 헤더)
+
+### 버그 수정 / 반응형
+- [x] 모달이 안 닫히던 버그 — `.modal-overlay{display:flex}`가 `[hidden]` 덮어쓰던 문제, `[hidden]` 규칙 추가 + Esc 닫기
+- [x] 모바일(아이폰): 작업 큐 테이블 → 카드형 목록, 사이드바 로고/햄버거 겹침 해소, 본문 여백 축소
+
+### 외부 접속 / 권한
+- [x] Tailscale serve HTTPS 접속 + CSRF 허용목록에 tailnet 이름
+- [x] 파일 읽기/쓰기 권한 진단 — launchd 파이썬에 Documents/Desktop/Downloads/iCloud/외장볼륨 TCC 허용 확인, 자식 CLI가 상속(hermes 쓰기 실측)
 
 ## 진행/예정
 

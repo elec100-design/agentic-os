@@ -17,7 +17,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import codexbar, config, db, memory, workspace, worker
+from app import codexbar, config, db, github_cli, memory, workspace, worker
 from app.providers import PROVIDERS, route_auto
 
 BASE = Path(__file__).resolve().parent.parent
@@ -316,25 +316,94 @@ def partial_workspaces(request: Request):
     )
 
 
-@app.post("/workspaces/add", response_class=HTMLResponse)
-def workspace_add(request: Request, value: str = Form(...), name: str = Form("")):
-    try:
-        workspace.add(name.strip(), value.strip())
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return templates.TemplateResponse(
+def _workspaces_response(request, selected_path=None):
+    resp = templates.TemplateResponse(
         request, "partials/workspaces.html",
         {"workspaces": workspace.list_workspaces()},
     )
+    if selected_path:
+        # 방금 추가한 위치를 select에서 자동 선택하도록 경로를 헤더로 전달
+        resp.headers["X-Workspace-Path"] = selected_path
+    return resp
+
+
+@app.post("/workspaces/add", response_class=HTMLResponse)
+def workspace_add(request: Request, value: str = Form(...), name: str = Form("")):
+    try:
+        ws = workspace.add(name.strip(), value.strip())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _workspaces_response(request, ws["path"])
+
+
+@app.post("/workspaces/add-github", response_class=HTMLResponse)
+def workspace_add_github(request: Request, repo: str = Form(...),
+                         branch: str = Form(""), name: str = Form("")):
+    if not github_cli.REPO_RE.match(repo):
+        raise HTTPException(status_code=400, detail="잘못된 리포 형식")
+    try:
+        ws = workspace.add_github(name.strip(), repo, branch.strip() or None)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _workspaces_response(request, ws["path"])
 
 
 @app.post("/workspaces/remove", response_class=HTMLResponse)
 def workspace_remove(request: Request, id: str = Form(...)):
     workspace.remove(id)
-    return templates.TemplateResponse(
-        request, "partials/workspaces.html",
-        {"workspaces": workspace.list_workspaces()},
-    )
+    return _workspaces_response(request)
+
+
+# --- 폴더 탐색 팝업 (서버 파일시스템, 홈 이하로 제한) ---
+
+@app.get("/api/folders")
+def api_folders(path: str = ""):
+    root = Path(config.BROWSE_ROOT).resolve()
+    try:
+        cur = Path(path).resolve() if path else root
+    except (OSError, ValueError):
+        cur = root
+    # 홈 밖으로는 못 나가게 제한
+    if root != cur and root not in cur.parents:
+        cur = root
+    if not cur.is_dir():
+        cur = root
+    dirs = []
+    try:
+        for entry in sorted(cur.iterdir(), key=lambda p: p.name.lower()):
+            if entry.name.startswith(".") or not entry.is_dir():
+                continue
+            dirs.append({"name": entry.name, "path": str(entry)})
+    except PermissionError:
+        pass
+    at_root = cur == root
+    return {"path": str(cur), "parent": None if at_root else str(cur.parent),
+            "canUp": not at_root, "home": str(root), "dirs": dirs}
+
+
+# --- GitHub 리포/브랜치 팝업 ---
+
+@app.get("/api/github/status")
+def api_github_status():
+    return github_cli.status()
+
+
+@app.get("/api/github/repos")
+def api_github_repos():
+    try:
+        return {"repos": github_cli.list_repos()}
+    except (RuntimeError, ValueError) as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/github/branches")
+def api_github_branches(repo: str):
+    try:
+        return github_cli.list_branches(repo)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 @app.get("/partials/usage", response_class=HTMLResponse)

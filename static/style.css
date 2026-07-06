@@ -141,6 +141,7 @@ body.with-sidebar main {
     transform: translateX(-100%);
     transition: transform 0.2s ease;
     box-shadow: none;
+    padding-top: 3.6rem;   /* 햄버거 버튼과 브랜드 로고 겹침 방지 */
   }
   body.nav-open .sidebar {
     transform: none;
@@ -472,6 +473,139 @@ td a:hover { color: var(--accent); text-decoration: underline; }
 }
 .ws-btn:hover { background: var(--surface-2); color: var(--text); }
 
+/* 작업 위치 추가 모달 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(31, 30, 29, 0.35);
+  padding: 1rem;
+}
+/* display:flex 가 [hidden] 을 덮어써서 안 숨겨지는 문제 방지 */
+.modal-overlay[hidden] { display: none; }
+.modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 16px 48px rgba(31, 30, 29, 0.28);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.modal-tabs { display: flex; gap: 0.3rem; }
+.modal-tab {
+  padding: 0.35rem 0.7rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.modal-tab.active { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.modal-close {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 0.2rem 0.4rem;
+}
+.modal-close:hover { color: var(--text); }
+.modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.8rem;
+}
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  border-top: 1px solid var(--border);
+}
+.modal-foot:empty { display: none; }
+.modal-hint { font-size: 0.78rem; color: var(--muted); }
+.modal-loading, .modal-empty { color: var(--muted); font-size: 0.86rem; padding: 1rem 0.3rem; text-align: center; }
+.btn-primary {
+  padding: 0.42rem 0.9rem;
+  border: none;
+  border-radius: 0.55rem;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+/* 폴더 탐색 */
+.folder-path {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--muted);
+  padding: 0.3rem 0.4rem 0.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-list { list-style: none; margin: 0; padding: 0; }
+.folder-item {
+  padding: 0.5rem 0.55rem;
+  border-radius: 0.5rem;
+  font-size: 0.88rem;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-item:hover { background: var(--surface-2); }
+.folder-item.up { color: var(--muted); }
+
+/* GitHub 피커 */
+.gh-user { font-size: 0.82rem; color: var(--muted); margin-bottom: 0.5rem; }
+.gh-filter { margin-bottom: 0.5rem; }
+.gh-repo-list { list-style: none; margin: 0 0 0.6rem; padding: 0; max-height: 34vh; overflow-y: auto; }
+.gh-repo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.5rem;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+.gh-repo-item:hover { background: var(--surface-2); }
+.gh-repo-item.active { background: var(--accent-soft); color: var(--accent); }
+.gh-repo-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gh-badge {
+  font-size: 0.66rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+.gh-branch-row { font-size: 0.84rem; color: var(--muted); }
+.gh-branch-row select { margin-left: 0.3rem; }
+
 /* 사용량 상태 점 */
 .dot {
   display: inline-block;
@@ -698,3 +832,29 @@ h2.section-label {
 }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* 모바일 — 좁은 화면 정렬 */
+@media (max-width: 640px) {
+  body.with-sidebar main { padding-left: 1rem; padding-right: 1rem; }
+  .page { padding-left: 1rem; padding-right: 1rem; }
+  .panel { padding: 1rem; }
+
+  /* 작업 큐: 테이블 → 카드형 목록 */
+  .jobs-table, .jobs-table tbody { display: block; }
+  .jobs-table thead { display: none; }
+  .jobs-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.7rem;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .jobs-table tr:last-child { border-bottom: none; }
+  .jobs-table td { display: block; padding: 0; border: none; }
+  .jobs-table td.job-prompt { flex: 1 1 100%; order: -1; }  /* 프롬프트를 첫 줄 전체 폭으로 */
+  .jobs-table td.job-id { color: var(--muted); font-size: 0.78rem; }
+  .jobs-table td.job-id::before { content: "#"; }
+  .jobs-table td.job-agent { font-size: 0.82rem; }
+  .jobs-table td.job-actions { margin-left: auto; display: flex; gap: 0.35rem; }
+}

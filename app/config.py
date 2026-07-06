@@ -9,6 +9,7 @@ NOTE_STATE_PATH = DATA_DIR / "note_state.json"
 WORKSPACES_PATH = DATA_DIR / "workspaces.json"   # 등록된 작업 위치 목록
 WORKSPACES_DIR = DATA_DIR / "workspaces"         # GitHub 리포 클론 대상
 GIT_CLONE_TIMEOUT_SEC = 180
+BROWSE_ROOT = Path.home()                        # 폴더 탐색 팝업의 최상위(홈 이하만)
 
 # CodexBar(`codexbar usage`)로 실측하는 프로바이더. 우리 이름 -> CodexBar id.
 # hermes는 로컬 실행이라 사용 제한이 없어 제외.

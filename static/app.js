@@ -250,20 +250,25 @@ async function postWorkspace(url, data) {
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(data),
   });
-  const picker = document.getElementById("workspace-picker");
   if (!res.ok) {
     const msg = await res.text().catch(() => "");
-    alert("작업 위치를 추가하지 못했습니다.\n" + msg.slice(0, 200));
-    return;
+    return { ok: false, msg: msg.slice(0, 300) };
   }
+  const picker = document.getElementById("workspace-picker");
   picker.innerHTML = await res.text();
   if (window.htmx) htmx.process(picker);
+  // 방금 추가한 위치를 자동 선택
+  const path = res.headers.get("X-Workspace-Path");
+  if (path) {
+    const sel = document.getElementById("ws-select");
+    if (sel) sel.value = path;
+  }
+  return { ok: true };
 }
 
 document.addEventListener("click", (e) => {
   if (e.target.closest(".ws-add")) {
-    const value = prompt("작업 폴더의 절대경로 또는 GitHub 리포 URL을 입력하세요");
-    if (value && value.trim()) postWorkspace("/workspaces/add", { value: value.trim() });
+    openWsModal();
   } else if (e.target.closest(".ws-remove")) {
     const sel = document.getElementById("ws-select");
     const opt = sel?.selectedOptions[0];
@@ -272,3 +277,150 @@ document.addEventListener("click", (e) => {
       postWorkspace("/workspaces/remove", { id: opt.dataset.id });
   }
 });
+
+// ---- 작업 위치 추가 모달 (폴더 탐색 / GitHub) ---------------------------
+const wsModal = document.getElementById("ws-modal");
+const wsBody = document.getElementById("ws-modal-body");
+const wsFoot = document.getElementById("ws-modal-foot");
+
+function openWsModal() {
+  wsModal.hidden = false;
+  switchTab("folder");
+}
+function closeWsModal() { wsModal.hidden = true; wsBody.innerHTML = ""; wsFoot.innerHTML = ""; }
+
+document.getElementById("ws-modal-close")?.addEventListener("click", closeWsModal);
+wsModal?.addEventListener("click", (e) => { if (e.target === wsModal) closeWsModal(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && wsModal && !wsModal.hidden) closeWsModal();
+});
+document.querySelectorAll(".modal-tab").forEach((t) =>
+  t.addEventListener("click", () => switchTab(t.dataset.tab)));
+
+function switchTab(tab) {
+  document.querySelectorAll(".modal-tab").forEach((t) =>
+    t.classList.toggle("active", t.dataset.tab === tab));
+  if (tab === "folder") loadFolders("");
+  else loadGithub();
+}
+
+// --- 폴더 탐색 ---
+async function loadFolders(path) {
+  wsBody.innerHTML = '<div class="modal-loading">불러오는 중…</div>';
+  wsFoot.innerHTML = "";
+  let d;
+  try {
+    const res = await fetch("/api/folders?path=" + encodeURIComponent(path));
+    d = await res.json();
+  } catch (_) { wsBody.innerHTML = '<div class="modal-empty">폴더를 불러오지 못했습니다.</div>'; return; }
+
+  const rows = [];
+  rows.push(`<div class="folder-path" title="${d.path}">${d.path}</div>`);
+  rows.push('<ul class="folder-list">');
+  if (d.canUp) rows.push(`<li class="folder-item up" data-path="${d.parent}">⬆︎ 상위 폴더</li>`);
+  for (const f of d.dirs) {
+    rows.push(`<li class="folder-item" data-path="${f.path.replace(/"/g, "&quot;")}">📁 ${f.name}</li>`);
+  }
+  if (!d.dirs.length && !d.canUp) rows.push('<li class="modal-empty">하위 폴더가 없습니다</li>');
+  rows.push("</ul>");
+  wsBody.innerHTML = rows.join("");
+
+  wsBody.querySelectorAll(".folder-item").forEach((li) =>
+    li.addEventListener("click", () => loadFolders(li.dataset.path)));
+
+  wsFoot.innerHTML =
+    `<span class="modal-hint">이 폴더에서 작업이 실행됩니다</span>` +
+    `<button type="button" class="btn-primary" id="folder-pick">이 폴더 선택</button>`;
+  document.getElementById("folder-pick").addEventListener("click", async () => {
+    const r = await postWorkspace("/workspaces/add", { value: d.path });
+    if (r.ok) closeWsModal();
+    else alert("추가하지 못했습니다.\n" + r.msg);
+  });
+}
+
+// --- GitHub 리포/브랜치 ---
+async function loadGithub() {
+  wsBody.innerHTML = '<div class="modal-loading">GitHub 확인 중…</div>';
+  wsFoot.innerHTML = "";
+  let st;
+  try { st = await (await fetch("/api/github/status")).json(); }
+  catch (_) { st = { installed: false, loggedIn: false }; }
+
+  if (!st.installed) {
+    wsBody.innerHTML = '<div class="modal-empty">gh(GitHub CLI)가 설치되어 있지 않습니다.</div>';
+    return;
+  }
+  if (!st.loggedIn) {
+    wsBody.innerHTML = '<div class="modal-empty">GitHub 로그인이 필요합니다.<br>터미널에서 <code>gh auth login</code> 후 다시 시도하세요.</div>';
+    return;
+  }
+
+  wsBody.innerHTML =
+    `<div class="gh-user">로그인: <b>${st.user}</b></div>` +
+    `<input class="search gh-filter" id="gh-filter" placeholder="리포 검색…">` +
+    `<div class="modal-loading" id="gh-repos-loading">리포 목록 불러오는 중…</div>` +
+    `<ul class="gh-repo-list" id="gh-repo-list" hidden></ul>` +
+    `<div class="gh-branch-row" id="gh-branch-row" hidden>` +
+      `<label>브랜치 <select class="ws-select" id="gh-branch"></select></label>` +
+    `</div>`;
+
+  let repos = [];
+  try { repos = (await (await fetch("/api/github/repos")).json()).repos; }
+  catch (_) {
+    document.getElementById("gh-repos-loading").textContent = "리포 목록을 불러오지 못했습니다.";
+    return;
+  }
+  const listEl = document.getElementById("gh-repo-list");
+  const loadingEl = document.getElementById("gh-repos-loading");
+  loadingEl.hidden = true; listEl.hidden = false;
+
+  let selectedRepo = null;
+  function renderRepos(filter) {
+    listEl.innerHTML = "";
+    const f = (filter || "").toLowerCase();
+    for (const r of repos) {
+      if (f && !r.repo.toLowerCase().includes(f)) continue;
+      const li = document.createElement("li");
+      li.className = "gh-repo-item" + (r.repo === selectedRepo ? " active" : "");
+      li.innerHTML = `<span class="gh-repo-name">${r.repo}</span>` +
+        (r.private ? '<span class="gh-badge">private</span>' : "");
+      li.addEventListener("click", () => pickRepo(r.repo));
+      listEl.appendChild(li);
+    }
+    if (!listEl.children.length) listEl.innerHTML = '<li class="modal-empty">검색 결과 없음</li>';
+  }
+  document.getElementById("gh-filter").addEventListener("input", (e) => renderRepos(e.target.value));
+  renderRepos("");
+
+  const branchRow = document.getElementById("gh-branch-row");
+  const branchSel = document.getElementById("gh-branch");
+
+  async function pickRepo(repo) {
+    selectedRepo = repo;
+    renderRepos(document.getElementById("gh-filter").value);
+    branchRow.hidden = false;
+    branchSel.innerHTML = '<option>불러오는 중…</option>';
+    wsFoot.innerHTML = "";
+    let b;
+    try { b = await (await fetch("/api/github/branches?repo=" + encodeURIComponent(repo))).json(); }
+    catch (_) { branchSel.innerHTML = '<option>브랜치 조회 실패</option>'; return; }
+    branchSel.innerHTML = "";
+    for (const name of b.branches) {
+      const o = document.createElement("option");
+      o.value = name; o.textContent = name;
+      if (name === b.default) o.selected = true;
+      branchSel.appendChild(o);
+    }
+    wsFoot.innerHTML =
+      `<span class="modal-hint">선택한 브랜치를 클론해 추가합니다</span>` +
+      `<button type="button" class="btn-primary" id="gh-add">클론해서 추가</button>`;
+    document.getElementById("gh-add").addEventListener("click", async () => {
+      const btn = document.getElementById("gh-add");
+      btn.disabled = true; btn.textContent = "클론 중…";
+      const r = await postWorkspace("/workspaces/add-github",
+        { repo: selectedRepo, branch: branchSel.value });
+      if (r.ok) closeWsModal();
+      else { btn.disabled = false; btn.textContent = "클론해서 추가"; alert("추가하지 못했습니다.\n" + r.msg); }
+    });
+  }
+}
