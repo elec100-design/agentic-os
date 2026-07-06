@@ -90,7 +90,7 @@ def usage_state(now=None):
     now = now or datetime.now(timezone.utc)
     cache = codexbar.read_cache()
     cached = cache.get("providers", {})
-    providers = ["claude", "gemini", "grok", "hermes"]
+    providers = ["claude", "antigravity", "grok", "hermes"]
     state = {}
     for p in providers:
         if p == "hermes":

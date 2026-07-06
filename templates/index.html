@@ -56,28 +56,22 @@
   <input type="hidden" name="model" id="model-input" value="">
 
   <div class="composer-bar">
-    <div class="provider-picker" id="provider-picker">
-      <button type="button" class="pill active" data-provider="auto">자동</button>
-      {% for p in ['claude', 'gemini', 'grok', 'hermes'] %}
-      <button type="button" class="pill" data-provider="{{ p }}">
-        <span class="pill-name">{{ p|capitalize }}</span><span class="pill-model"></span>
-        {% if provider_models[p]|length > 1 %}
-        <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
-        {% endif %}
-      </button>
-      {% endfor %}
-    </div>
-    <span class="spacer"></span>
+    <!-- 첨부·도구 메뉴 (+) -->
+    <button type="button" class="cbar-btn" id="tools-btn" aria-label="첨부·도구" aria-haspopup="true">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+
+    <!-- 에이전트 선택 칩 -->
+    <button type="button" class="cbar-chip" id="agent-btn" aria-haspopup="true">
+      <span class="chip-agent" id="agent-label">자동</span>
+      <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+    </button>
+
+    <!-- 작업 위치 칩 -->
     <span class="workspace-picker" id="workspace-picker" hx-get="/partials/workspaces" hx-trigger="load"></span>
-    <label class="pill file-pill" title="사진·파일 첨부">
-      <input type="file" name="files" id="file-input" multiple>
-      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M13.2 7.2 8.4 12a3.4 3.4 0 0 1-4.8-4.8l4.8-4.8a2.3 2.3 0 0 1 3.2 3.2L6.8 10.4a1.1 1.1 0 0 1-1.6-1.6l4.4-4.4"/>
-      </svg>
-      <span>파일</span>
-    </label>
-    <label class="pill checkbox-pill"><input type="checkbox" name="attach_memory" value="true"><span>메모리 첨부</span></label>
-    <label class="timeout">타임아웃 <input type="number" name="timeout_min" min="1"> 분</label>
+
+    <span class="spacer"></span>
+
     <button type="submit" class="send" aria-label="전송">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
@@ -85,7 +79,29 @@
     </button>
   </div>
 
-  <div class="model-popup" id="model-popup" hidden></div>
+  <!-- 도구 팝업: 파일·메모리·타임아웃 (폼 안이라 그대로 제출된다) -->
+  <div class="cbar-popup tools-popup" id="tools-popup" hidden>
+    <label class="tools-row" title="사진·파일 첨부">
+      <input type="file" name="files" id="file-input" multiple>
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13.2 7.2 8.4 12a3.4 3.4 0 0 1-4.8-4.8l4.8-4.8a2.3 2.3 0 0 1 3.2 3.2L6.8 10.4a1.1 1.1 0 0 1-1.6-1.6l4.4-4.4"/>
+      </svg>
+      <span>파일 첨부…</span>
+    </label>
+    <label class="tools-row">
+      <input type="checkbox" name="attach_memory" value="true">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 3 4.5v4c0 3 2.2 4.6 5 5.5 2.8-.9 5-2.5 5-5.5v-4z"/></svg>
+      <span>메모리 첨부</span>
+    </label>
+    <label class="tools-row tools-timeout">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="5"/><path d="M8 6.5V9l1.6 1M6 1.8h4"/></svg>
+      <span>타임아웃</span>
+      <input type="number" name="timeout_min" min="1" placeholder="자동"> 분
+    </label>
+  </div>
+
+  <!-- 에이전트·모델 팝업 (JS가 채움) -->
+  <div class="cbar-popup agent-popup" id="agent-popup" hidden></div>
 </form>
 
 <section class="panel" id="jobs" hx-get="/partials/jobs" hx-trigger="load, every 3s, refresh-jobs from:body"></section>
@@ -111,6 +127,7 @@
 
 <script>
 const MODELS = {{ provider_models | tojson }};
+const AGENT_ORDER = ['claude', 'antigravity', 'grok', 'hermes'];
 </script>
 <script src="/static/app.js"></script>
 </body>

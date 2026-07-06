@@ -13,7 +13,8 @@ BROWSE_ROOT = Path.home()                        # 폴더 탐색 팝업의 최�
 
 # CodexBar(`codexbar usage`)로 실측하는 프로바이더. 우리 이름 -> CodexBar id.
 # hermes는 로컬 실행이라 사용 제한이 없어 제외.
-CODEXBAR_PROVIDERS = {"claude": "claude", "gemini": "gemini", "grok": "grok"}
+# antigravity(agy)는 CodexBar 미지원이라 실측 불가 → 사용량 '정보 없음'으로 표시.
+CODEXBAR_PROVIDERS = {"claude": "claude", "grok": "grok"}
 USAGE_REFRESH_SEC = 180          # 백그라운드로 사용량 갱신하는 주기
 CODEXBAR_TIMEOUT_SEC = 60        # 프로바이더 1건 조회 타임아웃
 
@@ -26,10 +27,11 @@ PROVIDER_MODELS = {
         {"label": "Sonnet 5", "model": "claude-sonnet-5"},
         {"label": "Haiku 4.5", "model": "claude-haiku-4-5-20251001"},
     ],
-    "gemini": [
+    "antigravity": [
         {"label": "기본값", "model": None, "default": True},
-        {"label": "2.5 Pro", "model": "gemini-2.5-pro"},
-        {"label": "2.5 Flash", "model": "gemini-2.5-flash"},
+        {"label": "Gemini 3 Pro", "model": "gemini-3-pro"},
+        {"label": "Gemini 3 Flash", "model": "gemini-3-flash"},
+        {"label": "Claude Sonnet", "model": "claude-sonnet"},
     ],
     "grok": [
         {"label": "기본값", "model": None, "default": True},

@@ -108,7 +108,7 @@ def test_recommend_endpoint(tmp_env):
         assert simple["provider"] == "hermes"
         complex_ = client.get("/api/recommend",
                               params={"prompt": "이 코드 버그 구현 수정"}).json()
-        assert complex_["provider"] in ("claude", "gemini", "grok")
+        assert complex_["provider"] in ("claude", "antigravity", "grok")
         assert complex_["reason"]
 
 

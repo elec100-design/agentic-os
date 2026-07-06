@@ -1,6 +1,6 @@
 # Agentic OS
 
-Mac Mini에서 Claude, Gemini, SuperGrok, Hermes 유료 구독 CLI를 하나의 로컬 웹 대시보드로 통합하는 레이어입니다. Claude Desktop 컨셉의 UI에, 각 에이전트의 **실제 남은 사용량**(CodexBar 연동)에 따라 작업을 자동 배분합니다. 결과는 Obsidian(LLM WIKI 볼트)에 자동 저장되고, rate limit에 걸린 작업은 제한이 풀리면 중단 지점부터 자동으로 재개합니다.
+Mac Mini에서 Claude, Antigravity, SuperGrok, Hermes 유료 구독 CLI를 하나의 로컬 웹 대시보드로 통합하는 레이어입니다. Claude Desktop 컨셉의 UI에, 각 에이전트의 **실제 남은 사용량**(CodexBar 연동)에 따라 작업을 자동 배분합니다. 결과는 Obsidian(LLM WIKI 볼트)에 자동 저장되고, rate limit에 걸린 작업은 제한이 풀리면 중단 지점부터 자동으로 재개합니다.
 
 **접속 주소**
 - 로컬: [http://localhost:8899](http://localhost:8899)
@@ -24,7 +24,7 @@ Mac Mini에서 Claude, Gemini, SuperGrok, Hermes 유료 구독 CLI를 하나의 
 
 | 항목 | 내용 |
 |------|------|
-| 호출 방식 | 유료 구독 CLI 헤드리스 모드만 사용 (`claude -p`, `gemini -p`, `grok -p`, `hermes -z`) |
+| 호출 방식 | 유료 구독 CLI 헤드리스 모드만 사용 (`claude -p`, `agy -p`, `grok -p`, `hermes -z`) |
 | API 키 | 사용하지 않음 — 추가 과금 없음 |
 | 동시 실행 | 1개 (메모리·CLI 세션 충돌 방지) |
 | 프론트엔드 | Jinja2 + HTMX (빌드 도구 없음, CDN 의존 없음) |
@@ -39,7 +39,7 @@ Mac Mini에서 Claude, Gemini, SuperGrok, Hermes 유료 구독 CLI를 하나의 
 | 서비스 | CLI | 용도 |
 |--------|-----|------|
 | Claude | `claude` | 코딩, 리팩토링 (기본값) |
-| Gemini | `gemini` | 대용량 문서, 멀티모달 |
+| Antigravity | `agy` | 대용량 문서, 멀티모달 (구글 OAuth 로그인) |
 | SuperGrok | `grok` | 검색, 최신 정보 |
 | Hermes | `hermes` | 로컬·개인 데이터 작업 |
 
@@ -76,8 +76,8 @@ uv pip install -r requirements.txt --python .venv/bin/python3
 ## 사용법
 
 1. 브라우저에서 [http://localhost:8899](http://localhost:8899) 접속
-2. 컴포저에 프롬프트 입력 후 에이전트(자동/Claude/Gemini/Grok/Hermes) 선택 — 에이전트를 누르면 모델도 고를 수 있습니다
-3. 필요 시 **작업 위치**(로컬 폴더·GitHub 리포)와 **파일 첨부**(드래그앤드롭), **메모리 첨부**를 지정
+2. 컴포저에 프롬프트 입력 후 에이전트 칩(자동/Claude/Antigravity/Grok/Hermes)을 눌러 선택 — 같은 팝업에서 모델도 고를 수 있습니다
+3. 필요 시 **작업 위치**(로컬 폴더·GitHub 리포)를 고르고, 컴포저 **＋ 메뉴**에서 **파일 첨부**(드래그앤드롭도 가능)·**메모리 첨부**·**타임아웃**을 지정
 4. 자동 모드면 컴포저 아래에 어느 에이전트로 갈지 실시간 추천이 표시됩니다
 5. **작업 큐**에서 상태 확인, 클릭 시 실시간 출력 스트리밍
 6. 완료된 작업은 Obsidian `Agentic OS/` 폴더에 노트로 저장되고 사이드바 메모리와 연동됩니다
@@ -87,7 +87,7 @@ uv pip install -r requirements.txt --python .venv/bin/python3
 - **단순 작업**(짧고 키워드 없음) → 로컬 **Hermes** (클라우드 사용량 절약)
 - **복잡 작업** → 소진되지 않은 클라우드 에이전트 중 **실측 잔여 사용량이 가장 많은 곳**
 - 모두 소진 → Hermes 폴백
-- 사용량은 CodexBar에서 읽으며, 알 수 없는 에이전트는 우선순위(claude > gemini > grok)로 처리
+- 사용량은 CodexBar에서 읽으며, 알 수 없는 에이전트는 우선순위(claude > antigravity > grok)로 처리
 
 컴포저에 지금 이 프롬프트가 어디로 갈지 실시간 추천 힌트가 표시됩니다.
 
@@ -169,4 +169,4 @@ queued → running → done | failed | rate_limited → queued (재개)
 
 ## 다음 계획
 
-Gemini 사용량 실측(CodexBar OAuth), 세션 재개 실측 보정, 멀티턴 채팅 UI, 병렬 작업 실행, 벡터/임베딩 검색, 토큰·비용 추적. 자세한 로드맵은 [plan.md](plan.md) 참고.
+Antigravity 사용량 실측 연동, 세션 재개 실측 보정, 멀티턴 채팅 UI, 병렬 작업 실행, 벡터/임베딩 검색, 토큰·비용 추적. 자세한 로드맵은 [plan.md](plan.md) 참고.

@@ -27,7 +27,7 @@ def test_create_job_with_timeout(tmp_env):
 
 def test_update_and_append(tmp_env):
     conn = _conn(tmp_env)
-    job_id = db.create_job(conn, "p", "gemini")
+    job_id = db.create_job(conn, "p", "antigravity")
     db.update_job(conn, job_id, status="running", session_id="s1")
     db.append_output(conn, job_id, "hello ")
     db.append_output(conn, job_id, "world")
@@ -77,16 +77,16 @@ def test_usage_counts_and_limit_status(tmp_env):
     conn = _conn(tmp_env)
     db.log_usage(conn, "claude", 1.5, "ok")
     db.log_usage(conn, "claude", 2.0, "rate_limited")
-    db.log_usage(conn, "gemini", 0.5, "ok")
+    db.log_usage(conn, "antigravity", 0.5, "ok")
     since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
     counts = db.usage_counts(conn, since)
     assert counts["claude"]["ok"] == 1
     assert counts["claude"]["rate_limited"] == 1
-    assert counts["gemini"]["ok"] == 1
+    assert counts["antigravity"]["ok"] == 1
 
     job_id = db.create_job(conn, "p", "claude")
     future = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat(timespec="seconds")
     db.update_job(conn, job_id, status="rate_limited", resume_at=future)
     status = db.limit_status(conn)
     assert status["claude"] == future
-    assert "gemini" not in status
+    assert "antigravity" not in status
