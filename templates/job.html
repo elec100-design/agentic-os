@@ -2,17 +2,26 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>작업 #{{ job['id'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<p><a href="/">← 대시보드</a></p>
-<h1>작업 #{{ job['id'] }} <small>({{ job['provider'] }} / {{ job['status'] }})</small></h1>
-<h2>프롬프트</h2>
+<main class="page">
+<a class="back-link" href="/">← 대시보드</a>
+<h1 class="job-title">
+  작업 #{{ job['id'] }}
+  <span class="badge badge-{{ job['status'] }}">{{ job['status'] }}</span>
+  <span class="job-meta provider-name">{{ job['provider'] }}</span>
+  {% if job['model'] %}<span class="job-meta">{{ job['model'] }}</span>{% endif %}
+</h1>
+{% if job['workdir'] %}<p class="job-meta">📁 작업 위치: <code>{{ job['workdir'] }}</code></p>{% endif %}
+<h2 class="section-label">프롬프트</h2>
 <pre>{{ job['prompt'] }}</pre>
 {% if job['error'] %}<p class="error">⚠️ {{ job['error'] }}</p>{% endif %}
-<h2>출력</h2>
+<h2 class="section-label">출력</h2>
 <pre id="out">{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>
+</main>
 <script>
 const status = "{{ job['status'] }}";
 if (["queued", "running", "rate_limited"].includes(status)) {

@@ -3,3 +3,8 @@ __pycache__/
 data/
 *.pyc
 .DS_Store
+.pytest_cache/
+.claude/
+# 로컬 참조용 디자인 자료 (앱 소스 아님)
+design-md/
+awesome-design-md-main/

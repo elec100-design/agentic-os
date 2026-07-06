@@ -7,7 +7,7 @@
   <string>com.elec100.agentic-os</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/macmini/Documents/Agentic OS/.venv/bin/python3</string>
+    <string>/Users/macmini/Documents/agentic-os/.venv/bin/python3</string>
     <string>-m</string>
     <string>uvicorn</string>
     <string>app.main:app</string>
@@ -17,15 +17,15 @@
     <string>8899</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/macmini/Documents/Agentic OS</string>
+  <string>/Users/macmini/Documents/agentic-os</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/macmini/Documents/Agentic OS/data/aos.log</string>
+  <string>/Users/macmini/Documents/agentic-os/data/aos.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/macmini/Documents/Agentic OS/data/aos.err.log</string>
+  <string>/Users/macmini/Documents/agentic-os/data/aos.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>

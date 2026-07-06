@@ -29,13 +29,15 @@ class ClaudeProvider:
     _limit_re = re.compile(r"usage limit reached|rate.?limit", re.I)
     _epoch_re = re.compile(r"limit reached\|(\d{9,})")
 
-    def build_command(self, prompt, session_id=None):
+    def build_command(self, prompt, session_id=None, model=None):
+        cmd = ["claude", "-p", "--output-format", "json"]
+        if model:
+            cmd += ["--model", model]
         if session_id:
-            return [
-                "claude", "-p", "--output-format", "json",
-                "--resume", session_id, CONTINUE_PROMPT,
-            ]
-        return ["claude", "-p", "--output-format", "json", prompt]
+            cmd += ["--resume", session_id, prompt]
+        else:
+            cmd += [prompt]
+        return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
         try:
@@ -61,10 +63,13 @@ class GeminiProvider:
     name = "gemini"
     _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota", re.I)
 
-    def build_command(self, prompt, session_id=None):
+    def build_command(self, prompt, session_id=None, model=None):
+        cmd = ["gemini", "-p", prompt]
+        if model:
+            cmd += ["--model", model]
         if session_id:
-            return ["gemini", "-p", CONTINUE_PROMPT, "--resume", session_id]
-        return ["gemini", "-p", prompt]
+            cmd += ["--resume", session_id]
+        return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
         return ParseResult(text=stdout or stderr, session_id="latest")
@@ -79,10 +84,14 @@ class GrokProvider:
     name = "grok"
     _limit_re = re.compile(r"rate.?limit|\b429\b|too many requests", re.I)
 
-    def build_command(self, prompt, session_id=None):
+    def build_command(self, prompt, session_id=None, model=None):
+        cmd = ["grok"]
         if session_id:
-            return ["grok", "-c", "-p", CONTINUE_PROMPT]
-        return ["grok", "-p", prompt]
+            cmd += ["-c"]
+        if model:
+            cmd += ["--model", model]
+        cmd += ["-p", prompt]
+        return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
         return ParseResult(text=stdout or stderr, session_id="latest")
@@ -96,7 +105,7 @@ class GrokProvider:
 class HermesProvider:
     name = "hermes"
 
-    def build_command(self, prompt, session_id=None):
+    def build_command(self, prompt, session_id=None, model=None):
         return ["hermes", "-z", prompt]
 
     def parse_output(self, stdout, stderr, exit_code):
@@ -111,20 +120,55 @@ PROVIDERS = {
     for p in [ClaudeProvider(), GeminiProvider(), GrokProvider(), HermesProvider()]
 }
 
-_GROK_KW = ["검색", "최신", "뉴스", "트렌드", "search", "news", "latest", "trend"]
-_GEMINI_KW = ["문서", "요약", "pdf", "번역", "summar", "document", "translate"]
-_HERMES_KW = ["로컬", "파일 정리", "개인", "local", "private"]
+# 복잡한 작업 판별 키워드 — 매칭되거나 프롬프트가 길면 복잡한 작업으로 간주
+_COMPLEX_KW = [
+    "구현", "분석", "설계", "리팩터", "작성", "코드", "디버그", "테스트",
+    "보고서", "계획", "조사", "검토", "수정", "버그", "개발", "번역", "요약",
+    "implement", "analyz", "design", "refactor", "code", "debug", "test",
+    "report", "plan", "research", "review", "fix", "bug", "write", "build",
+]
+
+_CLOUD_ROUTED = ("claude", "gemini", "grok")
+# 잔여 사용량을 알 수 없는(CodexBar 미연동) 프로바이더의 기본 순위값.
+# 잔여를 아는 프로바이더가 이보다 많이 남으면 그쪽을 우선한다.
+_UNKNOWN_REMAINING = 50
 
 
-def route_auto(prompt):
+def is_complex(prompt):
+    if len(prompt) >= 120:
+        return True
     low = prompt.lower()
-    for kw in _GROK_KW:
-        if kw in low:
-            return "grok"
-    for kw in _GEMINI_KW:
-        if kw in low:
-            return "gemini"
-    for kw in _HERMES_KW:
-        if kw in low:
-            return "hermes"
-    return "claude"
+    return any(kw in low for kw in _COMPLEX_KW)
+
+
+def route_auto(prompt, usage_state=None):
+    """자동 모드 라우팅. (provider, reason) 반환.
+
+    - 단순 작업 → hermes (로컬·무제한, 클라우드 사용량 절약)
+    - 복잡 작업 → 소진되지 않은 클라우드 에이전트 중 잔여 사용량이 가장 많은 곳
+    - 모두 소진 → hermes 폴백
+
+    usage_state: {provider: {"remaining": int|None, "available": bool|None}}
+    (app.codexbar.normalize / 캐시가 제공)
+    """
+    if not is_complex(prompt):
+        return "hermes", "단순 작업이라 로컬 Hermes로 처리해 클라우드 사용량을 아낍니다"
+    usage_state = usage_state or {}
+    ranked = []
+    for name in _CLOUD_ROUTED:
+        st = usage_state.get(name) or {}
+        if st.get("available") is False:  # 사용량 소진
+            continue
+        remaining = st.get("remaining")
+        rank = _UNKNOWN_REMAINING if remaining is None else remaining
+        ranked.append((rank, _CLOUD_ROUTED.index(name), name, remaining))
+    if not ranked:
+        return "hermes", "클라우드 에이전트가 모두 소진되어 Hermes로 처리합니다"
+    # 잔여 많은 순, 동률이면 우선순위(claude>gemini>grok) 순
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    _, _, best, remaining = ranked[0]
+    if remaining is None:
+        reason = f"복잡한 작업 → {best} (사용량 정보 없음, 우선순위로 선택)"
+    else:
+        reason = f"복잡한 작업 → 잔여 사용량이 가장 많은 {best} ({remaining}% 남음)"
+    return best, reason
