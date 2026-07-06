@@ -43,24 +43,41 @@ def test_looks_like_git_url():
 def test_add_github_uses_runner_and_records_remote(tmp_env):
     calls = {}
 
-    def fake_clone(url, dest):
-        calls["url"] = url
+    def fake_clone(repo, branch, dest):
+        calls["repo"] = repo
+        calls["branch"] = branch
         dest.mkdir(parents=True, exist_ok=True)
 
     # 이름을 비우면 URL에서 slug(demo)를 유도
     ws = workspace.add("", "https://github.com/acme/demo.git", runner=fake_clone)
-    assert calls["url"] == "https://github.com/acme/demo.git"
+    assert calls["repo"] == "https://github.com/acme/demo.git"
+    assert calls["branch"] is None
     assert ws["remote"] == "https://github.com/acme/demo.git"
     assert ws["path"].endswith("demo")
     assert ws["name"] == "demo"
 
 
+def test_add_github_with_repo_and_branch(tmp_env):
+    calls = {}
+
+    def fake_clone(repo, branch, dest):
+        calls["repo"], calls["branch"] = repo, branch
+        dest.mkdir(parents=True, exist_ok=True)
+
+    ws = workspace.add_github("", "acme/demo", branch="dev", runner=fake_clone)
+    assert calls == {"repo": "acme/demo", "branch": "dev"} or (
+        calls["repo"] == "acme/demo" and calls["branch"] == "dev")
+    assert ws["branch"] == "dev"
+    assert ws["remote"] == "acme/demo"
+    assert ws["name"] == "demo"
+
+
 def test_add_github_propagates_clone_failure(tmp_env):
-    def failing(url, dest):
+    def failing(repo, branch, dest):
         raise ValueError("클론 실패: auth")
 
     with pytest.raises(ValueError):
-        workspace.add("x", "https://github.com/acme/x.git", runner=failing)
+        workspace.add_github("x", "acme/x", branch="main", runner=failing)
 
 
 def test_remove(tmp_env, tmp_path):

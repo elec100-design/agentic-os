@@ -94,6 +94,21 @@
 <!-- 노트 컨텍스트 메뉴 (문서에 하나, 위치는 JS가 지정) -->
 <div class="note-dropdown" id="note-dropdown" hidden></div>
 
+<!-- 작업 위치 추가 모달 (폴더 탐색 / GitHub 리포) -->
+<div class="modal-overlay" id="ws-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ws-modal-title">
+    <div class="modal-head">
+      <div class="modal-tabs">
+        <button type="button" class="modal-tab active" data-tab="folder">📁 폴더 선택</button>
+        <button type="button" class="modal-tab" data-tab="github">⑂ GitHub 리포</button>
+      </div>
+      <button type="button" class="modal-close" id="ws-modal-close" aria-label="닫기">✕</button>
+    </div>
+    <div class="modal-body" id="ws-modal-body"></div>
+    <div class="modal-foot" id="ws-modal-foot"></div>
+  </div>
+</div>
+
 <script>
 const MODELS = {{ provider_models | tojson }};
 </script>

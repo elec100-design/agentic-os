@@ -231,6 +231,91 @@ def test_workspace_add_bad_path_returns_400(tmp_env):
         assert r.status_code == 400
 
 
+def test_workspace_add_returns_selected_path_header(tmp_env, tmp_path):
+    d = tmp_path / "proj"
+    d.mkdir()
+    with _client(tmp_env) as client:
+        r = client.post("/workspaces/add", data={"value": str(d)})
+        assert r.headers.get("X-Workspace-Path") == str(d.resolve())
+
+
+# --- 폴더 탐색 API ---
+
+def test_api_folders_lists_subdirs_within_root(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    (root / "Projects").mkdir(parents=True)
+    (root / ".hidden").mkdir()
+    (root / "file.txt").write_text("x")
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    with _client(tmp_env) as client:
+        d = client.get("/api/folders").json()
+        names = [x["name"] for x in d["dirs"]]
+        assert "Projects" in names
+        assert ".hidden" not in names   # 숨김 폴더 제외
+        assert "file.txt" not in names  # 파일 제외
+        assert d["canUp"] is False      # 루트에서는 상위 없음
+
+
+def test_api_folders_confined_to_root(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    root.mkdir()
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    with _client(tmp_env) as client:
+        # 루트 밖 경로를 요청해도 루트로 클램프
+        d = client.get("/api/folders", params={"path": "/etc"}).json()
+        assert d["path"] == str(root.resolve())
+
+
+# --- GitHub API (gh 호출은 모킹) ---
+
+def test_api_github_status_and_repos(tmp_env, monkeypatch):
+    from app import github_cli
+    monkeypatch.setattr(github_cli, "status",
+                        lambda **k: {"installed": True, "loggedIn": True, "user": "me"})
+    monkeypatch.setattr(github_cli, "list_repos",
+                        lambda **k: [{"repo": "me/a", "private": True, "desc": ""}])
+    with _client(tmp_env) as client:
+        assert client.get("/api/github/status").json()["user"] == "me"
+        repos = client.get("/api/github/repos").json()["repos"]
+        assert repos[0]["repo"] == "me/a"
+
+
+def test_api_github_branches(tmp_env, monkeypatch):
+    from app import github_cli
+    monkeypatch.setattr(github_cli, "list_branches",
+                        lambda repo, **k: {"branches": ["master", "dev"], "default": "master"})
+    with _client(tmp_env) as client:
+        b = client.get("/api/github/branches", params={"repo": "me/a"}).json()
+        assert b["default"] == "master"
+        assert "dev" in b["branches"]
+
+
+def test_add_github_endpoint_clones_and_selects(tmp_env, monkeypatch):
+    from app import workspace
+    captured = {}
+
+    def fake_add_github(name, repo, branch=None):
+        captured.update(repo=repo, branch=branch)
+        return {"id": "x1", "name": "demo", "path": "/tmp/ws/demo",
+                "remote": repo, "branch": branch}
+
+    monkeypatch.setattr(workspace, "add_github", fake_add_github)
+    with _client(tmp_env) as client:
+        r = client.post("/workspaces/add-github",
+                        data={"repo": "me/demo", "branch": "dev"})
+        assert r.status_code == 200
+        assert r.headers.get("X-Workspace-Path") == "/tmp/ws/demo"
+    assert captured == {"repo": "me/demo", "branch": "dev"}
+
+
+def test_add_github_endpoint_rejects_bad_repo(tmp_env):
+    with _client(tmp_env) as client:
+        assert client.post("/workspaces/add-github",
+                           data={"repo": "not-a-repo"}).status_code == 400
+
+
 def test_cancel_job(tmp_env):
     from app import config, db
     with _client(tmp_env) as client:

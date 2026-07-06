@@ -66,6 +66,12 @@ def add(name, value, runner=None):
     return add_local(name, value)
 
 
+def _short_repo_name(repo):
+    """owner/name 또는 URL에서 리포 이름만 뽑는다."""
+    tail = repo.rstrip("/").split("/")[-1]
+    return tail.removesuffix(".git")
+
+
 def add_local(name, path):
     p = Path(path).expanduser()
     if not p.is_dir():
@@ -81,31 +87,33 @@ def add_local(name, path):
     return ws
 
 
-def add_github(name, url, runner=None):
-    runner = runner or _git_clone
-    slug = _slug(name or url.rstrip("/").split("/")[-1].removesuffix(".git"))
+def add_github(name, repo, branch=None, runner=None):
+    """repo(owner/name 또는 git URL)를 지정 브랜치로 클론해 등록한다."""
+    runner = runner or _gh_clone
+    slug = _slug(name or _short_repo_name(repo))
     dest = Path(config.WORKSPACES_DIR) / slug
     if dest.exists():
         raise ValueError(f"이미 존재하는 위치입니다: {dest.name}")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    runner(url, dest)                       # 실패 시 예외를 던짐
+    runner(repo, branch, dest)              # 실패 시 예외를 던짐
     items = _load()
     ws = {"id": uuid.uuid4().hex[:8], "name": name or slug,
-          "path": str(dest.resolve()), "remote": url}
+          "path": str(dest.resolve()), "remote": repo, "branch": branch}
     items.append(ws)
     _save(items)
     return ws
 
 
-def _git_clone(url, dest):
+def _gh_clone(repo, branch, dest):
+    """gh repo clone — gh 인증을 그대로 써서 비공개 리포도 클론된다."""
+    args = ["gh", "repo", "clone", repo, str(dest), "--", "--depth", "1"]
+    if branch:
+        args += ["--branch", branch]
     try:
-        res = subprocess.run(
-            ["git", "clone", "--depth", "1", url, str(dest)],
-            capture_output=True, text=True,
-            timeout=config.GIT_CLONE_TIMEOUT_SEC,
-        )
+        res = subprocess.run(args, capture_output=True, text=True,
+                             timeout=config.GIT_CLONE_TIMEOUT_SEC)
     except FileNotFoundError:
-        raise ValueError("git이 설치되어 있지 않습니다")
+        raise ValueError("gh(GitHub CLI)가 설치되어 있지 않습니다")
     except subprocess.TimeoutExpired:
         raise ValueError("클론 시간이 초과되었습니다")
     if res.returncode != 0:
