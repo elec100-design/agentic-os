@@ -10,6 +10,289 @@ WORKSPACES_PATH = DATA_DIR / "workspaces.json"   # 등록된 작업 위치 목�
 WORKSPACES_DIR = DATA_DIR / "workspaces"         # GitHub 리포 클론 대상
 GIT_CLONE_TIMEOUT_SEC = 180
 BROWSE_ROOT = Path.home()                        # 폴더 탐색 팝업의 최상위(홈 이하만)
+ICLOUD_DRIVE = (
+    Path.home() / "Library/Mobile Documents/com~apple~CloudDocs"
+)
+
+# 탐색 UI에 표시할 폴더 이름 (macOS 내부 경로 → Finder식 라벨)
+FOLDER_LABELS = {
+    "com~apple~CloudDocs": "iCloud Drive",
+}
+
+
+def resolve_path(path):
+    """expanduser + resolve. 실패 시 입력 Path 그대로."""
+    p = Path(path).expanduser()
+    try:
+        return p.resolve()
+    except (OSError, ValueError):
+        return p
+
+
+def _path_variants(path):
+    """macOS firmlink(/Users ↔ /System/Volumes/Data/Users) 양쪽 표현을 모두 허용."""
+    resolved = resolve_path(path)
+    variants = [resolved]
+    text = str(resolved)
+    if text.startswith("/Users/"):
+        alt = Path("/System/Volumes/Data" + text)
+        if alt.exists():
+            variants.append(resolve_path(alt))
+    elif text.startswith("/System/Volumes/Data/Users/"):
+        alt = Path("/Users" + text[len("/System/Volumes/Data") :])
+        if alt.exists():
+            variants.append(resolve_path(alt))
+    out = []
+    seen = set()
+    for v in variants:
+        key = str(v)
+        if key not in seen:
+            seen.add(key)
+            out.append(v)
+    return out
+
+
+_CLOUD_KINDS = frozenset({"icloud", "cloud"})
+
+
+def _cloud_storage_label(name):
+    """CloudStorage 폴더명 → Finder식 라벨."""
+    if name.startswith("iCloudDrive-"):
+        suffix = name.removeprefix("iCloudDrive-")
+        return f"iCloud Drive ({suffix})" if suffix else "iCloud Drive"
+    if name.startswith("GoogleDrive-"):
+        suffix = name.removeprefix("GoogleDrive-")
+        return f"Google Drive ({suffix})" if suffix else "Google Drive"
+    if name.startswith("OneDrive-"):
+        suffix = name.removeprefix("OneDrive-")
+        return f"OneDrive ({suffix})" if suffix else "OneDrive"
+    if name == "Dropbox":
+        return "Dropbox"
+    return name
+
+
+def cloud_roots():
+    """탐색·등록에 허용할 클라우드 루트(iCloud·CloudStorage 마운트)."""
+    seen = set()
+    roots = []
+    for shortcut in browse_shortcuts():
+        if shortcut["kind"] not in _CLOUD_KINDS:
+            continue
+        for variant in _path_variants(shortcut["path"]):
+            key = str(variant)
+            if key in seen:
+                continue
+            seen.add(key)
+            if variant.is_dir():
+                roots.append(variant)
+    return roots
+
+
+def icloud_roots():
+    """cloud_roots 별칭 (하위 호환)."""
+    return cloud_roots()
+
+
+def browse_roots():
+    """폴더 탐색에서 접근 가능한 최상위 루트(홈 + 클라우드)."""
+    seen = set()
+    roots = []
+    for variant in _path_variants(BROWSE_ROOT):
+        key = str(variant)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(variant)
+    for root in cloud_roots():
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            roots.append(root)
+    return roots
+
+
+def canonical_path(path):
+    """경로 비교·저장용 표준 형태. macOS firmlink면 /Users/... 쪽을 우선."""
+    variants = _path_variants(path)
+    for variant in variants:
+        if str(variant).startswith("/Users/"):
+            return variant
+    return variants[0]
+
+
+def paths_equivalent(left, right):
+    """macOS firmlink로 /Users ↔ /System/Volumes/Data 표현이 달라도 동일 경로로 본다."""
+    left_keys = {str(p) for p in _path_variants(left)}
+    return any(str(p) in left_keys for p in _path_variants(right))
+
+
+def is_browse_allowed(path):
+    """탐색 허용 경로: 홈 이하 또는 iCloud Drive(및 CloudStorage) 이하."""
+    try:
+        cur_variants = _path_variants(path)
+    except (TypeError, ValueError):
+        return False
+    for cur in cur_variants:
+        for root in browse_roots():
+            for root_variant in _path_variants(root):
+                if cur == root_variant or root_variant in cur.parents:
+                    return True
+    return False
+
+
+def is_browse_root(path):
+    """홈·iCloud 등 탐색 최상위 루트에 해당하는지."""
+    cur_keys = {str(p) for p in _path_variants(path)}
+    for root in browse_roots():
+        for root_variant in _path_variants(root):
+            if str(root_variant) in cur_keys:
+                return True
+    return False
+
+
+def browse_parent(path):
+    """허용 범위 안에서 한 단계 위. 탐색 루트면 None."""
+    if is_browse_root(path):
+        return None
+    parent = canonical_path(path).parent
+    return parent if is_browse_allowed(parent) else None
+
+
+def browse_shortcuts():
+    """폴더 탐색 루트에서 보여줄 바로가기 (iCloud·자주 쓰는 위치)."""
+    home = Path.home()
+    shortcuts = []
+    icloud = ICLOUD_DRIVE
+    if icloud.is_dir():
+        shortcuts.append({
+            "name": "iCloud Drive",
+            "path": str(resolve_path(icloud)),
+            "kind": "icloud",
+        })
+    # macOS 12+ CloudStorage 마운트 (일부 계정은 여기만 노출)
+    cloud_storage = home / "Library/CloudStorage"
+    seen = {s["path"] for s in shortcuts}
+    if cloud_storage.is_dir():
+        try:
+            for entry in sorted(cloud_storage.iterdir(),
+                                 key=lambda p: p.name.lower()):
+                if not entry.is_dir():
+                    continue
+                resolved = str(canonical_path(entry))
+                if any(paths_equivalent(resolved, existing) for existing in seen):
+                    continue
+                seen.add(resolved)
+                kind = "icloud" if entry.name.startswith("iCloud") else "cloud"
+                shortcuts.append({
+                    "name": _cloud_storage_label(entry.name),
+                    "path": resolved,
+                    "kind": kind,
+                })
+        except OSError:
+            pass
+    shortcuts.append({
+        "name": "홈",
+        "path": str(resolve_path(home)),
+        "kind": "home",
+    })
+    for name in ("Documents", "Desktop", "Downloads"):
+        p = home / name
+        if p.is_dir():
+            shortcuts.append({
+                "name": name,
+                "path": str(resolve_path(p)),
+                "kind": "home",
+            })
+    return shortcuts
+
+
+def is_under_cloud_root(path):
+    """경로가 iCloud·CloudStorage 루트 이하인지."""
+    cur = canonical_path(path)
+    for root in cloud_roots():
+        for root_variant in _path_variants(root):
+            if cur == root_variant or root_variant in cur.parents:
+                return True
+    return False
+
+
+def should_skip_cloud_alias(entry, cur):
+    """iCloud 루트의 Desktop/Documents 등 로컬 홈 미러 심볼릭 링크는 목록에서 제외."""
+    if not is_under_cloud_root(cur):
+        return False
+    try:
+        if not entry.is_symlink():
+            return False
+        target = entry.resolve()
+        home = resolve_path(BROWSE_ROOT)
+        if (home in target.parents or target == home) and not is_under_cloud_root(target):
+            return True
+    except OSError:
+        pass
+    return False
+
+
+def list_browse_children(cur):
+    """탐색 허용 폴더의 하위 디렉터리 목록."""
+    rows = []
+    try:
+        entries = sorted(cur.iterdir(), key=lambda p: p.name.lower())
+    except (FileNotFoundError, PermissionError):
+        raise
+    for entry in entries:
+        if entry.name.startswith(".") or not entry.is_dir():
+            continue
+        if should_skip_cloud_alias(entry, cur):
+            continue
+        rows.append({
+            "name": entry.name,
+            "label": folder_label(entry.name),
+            "path": str(resolve_path(entry)),
+        })
+    return rows
+
+
+def resolve_browse_path(path):
+    """탐색 요청 경로를 허용 범위 안의 실제 디렉터리로 정규화."""
+    root = resolve_path(BROWSE_ROOT)
+    requested = (path or "").strip()
+    if not requested:
+        return root, None, None
+
+    cur = resolve_path(requested)
+    if not is_browse_allowed(cur):
+        return root, None, None
+
+    if cur.is_dir():
+        return cur, None, None
+
+    notice = (
+        "폴더를 찾을 수 없거나 iCloud에서 아직 이 Mac으로 다운로드되지 않았습니다. "
+        "Finder에서 해당 폴더를 연 뒤 다시 시도해 주세요."
+    )
+    candidate = canonical_path(cur)
+    while not candidate.is_dir():
+        parent = browse_parent(candidate)
+        if not parent:
+            return root, notice, str(canonical_path(cur))
+        candidate = parent
+    return candidate, notice, str(canonical_path(cur))
+
+
+def show_browse_shortcuts(path):
+    """홈·클라우드 루트에서 바로가기 패널을 보여준다."""
+    for variant in _path_variants(path):
+        if paths_equivalent(variant, BROWSE_ROOT):
+            return True
+    for root in cloud_roots():
+        for variant in _path_variants(path):
+            if paths_equivalent(variant, root):
+                return True
+    return False
+
+
+def folder_label(name):
+    return FOLDER_LABELS.get(name, name)
 
 # CodexBar(`codexbar usage`)로 실측하는 프로바이더. 우리 이름 -> CodexBar id.
 # hermes는 로컬 실행이라 사용 제한이 없어 제외.
@@ -44,7 +327,7 @@ PROVIDER_MODELS = {
 }
 
 VAULT_PATH = Path(
-    "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Blogging"
+    "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Agentic-OS"
 )
 MEMORY_DIR = VAULT_PATH / "Agentic OS"
 

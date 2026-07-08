@@ -351,8 +351,14 @@ def _workspaces_response(request, selected_path=None):
 
 @app.post("/workspaces/add", response_class=HTMLResponse)
 def workspace_add(request: Request, value: str = Form(...), name: str = Form("")):
+    value = value.strip()
+    if value and not config.is_browse_allowed(value):
+        raise HTTPException(
+            status_code=400,
+            detail="허용된 범위(홈·iCloud Drive) 밖의 폴더는 등록할 수 없습니다",
+        )
     try:
-        ws = workspace.add(name.strip(), value.strip())
+        ws = workspace.add(name.strip(), value)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return _workspaces_response(request, ws["path"])
@@ -376,31 +382,38 @@ def workspace_remove(request: Request, id: str = Form(...)):
     return _workspaces_response(request)
 
 
-# --- 폴더 탐색 팝업 (서버 파일시스템, 홈 이하로 제한) ---
+# --- 폴더 탐색 팝업 (서버 파일시스템, 홈·iCloud 이하) ---
 
 @app.get("/api/folders")
 def api_folders(path: str = ""):
-    root = Path(config.BROWSE_ROOT).resolve()
-    try:
-        cur = Path(path).resolve() if path else root
-    except (OSError, ValueError):
-        cur = root
-    # 홈 밖으로는 못 나가게 제한
-    if root != cur and root not in cur.parents:
-        cur = root
-    if not cur.is_dir():
-        cur = root
+    root = config.resolve_path(config.BROWSE_ROOT)
+    cur, notice, requested = config.resolve_browse_path(path)
     dirs = []
     try:
-        for entry in sorted(cur.iterdir(), key=lambda p: p.name.lower()):
-            if entry.name.startswith(".") or not entry.is_dir():
-                continue
-            dirs.append({"name": entry.name, "path": str(entry)})
+        dirs = config.list_browse_children(cur)
     except PermissionError:
-        pass
-    at_root = cur == root
-    return {"path": str(cur), "parent": None if at_root else str(cur.parent),
-            "canUp": not at_root, "home": str(root), "dirs": dirs}
+        notice = (
+            notice
+            or "이 폴더에 접근할 수 없습니다. 시스템 설정 → 개인정보 보호 및 보안에서 "
+            "Python(또는 터미널)에 iCloud Drive 접근을 허용했는지 확인해 주세요."
+        )
+    cur = config.canonical_path(cur)
+    parent = config.browse_parent(cur)
+    at_root = config.show_browse_shortcuts(cur)
+    payload = {
+        "path": str(cur),
+        "parent": str(parent) if parent else None,
+        "canUp": parent is not None,
+        "home": str(root),
+        "dirs": dirs,
+    }
+    if notice:
+        payload["notice"] = notice
+    if requested and requested != payload["path"]:
+        payload["requested"] = requested
+    if at_root:
+        payload["shortcuts"] = config.browse_shortcuts()
+    return payload
 
 
 # --- GitHub 리포/브랜치 팝업 ---

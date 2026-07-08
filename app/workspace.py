@@ -46,7 +46,7 @@ def valid_path(path):
     """등록된 작업 위치의 경로만 유효한 workdir로 인정."""
     if not path:
         return False
-    return any(w["path"] == path for w in _load())
+    return any(config.paths_equivalent(w["path"], path) for w in _load())
 
 
 def _slug(text):
@@ -74,11 +74,19 @@ def _short_repo_name(repo):
 
 def add_local(name, path):
     p = Path(path).expanduser()
-    if not p.is_dir():
+    try:
+        exists = p.is_dir()
+    except PermissionError:
+        raise ValueError(
+            "폴더에 접근할 수 없습니다. "
+            "시스템 설정 → 개인정보 보호 및 보안에서 "
+            "Python(또는 터미널)에 iCloud Drive 접근을 허용했는지 확인하세요."
+        )
+    if not exists:
         raise ValueError(f"폴더를 찾을 수 없습니다: {path}")
-    p = p.resolve()
+    p = config.canonical_path(p)
     items = _load()
-    if any(w["path"] == str(p) for w in items):
+    if any(config.paths_equivalent(w["path"], p) for w in items):
         raise ValueError("이미 등록된 폴더입니다")
     ws = {"id": uuid.uuid4().hex[:8], "name": name or p.name,
           "path": str(p), "remote": None}

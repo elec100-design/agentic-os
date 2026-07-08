@@ -2,7 +2,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 
-from app import config, db, memory
+from app import config, db, memory, workspace
 from app.providers import CONTINUE_PROMPT, PROVIDERS
 
 # 실행 중인 작업 취소를 위해 main.py가 참조하는 공유 상태
@@ -38,7 +38,14 @@ async def run_job(conn, job, providers=None, save=True):
                                  model=job["model"])
     start = datetime.now(timezone.utc)
 
-    workdir = job["workdir"] if job["workdir"] and os.path.isdir(job["workdir"]) else None
+    workdir = job["workdir"] or None
+    if workdir:
+        for ws in workspace.list_workspaces():
+            if config.paths_equivalent(ws["path"], workdir):
+                workdir = ws["path"]
+                break
+        if not os.path.isdir(workdir):
+            workdir = None
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,

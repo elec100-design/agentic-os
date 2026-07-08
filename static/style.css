@@ -478,8 +478,34 @@ td a:hover { color: var(--accent); text-decoration: underline; }
 }
 
 /* 작업 위치(workspace) 선택 */
-.workspace-picker { display: inline-flex; align-items: center; gap: 0.3rem; }
-.ws-label { gap: 0.3rem; }
+.workspace-picker { display: inline-flex; align-items: center; }
+.workspace-picker-inner { display: inline-flex; align-items: center; gap: 0.3rem; }
+.ws-chip svg:first-child { color: var(--muted); flex-shrink: 0; }
+.chip-ws { max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+.ws-popup { min-width: 240px; max-width: min(360px, calc(100vw - 1.5rem)); }
+.ws-row-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding-right: 0.2rem;
+}
+.ws-row-wrap .ws-row { flex: 1; min-width: 0; }
+.ws-item-remove {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 0.45rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ws-item-remove:hover {
+  background: var(--err-bg);
+  color: var(--err);
+}
 .ws-select {
   max-width: 12rem;
   padding: 0.2rem 0.4rem;
@@ -596,6 +622,34 @@ td a:hover { color: var(--accent); text-decoration: underline; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.folder-shortcuts-panel {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  margin: -0.8rem -0.8rem 0.55rem;
+  padding: 0.55rem 0.8rem 0.35rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.folder-shortcuts-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.35rem 0.55rem;
+}
+.folder-shortcuts { margin-bottom: 0; }
+.folder-item.shortcut { font-weight: 500; }
+.folder-notice {
+  margin: 0 0 0.55rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--text);
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 .folder-list { list-style: none; margin: 0; padding: 0; }
 .folder-item {

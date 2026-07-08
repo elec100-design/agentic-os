@@ -25,11 +25,25 @@ def test_add_local_default_name_from_folder(tmp_env, tmp_path):
     assert ws["name"] == "myrepo"
 
 
-def test_valid_path_only_registered(tmp_env, tmp_path):
-    d = tmp_path / "proj"
-    d.mkdir()
+def test_valid_path_only_registered(tmp_env, tmp_path, monkeypatch):
+    from pathlib import Path
+    from app import config
+    root = tmp_path / "home"
+    d = root / "proj"
+    d.mkdir(parents=True)
+    data_d = Path(f"/System/Volumes/Data{d}")
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    orig_variants = config._path_variants
+    monkeypatch.setattr(
+        config,
+        "_path_variants",
+        lambda path: [d.resolve(), data_d]
+        if str(config.resolve_path(path)) in {str(d.resolve()), str(data_d)}
+        else orig_variants(path),
+    )
     ws = workspace.add_local("p", str(d))
     assert workspace.valid_path(ws["path"]) is True
+    assert workspace.valid_path(str(data_d)) is True
     assert workspace.valid_path("/some/other/path") is False
     assert workspace.valid_path("") is False
 

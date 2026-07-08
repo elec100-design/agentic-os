@@ -1,13 +1,24 @@
-<label class="timeout ws-label" title="작업이 실행될 폴더/리포">
-  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.5h5l1.2 1.5h6.8v6.5a1 1 0 0 1-1 1h-12a1 1 0 0 1-1-1z"/></svg>
-  <select name="workdir" class="ws-select" id="ws-select">
-    <option value="">기본(연동 안 함)</option>
+<span class="workspace-picker-inner" id="ws-picker-root">
+  <input type="hidden" name="workdir" id="ws-workdir" value="">
+  <button type="button" class="cbar-chip ws-chip" id="ws-btn" aria-haspopup="true" title="작업이 실행될 폴더/리포">
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M1.5 4.5h5l1.2 1.5h6.8v6.5a1 1 0 0 1-1 1h-12a1 1 0 0 1-1-1z"/></svg>
+    <span class="chip-ws" id="ws-label">기본(연동 안 함)</span>
+    <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+  </button>
+  <button type="button" class="ws-btn ws-add" title="폴더 탐색 또는 GitHub 리포에서 작업 위치 추가">＋</button>
+  <div class="cbar-popup ws-popup" id="ws-popup" hidden>
+    <button type="button" class="popup-row ws-row" data-path="" data-name="기본(연동 안 함)">
+      <span class="popup-check ws-check">✓</span>
+      <span class="popup-label">기본(연동 안 함)</span>
+    </button>
     {% for w in workspaces %}
-    <option value="{{ w.path }}" data-id="{{ w.id }}">{{ w.name }}{% if w.remote %} ⑂{% endif %}</option>
+    <div class="ws-row-wrap">
+      <button type="button" class="popup-row ws-row" data-path="{{ w.path }}" data-id="{{ w.id }}" data-name="{{ w.name }}">
+        <span class="popup-check ws-check"></span>
+        <span class="popup-label">{{ w.name }}{% if w.remote %} ⑂{% endif %}</span>
+      </button>
+      <button type="button" class="ws-item-remove" title="연동 해제" data-id="{{ w.id }}" data-name="{{ w.name }}" aria-label="{{ w.name }} 연동 해제">✕</button>
+    </div>
     {% endfor %}
-  </select>
-</label>
-<button type="button" class="ws-btn ws-add" title="폴더 탐색 또는 GitHub 리포에서 작업 위치 추가">＋</button>
-{% if workspaces %}
-<button type="button" class="ws-btn ws-remove" title="선택한 작업 위치 연동 해제">✕</button>
-{% endif %}
+  </div>
+</span>

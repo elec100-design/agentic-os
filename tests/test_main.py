@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 
@@ -196,8 +198,9 @@ def test_renaming_note_relinks_job(tmp_env):
 
 # --- 작업 위치(workspace) ---
 
-def test_workspace_add_local_and_use_in_job(tmp_env, tmp_path):
+def test_workspace_add_local_and_use_in_job(tmp_env, tmp_path, monkeypatch):
     from app import config, db
+    monkeypatch.setattr(config, "BROWSE_ROOT", tmp_path)
     d = tmp_path / "proj"
     d.mkdir()
     with _client(tmp_env) as client:
@@ -231,7 +234,9 @@ def test_workspace_add_bad_path_returns_400(tmp_env):
         assert r.status_code == 400
 
 
-def test_workspace_add_returns_selected_path_header(tmp_env, tmp_path):
+def test_workspace_add_returns_selected_path_header(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "BROWSE_ROOT", tmp_path)
     d = tmp_path / "proj"
     d.mkdir()
     with _client(tmp_env) as client:
@@ -266,6 +271,145 @@ def test_api_folders_confined_to_root(tmp_env, tmp_path, monkeypatch):
         # 루트 밖 경로를 요청해도 루트로 클램프
         d = client.get("/api/folders", params={"path": "/etc"}).json()
         assert d["path"] == str(root.resolve())
+
+
+def test_api_folders_icloud_shortcut_and_browse(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    icloud = root / "Library/Mobile Documents/com~apple~CloudDocs"
+    (icloud / "LLM WIKI").mkdir(parents=True)
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    monkeypatch.setattr(config, "ICLOUD_DRIVE", icloud)
+    with _client(tmp_env) as client:
+        d = client.get("/api/folders").json()
+        kinds = {s["kind"] for s in d.get("shortcuts", [])}
+        names = {s["name"] for s in d.get("shortcuts", [])}
+        assert "icloud" in kinds
+        assert "홈" in names
+        icloud_paths = [s["path"] for s in d["shortcuts"] if s["kind"] == "icloud"]
+        assert str(icloud.resolve()) in icloud_paths
+        inside = client.get(
+            "/api/folders",
+            params={"path": str(icloud / "LLM WIKI")},
+        ).json()
+        assert inside["path"] == str((icloud / "LLM WIKI").resolve())
+        labeled = client.get(
+            "/api/folders",
+            params={"path": str(icloud.parent)},
+        ).json()
+        cloud = next(x for x in labeled["dirs"] if x["name"] == "com~apple~CloudDocs")
+        assert cloud["label"] == "iCloud Drive"
+        # iCloud 루트에서도 바로가기(홈·iCloud 등)가 보인다
+        at_icloud = client.get("/api/folders", params={"path": str(icloud)}).json()
+        assert at_icloud.get("shortcuts")
+        assert at_icloud["canUp"] is False
+
+
+def test_api_folders_accepts_data_volume_icloud_path(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    icloud = root / "Library/Mobile Documents/com~apple~CloudDocs"
+    (icloud / "Projects").mkdir(parents=True)
+    data_icloud = Path(f"/System/Volumes/Data{icloud}")
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    monkeypatch.setattr(config, "ICLOUD_DRIVE", icloud)
+    orig_variants = config._path_variants
+    monkeypatch.setattr(
+        config,
+        "_path_variants",
+        lambda path: [icloud.resolve(), data_icloud]
+        if str(config.resolve_path(path)) in {str(icloud.resolve()), str(data_icloud)}
+        else orig_variants(path),
+    )
+    with _client(tmp_env) as client:
+        d = client.get(
+            "/api/folders",
+            params={"path": str(data_icloud)},
+        ).json()
+        assert d["path"] == str(icloud.resolve())
+        assert d["canUp"] is False
+        assert any(x["name"] == "Projects" for x in d["dirs"])
+
+
+def test_workspace_add_icloud_path(tmp_env, tmp_path, monkeypatch):
+    from app import config, workspace
+    root = tmp_path / "home"
+    icloud = root / "Library/Mobile Documents/com~apple~CloudDocs"
+    project = icloud / "LLM WIKI" / "Agentic-OS"
+    project.mkdir(parents=True)
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    monkeypatch.setattr(config, "ICLOUD_DRIVE", icloud)
+    with _client(tmp_env) as client:
+        r = client.post(
+            "/workspaces/add",
+            data={"value": str(project), "name": "Agentic-OS"},
+        )
+        assert r.status_code == 200
+        assert r.headers.get("X-Workspace-Path") == str(project.resolve())
+    assert workspace.valid_path(str(project.resolve())) is True
+
+
+def test_api_folders_skips_icloud_desktop_symlink(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    icloud = root / "Library/Mobile Documents/com~apple~CloudDocs"
+    icloud.mkdir(parents=True)
+    (root / "Desktop").mkdir()
+    (icloud / "Desktop").symlink_to(root / "Desktop")
+    (icloud / "Projects").mkdir()
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    monkeypatch.setattr(config, "ICLOUD_DRIVE", icloud)
+    with _client(tmp_env) as client:
+        d = client.get("/api/folders", params={"path": str(icloud)}).json()
+        names = {x["name"] for x in d["dirs"]}
+        assert "Projects" in names
+        assert "Desktop" not in names
+
+
+def test_api_folders_notice_for_missing_icloud_child(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    icloud = root / "Library/Mobile Documents/com~apple~CloudDocs"
+    icloud.mkdir(parents=True)
+    missing = icloud / "LLM WIKI" / "Agentic-OS"
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    monkeypatch.setattr(config, "ICLOUD_DRIVE", icloud)
+    with _client(tmp_env) as client:
+        d = client.get("/api/folders", params={"path": str(missing)}).json()
+        assert d["path"] == str(icloud.resolve())
+        assert "notice" in d
+        assert d["requested"] == str(missing.resolve())
+
+
+def test_is_browse_allowed_cloud_storage_path(tmp_env, tmp_path, monkeypatch):
+    from app import config
+    root = tmp_path / "home"
+    cloud = root / "Library/CloudStorage/iCloudDrive-test@icloud.com"
+    project = cloud / "Projects" / "demo"
+    project.mkdir(parents=True)
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    monkeypatch.setattr(config, "ICLOUD_DRIVE", root / "nope")
+    assert config.is_browse_allowed(project) is True
+
+
+def test_workspace_valid_path_accepts_path_variants(tmp_env, tmp_path, monkeypatch):
+    from app import config, workspace
+    root = tmp_path / "home"
+    project = root / "Projects" / "demo"
+    project.mkdir(parents=True)
+    data_project = Path(f"/System/Volumes/Data{project}")
+    monkeypatch.setattr(config, "BROWSE_ROOT", root)
+    orig_variants = config._path_variants
+    monkeypatch.setattr(
+        config,
+        "_path_variants",
+        lambda path: [project.resolve(), data_project]
+        if str(config.resolve_path(path)) in {str(project.resolve()), str(data_project)}
+        else orig_variants(path),
+    )
+    ws = workspace.add_local("p", str(project))
+    assert workspace.valid_path(str(data_project)) is True
+    assert workspace.valid_path(ws["path"]) is True
 
 
 # --- GitHub API (gh 호출은 모킹) ---

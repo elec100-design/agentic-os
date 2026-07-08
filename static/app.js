@@ -155,6 +155,7 @@ function renderAgentPopup() {
 function closeComposerPopups() {
   if (agentPopup) agentPopup.hidden = true;
   if (toolsPopup) toolsPopup.hidden = true;
+  closeWsPopup();
 }
 function openComposerPopup(popup, anchor) {
   closeComposerPopups();
@@ -181,7 +182,8 @@ toolsBtn?.addEventListener("click", (e) => {
 });
 document.addEventListener("click", (e) => {
   if (e.target.closest("#agent-popup") || e.target.closest("#agent-btn")
-      || e.target.closest("#tools-popup") || e.target.closest("#tools-btn")) return;
+      || e.target.closest("#tools-popup") || e.target.closest("#tools-btn")
+      || e.target.closest("#ws-popup") || e.target.closest("#ws-btn")) return;
   closeComposerPopups();
 });
 window.addEventListener("resize", closeComposerPopups);
@@ -317,38 +319,107 @@ document.addEventListener("click", (e) => {
 window.addEventListener("resize", closeDropdown);
 document.querySelector(".note-scroll") && document.addEventListener("scroll", closeDropdown, true);
 
-// ---- 작업 위치(workspace) 추가/제거 ------------------------------------
+// ---- 작업 위치(workspace) 선택·추가·제거 --------------------------------
+const WS_DEFAULT = "기본(연동 안 함)";
+let wsSelectedPath = "";
+
+function selectWorkspace(path) {
+  wsSelectedPath = path || "";
+  const input = document.getElementById("ws-workdir");
+  if (input) input.value = wsSelectedPath;
+  const label = document.getElementById("ws-label");
+  if (label) {
+    if (!wsSelectedPath) {
+      label.textContent = WS_DEFAULT;
+    } else {
+      const row = document.querySelector(`.ws-row[data-path="${CSS.escape(wsSelectedPath)}"]`);
+      label.textContent = row?.dataset.name || WS_DEFAULT;
+    }
+  }
+  document.querySelectorAll(".ws-row").forEach((row) => {
+    const check = row.querySelector(".ws-check");
+    if (check) check.textContent = (row.dataset.path || "") === wsSelectedPath ? "✓" : "";
+  });
+}
+
+function closeWsPopup() {
+  const popup = document.getElementById("ws-popup");
+  if (popup) popup.hidden = true;
+}
+
+function openWsPopup() {
+  const btn = document.getElementById("ws-btn");
+  const popup = document.getElementById("ws-popup");
+  if (!btn || !popup) return;
+  closeComposerPopups();
+  popup.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const w = popup.offsetWidth || 240;
+  let left = r.left + window.scrollX;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - w - 8;
+  if (left > maxLeft) left = Math.max(8, maxLeft);
+  popup.style.top = (r.bottom + 6 + window.scrollY) + "px";
+  popup.style.left = left + "px";
+}
+
+function initWsPicker(preferredPath) {
+  const rows = document.querySelectorAll(".ws-row");
+  if (!rows.length) return;
+  let path = preferredPath ?? wsSelectedPath ?? "";
+  if (path && !document.querySelector(`.ws-row[data-path="${CSS.escape(path)}"]`)) path = "";
+  selectWorkspace(path);
+}
+
 async function postWorkspace(url, data) {
+  const prevPath = document.getElementById("ws-workdir")?.value || "";
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(data),
   });
   if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    return { ok: false, msg: msg.slice(0, 300) };
+    const text = await res.text().catch(() => "");
+    let msg = text.slice(0, 300);
+    try {
+      const j = JSON.parse(text);
+      if (typeof j.detail === "string") msg = j.detail;
+    } catch (_) { /* plain-text error */ }
+    return { ok: false, msg };
   }
   const picker = document.getElementById("workspace-picker");
   picker.innerHTML = await res.text();
   if (window.htmx) htmx.process(picker);
-  // 방금 추가한 위치를 자동 선택
-  const path = res.headers.get("X-Workspace-Path");
-  if (path) {
-    const sel = document.getElementById("ws-select");
-    if (sel) sel.value = path;
-  }
+  const nextPath = res.headers.get("X-Workspace-Path") || prevPath;
+  initWsPicker(nextPath);
   return { ok: true };
 }
+
+document.body.addEventListener("htmx:afterSwap", (e) => {
+  if (e.target && e.target.id === "workspace-picker") initWsPicker();
+});
 
 document.addEventListener("click", (e) => {
   if (e.target.closest(".ws-add")) {
     openWsModal();
-  } else if (e.target.closest(".ws-remove")) {
-    const sel = document.getElementById("ws-select");
-    const opt = sel?.selectedOptions[0];
-    if (!opt || !opt.dataset.id) { alert("연동 해제할 작업 위치를 먼저 선택하세요."); return; }
-    if (confirm(`'${opt.textContent.trim()}' 연동을 해제할까요? (폴더 자체는 삭제되지 않습니다)`))
-      postWorkspace("/workspaces/remove", { id: opt.dataset.id });
+    return;
+  }
+  if (e.target.closest(".ws-item-remove")) {
+    e.stopPropagation();
+    const btn = e.target.closest(".ws-item-remove");
+    if (confirm(`'${btn.dataset.name}' 연동을 해제할까요? (폴더 자체는 삭제되지 않습니다)`))
+      postWorkspace("/workspaces/remove", { id: btn.dataset.id });
+    return;
+  }
+  if (e.target.closest(".ws-row")) {
+    selectWorkspace(e.target.closest(".ws-row").dataset.path);
+    closeWsPopup();
+    return;
+  }
+  if (e.target.closest("#ws-btn")) {
+    e.stopPropagation();
+    const popup = document.getElementById("ws-popup");
+    if (popup && !popup.hidden) closeWsPopup();
+    else openWsPopup();
   }
 });
 
@@ -389,27 +460,57 @@ async function loadFolders(path) {
   } catch (_) { wsBody.innerHTML = '<div class="modal-empty">폴더를 불러오지 못했습니다.</div>'; return; }
 
   const rows = [];
+  if (d.shortcuts?.length) {
+    rows.push('<div class="folder-shortcuts-panel">');
+    rows.push('<div class="folder-shortcuts-label">바로가기</div>');
+    rows.push('<ul class="folder-list folder-shortcuts">');
+    for (const s of d.shortcuts) {
+      const icon = s.kind === "icloud" || s.kind === "cloud" ? "☁️" : "📁";
+      rows.push(
+        `<li class="folder-item shortcut" data-path="${s.path.replace(/"/g, "&quot;")}">` +
+        `${icon} ${s.name}</li>`
+      );
+    }
+    rows.push("</ul></div>");
+  }
   rows.push(`<div class="folder-path" title="${d.path}">${d.path}</div>`);
+  if (d.notice) {
+    rows.push(`<div class="folder-notice">${d.notice}</div>`);
+  }
   rows.push('<ul class="folder-list">');
   if (d.canUp) rows.push(`<li class="folder-item up" data-path="${d.parent}">⬆︎ 상위 폴더</li>`);
   for (const f of d.dirs) {
-    rows.push(`<li class="folder-item" data-path="${f.path.replace(/"/g, "&quot;")}">📁 ${f.name}</li>`);
+    const label = f.label || f.name;
+    rows.push(
+      `<li class="folder-item" data-path="${f.path.replace(/"/g, "&quot;")}">📁 ${label}</li>`
+    );
   }
-  if (!d.dirs.length && !d.canUp) rows.push('<li class="modal-empty">하위 폴더가 없습니다</li>');
+  if (!d.dirs.length && !d.canUp && !d.shortcuts?.length) {
+    rows.push('<li class="modal-empty">하위 폴더가 없습니다</li>');
+  }
   rows.push("</ul>");
   wsBody.innerHTML = rows.join("");
 
   wsBody.querySelectorAll(".folder-item").forEach((li) =>
     li.addEventListener("click", () => loadFolders(li.dataset.path)));
 
+  const pickBlocked = Boolean(d.requested);
   wsFoot.innerHTML =
-    `<span class="modal-hint">이 폴더에서 작업이 실행됩니다</span>` +
-    `<button type="button" class="btn-primary" id="folder-pick">이 폴더 선택</button>`;
-  document.getElementById("folder-pick").addEventListener("click", async () => {
-    const r = await postWorkspace("/workspaces/add", { value: d.path });
-    if (r.ok) closeWsModal();
-    else alert("추가하지 못했습니다.\n" + r.msg);
-  });
+    `<span class="modal-hint">${
+      pickBlocked
+        ? "요청한 iCloud 폴더가 이 Mac에 없습니다. Finder에서 먼저 내려받은 뒤 다시 선택하세요."
+        : "이 폴더에서 작업이 실행됩니다"
+    }</span>` +
+    `<button type="button" class="btn-primary" id="folder-pick"${
+      pickBlocked ? " disabled" : ""
+    }>이 폴더 선택</button>`;
+  if (!pickBlocked) {
+    document.getElementById("folder-pick").addEventListener("click", async () => {
+      const r = await postWorkspace("/workspaces/add", { value: d.path });
+      if (r.ok) closeWsModal();
+      else alert("추가하지 못했습니다.\n" + r.msg);
+    });
+  }
 }
 
 // --- GitHub 리포/브랜치 ---
