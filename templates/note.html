@@ -23,6 +23,7 @@
   <textarea name="prompt" rows="3" required placeholder="이어서 무엇을 할까요?"></textarea>
   <input type="hidden" name="provider" value="{{ note['provider'] }}">
   <input type="hidden" name="session_id" value="{{ note['session_id'] }}">
+  <input type="hidden" name="origin_note" value="{{ note['path'] }}">
   <div class="composer-bar">
     <span class="resume-note">{{ note['provider'] }} 세션 {{ note['session_id'][:12] }}… 에서 이어집니다</span>
     <span class="spacer"></span>

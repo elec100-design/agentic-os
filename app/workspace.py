@@ -49,6 +49,16 @@ def valid_path(path):
     return any(config.paths_equivalent(w["path"], path) for w in _load())
 
 
+def name_for_path(path):
+    """경로에 해당하는 등록된 작업 위치의 이름. 없으면 None."""
+    if not path:
+        return None
+    for w in _load():
+        if config.paths_equivalent(w["path"], path):
+            return w["name"]
+    return None
+
+
 def _slug(text):
     s = re.sub(r"[^\w.\-]", "-", text).strip("-")
     return s[:40] or "repo"
