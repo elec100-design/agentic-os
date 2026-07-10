@@ -4,7 +4,7 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from app import config
+from app import config, workspace
 
 
 # --- 노트 앱 메타데이터 (고정/그룹/보관) --------------------------------
@@ -118,6 +118,8 @@ def save_note(prompt, provider, output, when=None, session_id=None, workdir=None
     if workdir:
         safe_wd = str(workdir).replace('"', "'")
         workdir_line = f'workdir: "{safe_wd}"\n'
+    ws = workspace.name_for_path(workdir)
+    workspace_line = f"workspace: {ws}\n" if ws else ""
     body = (
         f"---\n"
         f"date: {date}\n"
@@ -125,12 +127,16 @@ def save_note(prompt, provider, output, when=None, session_id=None, workdir=None
         f'prompt: "{summary}"\n'
         f"{session_line}"
         f"{workdir_line}"
+        f"{workspace_line}"
         f"tags: [agentic-os]\n"
         f"---\n\n"
         f"## 프롬프트\n\n{prompt}\n\n"
         f"## 결과\n\n{output}\n"
     )
     path.write_text(body, encoding="utf-8")
+    if ws:
+        # 작업 위치 이름으로 자동 그룹핑 (새 파일이라 수동 그룹과 충돌 없음)
+        set_note_flags(path, group=ws, auto_group=True)
     return path
 
 
@@ -140,6 +146,47 @@ def _fm_value(raw):
     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
         v = v[1:-1]
     return v or None
+
+
+def append_note(path, prompt, provider, output, session_id=None):
+    """이어진 세션(resume)의 결과를 기존 노트에 N차 섹션으로 덧붙인다.
+    frontmatter의 session_id는 새 값으로 교체(다음 resume에 필요)하고
+    updated 날짜를 갱신한다. 고정/그룹/보관 플래그는 건드리지 않는다."""
+    if not is_managed(path):
+        raise ValueError("managed 노트가 아닙니다")
+    p = Path(path).resolve()
+    if not p.is_file():
+        raise FileNotFoundError(path)
+    text = p.read_text(encoding="utf-8", errors="replace")
+    today = datetime.now().strftime("%Y-%m-%d")
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            lines = text[4:end].splitlines()
+            lines = [l for l in lines
+                     if l.partition(":")[0].strip() not in ("session_id", "updated")]
+            if session_id:
+                lines.append(f"session_id: {session_id}")
+            lines.append(f"updated: {today}")
+            text = "---\n" + "\n".join(lines) + text[end:]
+    n = text.count("## 프롬프트") + 1
+    text += f"\n## 프롬프트 ({n}차)\n\n{prompt}\n\n## 결과 ({n}차)\n\n{output}\n"
+    p.write_text(text, encoding="utf-8")
+    return p
+
+
+def backfill_auto_groups(rows):
+    """기존 잡의 (note_path, workdir)로 그룹 없는 노트를 소급 자동 그룹핑.
+    수동 그룹이 있거나 사용자가 그룹을 해제한(auto_group=False) 노트는 스킵."""
+    for note_path, workdir in rows:
+        if not is_managed(note_path) or not Path(note_path).is_file():
+            continue
+        flags = note_flags(note_path)
+        if flags["group"] is not None or flags.get("auto_group") is False:
+            continue
+        ws = workspace.name_for_path(workdir)
+        if ws:
+            set_note_flags(note_path, group=ws, auto_group=True)
 
 
 def read_note(path):

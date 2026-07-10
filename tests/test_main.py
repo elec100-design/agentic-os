@@ -230,6 +230,67 @@ def test_renaming_note_relinks_job(tmp_env):
     assert db.get_job(conn, job_id)["note_path"] == str(new.resolve())
 
 
+def test_create_job_with_origin_note_links_thread(tmp_env):
+    from app import config, db, memory
+    note = memory.save_note("원질문", "claude", "답변", session_id="sess-1")
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={"prompt": "이어서", "provider": "claude",
+                                   "session_id": "sess-1",
+                                   "origin_note": str(note)},
+                    follow_redirects=False)
+    conn = db.get_conn(config.DB_PATH)
+    assert db.list_jobs(conn)[0]["note_path"] == str(note.resolve())
+
+
+def test_create_job_ignores_origin_note_without_session(tmp_env):
+    from app import config, db, memory
+    note = memory.save_note("원질문", "claude", "답변")
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={"prompt": "p", "provider": "claude",
+                                   "origin_note": str(note)},
+                    follow_redirects=False)
+    conn = db.get_conn(config.DB_PATH)
+    assert db.list_jobs(conn)[0]["note_path"] is None
+
+
+def test_create_job_ignores_unmanaged_origin_note(tmp_env):
+    from app import config, db
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={"prompt": "p", "provider": "claude",
+                                   "session_id": "sess-1",
+                                   "origin_note": "/etc/hosts"},
+                    follow_redirects=False)
+    conn = db.get_conn(config.DB_PATH)
+    assert db.list_jobs(conn)[0]["note_path"] is None
+
+
+def test_deleting_one_thread_job_keeps_shared_note(tmp_env):
+    from app import config, db, memory
+    conn = db.get_conn(config.DB_PATH)
+    note = memory.save_note("질문", "claude", "답변")
+    a = db.create_job(conn, "질문", "claude")
+    b = db.create_job(conn, "이어서", "claude")
+    db.update_job(conn, a, note_path=str(note.resolve()))
+    db.update_job(conn, b, note_path=str(note.resolve()))
+    with _client(tmp_env) as client:
+        client.post(f"/jobs/{b}/delete")
+    assert note.exists()                        # 다른 잡이 공유 → 노트 보존
+    assert db.get_job(conn, b) is None
+    with _client(tmp_env) as client:
+        client.post(f"/jobs/{a}/delete")
+    assert not note.exists()                    # 마지막 잡 삭제 → 노트도 삭제
+
+
+def test_note_group_endpoint_marks_manual(tmp_env):
+    from app import memory
+    note = memory.save_note("질문", "claude", "답변")
+    with _client(tmp_env) as client:
+        client.post("/notes/group", data={"path": str(note), "group": "연구"})
+    flags = memory.note_flags(note)
+    assert flags["group"] == "연구"
+    assert flags["auto_group"] is False
+
+
 # --- 작업 위치(workspace) ---
 
 def test_workspace_add_local_and_use_in_job(tmp_env, tmp_path, monkeypatch):

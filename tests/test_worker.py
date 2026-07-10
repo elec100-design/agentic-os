@@ -112,6 +112,39 @@ async def test_run_job_records_note_path_on_job(tmp_env):
     assert db.get_job(conn, job["id"])["note_path"] == str(note.resolve())
 
 
+async def test_run_job_appends_to_thread_note(tmp_env):
+    from app import memory
+    origin = memory.save_note("원질문", "fake", "첫 답변", session_id="s0")
+    p = FakeProvider(["sh", "-c", "echo 이어진결과"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "이어서", "fake", session_id="s0",
+                  note_path=str(origin.resolve()))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=True)
+    notes = list(config.MEMORY_DIR.glob("*.md"))
+    assert len(notes) == 1                      # 새 노트가 생기지 않음
+    text = origin.read_text(encoding="utf-8")
+    assert "## 결과" in text
+    assert "## 결과 (2차)" in text
+    assert "이어진결과" in text
+    assert db.get_job(conn, job["id"])["note_path"] == str(origin.resolve())
+
+
+async def test_run_job_falls_back_when_thread_note_deleted(tmp_env):
+    from app import memory
+    origin = memory.save_note("원질문", "fake", "첫 답변", session_id="s0")
+    origin.unlink()
+    p = FakeProvider(["sh", "-c", "echo 새결과"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "이어서", "fake", session_id="s0",
+                  note_path=str(origin.resolve()))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=True)
+    notes = list(config.MEMORY_DIR.glob("*.md"))
+    assert len(notes) == 1                      # 폴백으로 새 노트 생성
+    assert db.get_job(conn, job["id"])["note_path"] == str(notes[0].resolve())
+
+
 async def test_run_job_runs_in_workdir(tmp_env, tmp_path):
     workdir = tmp_path / "work"
     workdir.mkdir()

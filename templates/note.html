@@ -26,6 +26,7 @@
   {% if note['workdir'] %}
   <input type="hidden" name="workdir" value="{{ note['workdir'] }}">
   {% endif %}
+  <input type="hidden" name="origin_note" value="{{ note['path'] }}">
   <div class="composer-bar">
     <span class="resume-note">
       {{ note['provider'] }} 세션 {{ note['session_id'][:12] }}… 에서 이어집니다
