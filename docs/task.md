@@ -16,8 +16,9 @@
 - [x] 메모리 ↔ 작업큐 양방향 연동 (한쪽 삭제 시 반대쪽도 삭제, 이름변경 시 재연결)
 
 ### 모델 선택
-- [x] 에이전트 pill 클릭 → 모델 선택 팝업 (config.PROVIDER_MODELS)
+- [x] 에이전트 pill 클릭 → 모델 선택 팝업 (동적 목록)
 - [x] jobs.model 컬럼 + `--model` 플래그 전달, 첫 항목 기본값(플래그 생략)
+- [x] CLI 동적 모델 목록: `agy models` / `grok models` / claude 패밀리 별칭(fable·opus·sonnet·haiku) — 백그라운드 캐시(`data/models_cache.json`), 실패 시 폴백
 
 ### 사용량 (CodexBar 연동)
 - [x] `codexbar usage --format json`을 백그라운드로 주기 조회 → `data/usage_cache.json` 캐시

@@ -125,7 +125,8 @@ async def run_job(conn, job, providers=None, save=True):
         try:
             note_path = memory.save_note(
                 job["prompt"], provider.name, result.text,
-                session_id=result.session_id or job["session_id"])
+                session_id=result.session_id or job["session_id"],
+                workdir=job["workdir"])
             # 노트↔작업 연동을 위해 생성된 노트 경로를 작업에 기록
             db.update_job(conn, job["id"], note_path=str(note_path.resolve()))
         except OSError as e:

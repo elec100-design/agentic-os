@@ -72,6 +72,26 @@ def test_save_note_records_session_id(tmp_env):
     assert "session_id: sess-9" in path.read_text(encoding="utf-8")
 
 
+def test_save_note_records_workdir(tmp_env):
+    wd = "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI"
+    path = memory.save_note("q", "claude", "a", when=datetime(2026, 7, 5),
+                            session_id="sess-9", workdir=wd)
+    text = path.read_text(encoding="utf-8")
+    assert f'workdir: "{wd}"' in text
+    note = memory.read_note(path)
+    assert note["session_id"] == "sess-9"
+    assert note["workdir"] == wd
+    assert note["provider"] == "claude"
+
+
+def test_read_note_without_workdir(tmp_env):
+    path = memory.save_note("q", "claude", "a", when=datetime(2026, 7, 5),
+                            session_id="sess-1")
+    note = memory.read_note(path)
+    assert note["workdir"] is None
+    assert note["session_id"] == "sess-1"
+
+
 def test_is_managed_only_inside_memory_dir(tmp_env):
     path = memory.save_note("노트", "claude", "x", when=datetime(2026, 7, 5))
     assert memory.is_managed(path)

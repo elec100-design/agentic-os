@@ -17,7 +17,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import codexbar, config, db, github_cli, memory, workspace, worker
+from app import codexbar, config, db, github_cli, memory, models, workspace, worker
 from app.providers import PROVIDERS, route_auto
 
 BASE = Path(__file__).resolve().parent.parent
@@ -52,8 +52,14 @@ async def lifespan(app):
     stop = asyncio.Event()
     tasks = []
     if not os.environ.get("AOS_DISABLE_WORKER"):
+        # 기동 직후 모델 목록을 한 번 채워 구 하드코딩·빈 캐시를 바로 덮어쓴다.
+        try:
+            models.write_cache(await models.fetch())
+        except Exception:
+            pass
         tasks.append(asyncio.create_task(worker.worker_loop(stop)))
         tasks.append(asyncio.create_task(codexbar.refresh_loop(stop)))
+        tasks.append(asyncio.create_task(models.refresh_loop(stop)))
     yield
     stop.set()
     for task in tasks:
@@ -165,7 +171,7 @@ def _ago_str(iso, now):
 def index(request: Request):
     return templates.TemplateResponse(
         request, "index.html",
-        {"provider_models": config.PROVIDER_MODELS},
+        {"provider_models": models.get_provider_models()},
     )
 
 
@@ -199,7 +205,7 @@ async def create_job(
         provider, _ = route_auto(prompt, usage_state=usage_state()["usage"])
     if provider not in PROVIDERS:
         raise HTTPException(status_code=400, detail="unknown provider")
-    if not _valid_model(provider, model):
+    if not models.is_valid_model(provider, model):
         model = ""
     # 등록된 작업 위치만 cwd로 허용 (임의 경로 실행 방지)
     if not workspace.valid_path(workdir):
@@ -222,14 +228,6 @@ async def create_job(
                   model=model or None,
                   workdir=workdir or None)
     return RedirectResponse("/", status_code=303)
-
-
-def _valid_model(provider, model):
-    """폼으로 넘어온 model이 해당 provider의 허용 목록에 있는지 검증."""
-    if not model:
-        return True
-    return any(m.get("model") == model
-               for m in config.PROVIDER_MODELS.get(provider, []))
 
 
 @app.get("/api/recommend")

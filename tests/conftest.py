@@ -13,6 +13,7 @@ def tmp_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", tmp_path)
     monkeypatch.setattr(config, "UPLOAD_DIR", tmp_path / "uploads")
     monkeypatch.setattr(config, "USAGE_CACHE_PATH", tmp_path / "usage_cache.json")
+    monkeypatch.setattr(config, "MODELS_CACHE_PATH", tmp_path / "models_cache.json")
     monkeypatch.setattr(config, "NOTE_STATE_PATH", tmp_path / "note_state.json")
     monkeypatch.setattr(config, "WORKSPACES_PATH", tmp_path / "workspaces.json")
     monkeypatch.setattr(config, "WORKSPACES_DIR", tmp_path / "workspaces")

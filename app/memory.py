@@ -100,7 +100,7 @@ def _slug(text, maxlen=40):
     return s[:maxlen] or "note"
 
 
-def save_note(prompt, provider, output, when=None, session_id=None):
+def save_note(prompt, provider, output, when=None, session_id=None, workdir=None):
     memory_dir = Path(config.MEMORY_DIR)
     memory_dir.mkdir(parents=True, exist_ok=True)
     when = when or datetime.now()
@@ -113,12 +113,18 @@ def save_note(prompt, provider, output, when=None, session_id=None):
         path = memory_dir / f"{base}-{n}.md"
     summary = prompt.replace("\n", " ").replace('"', "'")[:80]
     session_line = f"session_id: {session_id}\n" if session_id else ""
+    # 경로에 공백이 있을 수 있어 따옴표로 감싼다
+    workdir_line = ""
+    if workdir:
+        safe_wd = str(workdir).replace('"', "'")
+        workdir_line = f'workdir: "{safe_wd}"\n'
     body = (
         f"---\n"
         f"date: {date}\n"
         f"provider: {provider}\n"
         f'prompt: "{summary}"\n'
         f"{session_line}"
+        f"{workdir_line}"
         f"tags: [agentic-os]\n"
         f"---\n\n"
         f"## 프롬프트\n\n{prompt}\n\n"
@@ -128,25 +134,36 @@ def save_note(prompt, provider, output, when=None, session_id=None):
     return path
 
 
+def _fm_value(raw):
+    """frontmatter 값에서 감싸는 따옴표를 제거한다."""
+    v = (raw or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        v = v[1:-1]
+    return v or None
+
+
 def read_note(path):
-    """볼트 안의 노트만 읽는다. frontmatter의 provider/session_id를 파싱해
-    본문과 함께 돌려주고, 경로가 볼트 밖이거나 없으면 None."""
+    """볼트 안의 노트만 읽는다. frontmatter의 provider/session_id/workdir를
+    파싱해 본문과 함께 돌려주고, 경로가 볼트 밖이거나 없으면 None."""
     p = Path(path).resolve()
     vault = Path(config.VAULT_PATH).resolve()
     if not p.is_relative_to(vault) or p.suffix != ".md" or not p.is_file():
         return None
     text = p.read_text(encoding="utf-8", errors="replace")
     meta = {"name": p.stem, "path": str(p), "provider": None,
-            "session_id": None, "body": text}
+            "session_id": None, "workdir": None, "body": text}
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
         if end != -1:
             for line in text[4:end].splitlines():
                 key, _, value = line.partition(":")
-                if key.strip() == "provider":
-                    meta["provider"] = value.strip() or None
-                elif key.strip() == "session_id":
-                    meta["session_id"] = value.strip() or None
+                key = key.strip()
+                if key == "provider":
+                    meta["provider"] = _fm_value(value)
+                elif key == "session_id":
+                    meta["session_id"] = _fm_value(value)
+                elif key == "workdir":
+                    meta["workdir"] = _fm_value(value)
             meta["body"] = text[end + 5:].strip()
     return meta
 

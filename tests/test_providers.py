@@ -15,14 +15,29 @@ NOW = datetime(2026, 7, 5, 12, 0, tzinfo=timezone.utc)
 # --- Claude ---
 
 def test_claude_build_new():
+    # --allowedTools is variadic; prompt must follow `--` so it is not eaten as a tool
     cmd = ClaudeProvider().build_command("안녕")
-    assert cmd == ["claude", "-p", "--output-format", "json", "안녕"]
+    assert cmd == [
+        "claude", "-p", "--output-format", "json",
+        "--allowedTools", "WebSearch", "WebFetch",
+        "--", "안녕",
+    ]
+
+
+def test_claude_build_allows_web_tools_on_resume():
+    cmd = ClaudeProvider().build_command("이어", session_id="s1")
+    assert "--allowedTools" in cmd
+    assert "WebSearch" in cmd and "WebFetch" in cmd
+    # prompt comes after `--`, never as a bare trailing arg after tools
+    assert cmd[cmd.index("--") + 1] == "이어"
+    assert cmd.index("--allowedTools") < cmd.index("--")
 
 
 def test_claude_build_resume():
     cmd = ClaudeProvider().build_command("이어서 해줘", session_id="abc-123")
     assert "--resume" in cmd and "abc-123" in cmd
-    assert cmd[-1] == "이어서 해줘"
+    assert cmd[cmd.index("--") + 1] == "이어서 해줘"
+    assert cmd.index("--allowedTools") < cmd.index("--")
 
 
 def test_claude_parse_json_output():
@@ -112,26 +127,30 @@ def test_hermes_build_and_never_limits():
 # --- Model selection ---
 
 def test_claude_build_with_model():
-    cmd = ClaudeProvider().build_command("안녕", model="claude-opus-4-8")
-    assert "--model" in cmd and "claude-opus-4-8" in cmd
-    assert cmd[-1] == "안녕"
+    # 패밀리 별칭 — CLI가 항상 최신 full ID로 해석
+    cmd = ClaudeProvider().build_command("안녕", model="opus")
+    assert "--model" in cmd and "opus" in cmd
+    assert cmd[cmd.index("--") + 1] == "안녕"
+    assert cmd.index("--allowedTools") < cmd.index("--")
 
 
 def test_claude_build_model_and_resume():
-    cmd = ClaudeProvider().build_command("이어", session_id="s1", model="claude-sonnet-5")
-    assert "--model" in cmd and "claude-sonnet-5" in cmd
+    cmd = ClaudeProvider().build_command("이어", session_id="s1", model="sonnet")
+    assert "--model" in cmd and "sonnet" in cmd
     assert "--resume" in cmd and "s1" in cmd
-    assert cmd[-1] == "이어"
+    assert cmd[cmd.index("--") + 1] == "이어"
+    assert cmd.index("--allowedTools") < cmd.index("--")
 
 
 def test_antigravity_build_with_model():
-    cmd = AntigravityProvider().build_command("hi", model="gemini-3-pro")
-    assert cmd == ["agy", "-p", "hi", "--model", "gemini-3-pro"]
+    mid = "Gemini 3.5 Flash (Medium)"
+    cmd = AntigravityProvider().build_command("hi", model=mid)
+    assert cmd == ["agy", "-p", "hi", "--model", mid]
 
 
 def test_grok_build_with_model():
-    cmd = GrokProvider().build_command("hi", model="grok-4")
-    assert cmd == ["grok", "--model", "grok-4", "-p", "hi"]
+    cmd = GrokProvider().build_command("hi", model="grok-4.5")
+    assert cmd == ["grok", "--model", "grok-4.5", "-p", "hi"]
 
 
 def test_no_model_omits_flag():

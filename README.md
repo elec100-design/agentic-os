@@ -10,7 +10,7 @@ Mac Mini에서 Claude, Antigravity, SuperGrok, Hermes 유료 구독 CLI를 하�
 
 - **통합 디스패치** — 프롬프트 하나로 4개 AI CLI를 선택하거나 자동 라우팅
 - **실측 사용량 기반 자동 모드** — CodexBar로 읽은 실제 잔여 사용량이 가장 많은 에이전트로 복잡 작업을 배분, 단순 작업은 로컬 Hermes로. 실시간 추천 힌트 제공
-- **모델 선택** — 에이전트별 모델을 팝업에서 선택(예: Claude Fable/Opus/Sonnet/Haiku)
+- **모델 선택** — CLI에서 수집한 **최신 모델 목록**을 팝업에서 선택 (하드코딩 없음, 주기 자동 갱신)
 - **작업 큐** — SQLite 기반 순차 처리, 실시간 출력(SSE) 스트리밍, 취소·삭제
 - **자동 재개** — rate limit 감지 후 `resume_at` 시각까지 대기, CLI 세션으로 이어서 실행
 - **메모리 ↔ 작업큐 연동** — 노트에 hover하면 고정/이름변경/그룹/보관/삭제 메뉴, 노트 클릭 시 해당 세션 이어가기. 한쪽을 지우면 반대쪽도 함께 정리
@@ -91,6 +91,19 @@ uv pip install -r requirements.txt --python .venv/bin/python3
 
 컴포저에 지금 이 프롬프트가 어디로 갈지 실시간 추천 힌트가 표시됩니다.
 
+### 모델 목록 (동적)
+
+버전 ID를 코드에 박아 두지 않습니다. 기동 시·주기적으로 각 CLI에서 읽어 `data/models_cache.json`에 캐시합니다.
+
+| 에이전트 | 수집 방식 | 선택 값 |
+|----------|-----------|---------|
+| Claude | 패밀리 별칭 + 바이너리 매핑 라벨 | `fable` / `opus` / `sonnet` / `haiku` (CLI가 항상 최신 full ID로 해석) |
+| Antigravity | `agy models` | 표시명 그대로 (예: `Gemini 3.5 Flash (Medium)`) |
+| Grok | `grok models` | 모델 ID (예: `grok-4.5`) |
+| Hermes | `hermes status` | 로컬 기본값만 (현재 모델명은 라벨 표시) |
+
+CLI 조회 실패 시 `config.FALLBACK_PROVIDER_MODELS`(별칭·기본값만)로 폴백합니다.
+
 ### 외부 접속 (Tailscale)
 
 앱은 `127.0.0.1`에만 바인딩된 채로 두고, Tailscale serve가 tailnet 안에서 HTTPS로 프록시합니다:
@@ -118,16 +131,17 @@ agentic-os/
 │   ├── main.py        # FastAPI: 대시보드 + API + SSE + 워크스페이스/노트 엔드포인트
 │   ├── worker.py      # 백그라운드 큐 워커 (선택한 cwd에서 CLI 실행)
 │   ├── providers.py   # 4개 CLI 어댑터 + 모델 플래그 + 사용량 기반 자동 라우팅
+│   ├── models.py      # CLI 모델 목록 동적 수집 + 캐시 (최신 모델 자동 반영)
 │   ├── codexbar.py    # CodexBar 실측 사용량 조회 + 캐시
 │   ├── workspace.py   # 작업 위치(로컬 폴더 / GitHub 리포) 관리
 │   ├── github_cli.py  # gh CLI로 리포·브랜치 조회
 │   ├── memory.py      # Obsidian 볼트 읽기/쓰기 + 노트 상태(고정/그룹/보관)
 │   ├── db.py          # SQLite 접근 계층 + 마이그레이션
-│   └── config.py      # 설정값 (모델 목록, 사용량 새로고침 주기 등)
+│   └── config.py      # 설정값 (폴백 모델, 사용량/모델 새로고침 주기 등)
 ├── templates/         # Jinja2 + HTMX 화면 (사이드바, 컴포저, 노트, 작업)
 ├── static/            # style.css, app.js, htmx (vendored)
-├── data/              # SQLite, 사용량 캐시, 노트 상태, 업로드, 워크스페이스 (git 제외)
-├── tests/             # 유닛 테스트 (122개)
+├── data/              # SQLite, 사용량·모델 캐시, 노트 상태, 업로드, 워크스페이스 (git 제외)
+├── tests/             # 유닛 테스트
 ├── launchd/           # launchd plist
 └── docs/              # 로드맵·작업 내역·V1 설계 문서
 ```

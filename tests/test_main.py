@@ -58,6 +58,24 @@ def test_create_job_with_session_continues(tmp_env):
     assert job["provider"] == "claude"
 
 
+def test_create_job_with_session_and_workdir(tmp_env, tmp_path):
+    """노트 이어가기: session_id + 등록된 workdir가 job에 함께 저장된다."""
+    from app import config, db, workspace
+    d = tmp_path / "proj"
+    d.mkdir()
+    workspace.add_local("proj", str(d))
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={
+            "prompt": "이어서 해줘",
+            "provider": "claude",
+            "session_id": "sess-99",
+            "workdir": str(d.resolve()),
+        }, follow_redirects=False)
+    job = db.list_jobs(db.get_conn(config.DB_PATH))[0]
+    assert job["session_id"] == "sess-99"
+    assert job["workdir"] == str(d.resolve())
+
+
 def test_create_job_with_upload_appends_path(tmp_env):
     from app import config, db
     with _client(tmp_env) as client:
@@ -83,14 +101,30 @@ def test_note_view_and_containment(tmp_env):
         assert client.get("/note", params={"path": "/etc/hosts"}).status_code == 404
 
 
+def test_note_view_resume_form_includes_workdir(tmp_env):
+    from app import memory
+    wd = "/Users/macmini/Documents/agentic-os"
+    path = memory.save_note(
+        "질문", "claude", "답변", session_id="sess-abc-123", workdir=wd)
+    with _client(tmp_env) as client:
+        r = client.get("/note", params={"path": str(path)})
+        assert r.status_code == 200
+        assert 'name="session_id"' in r.text
+        assert 'value="sess-abc-123"' in r.text
+        assert 'name="workdir"' in r.text
+        assert f'value="{wd}"' in r.text
+        assert "작업 위치" in r.text
+
+
 def test_create_job_with_valid_model(tmp_env):
     from app import config, db
+    # 폴백 목록의 패밀리 별칭(opus) — CLI가 항상 최신 full id로 해석
     with _client(tmp_env) as client:
         client.post("/jobs", data={"prompt": "p", "provider": "claude",
-                                   "model": "claude-opus-4-8"},
+                                   "model": "opus"},
                     follow_redirects=False)
     conn = db.get_conn(config.DB_PATH)
-    assert db.list_jobs(conn)[0]["model"] == "claude-opus-4-8"
+    assert db.list_jobs(conn)[0]["model"] == "opus"
 
 
 def test_create_job_rejects_bogus_model(tmp_env):

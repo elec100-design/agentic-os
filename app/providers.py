@@ -30,13 +30,17 @@ class ClaudeProvider:
     _epoch_re = re.compile(r"limit reached\|(\d{9,})")
 
     def build_command(self, prompt, session_id=None, model=None):
+        # 헤드리스(-p)는 권한 프롬프트를 못 띄우므로 웹 도구를 사전 허용.
+        # --allowedTools 는 <tools...> 가변 옵션이라, 뒤에 오는 비옵션 인자를
+        # 전부 도구 이름으로 삼킨다. 프롬프트가 거기 끼면
+        # "Input must be provided ... when using --print" 로 실패한다.
+        # 도구를 먼저 두고 `--` 로 옵션 파싱을 끝낸 뒤 프롬프트를 넣는다.
         cmd = ["claude", "-p", "--output-format", "json"]
         if model:
             cmd += ["--model", model]
         if session_id:
-            cmd += ["--resume", session_id, prompt]
-        else:
-            cmd += [prompt]
+            cmd += ["--resume", session_id]
+        cmd += ["--allowedTools", "WebSearch", "WebFetch", "--", prompt]
         return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
