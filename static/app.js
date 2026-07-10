@@ -215,6 +215,36 @@ updateAutoHint();
 // ---- 노트 컨텍스트 메뉴 (···) ------------------------------------------
 const dropdown = document.getElementById("note-dropdown");
 
+// ---- 접이식 그룹 폴더 ---------------------------------------------------
+// 기본은 접힘. 열어둔 그룹은 localStorage에 저장해 자동 갱신에도 유지한다.
+const OPEN_GROUPS_KEY = "aos-open-groups";
+
+function openGroupSet() {
+  try { return new Set(JSON.parse(localStorage.getItem(OPEN_GROUPS_KEY)) || []); }
+  catch (_) { return new Set(); }
+}
+
+function restoreNoteGroups() {
+  const open = openGroupSet();
+  document.querySelectorAll("#memory .note-group").forEach((g) => {
+    g.classList.toggle("open", open.has(g.dataset.group));
+  });
+}
+
+document.addEventListener("click", (e) => {
+  const toggle = e.target.closest(".note-group-toggle");
+  if (!toggle) return;
+  const group = toggle.closest(".note-group");
+  const opened = group.classList.toggle("open");
+  const open = openGroupSet();
+  opened ? open.add(group.dataset.group) : open.delete(group.dataset.group);
+  localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify([...open]));
+});
+
+document.body.addEventListener("htmx:afterSwap", (e) => {
+  if (e.target.id === "memory") restoreNoteGroups();
+});
+
 function existingGroups() {
   const el = document.getElementById("note-groups");
   if (!el) return [];
@@ -232,6 +262,7 @@ async function postNote(url, path, extra) {
   const html = await res.text();
   const mem = document.getElementById("memory");
   mem.innerHTML = html;
+  restoreNoteGroups();
   if (window.htmx) {
     htmx.process(mem);
     // 노트 삭제/이름변경이 작업큐와 연동되므로 큐도 즉시 갱신

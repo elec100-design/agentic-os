@@ -58,11 +58,12 @@ def _migrate(conn):
 
 
 def create_job(conn, prompt, provider, timeout_sec=None, session_id=None,
-               model=None, workdir=None):
+               model=None, workdir=None, note_path=None):
     cur = conn.execute(
         "INSERT INTO jobs (prompt, provider, model, timeout_sec, session_id, "
-        "workdir, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (prompt, provider, model, timeout_sec, session_id, workdir, now_iso()),
+        "workdir, note_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (prompt, provider, model, timeout_sec, session_id, workdir, note_path,
+         now_iso()),
     )
     conn.commit()
     return cur.lastrowid
@@ -78,6 +79,23 @@ def delete_jobs_by_note(conn, note_path):
     cur = conn.execute("DELETE FROM jobs WHERE note_path = ?", (note_path,))
     conn.commit()
     return cur.rowcount
+
+
+def jobs_sharing_note(conn, note_path, exclude_id):
+    """같은 노트에 연결된 다른 작업 수 (스레드 노트 보존 판단용)."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS c FROM jobs WHERE note_path = ? AND id != ?",
+        (note_path, exclude_id),
+    ).fetchone()
+    return row["c"]
+
+
+def list_note_workdirs(conn):
+    """노트가 연결된 잡의 (note_path, workdir) 목록 (소급 그룹핑용)."""
+    return conn.execute(
+        "SELECT note_path, workdir FROM jobs "
+        "WHERE note_path IS NOT NULL AND workdir IS NOT NULL"
+    ).fetchall()
 
 
 def relink_note_path(conn, old_path, new_path):

@@ -23,8 +23,15 @@
   <textarea name="prompt" rows="3" required placeholder="이어서 무엇을 할까요?"></textarea>
   <input type="hidden" name="provider" value="{{ note['provider'] }}">
   <input type="hidden" name="session_id" value="{{ note['session_id'] }}">
+  {% if note['workdir'] %}
+  <input type="hidden" name="workdir" value="{{ note['workdir'] }}">
+  {% endif %}
+  <input type="hidden" name="origin_note" value="{{ note['path'] }}">
   <div class="composer-bar">
-    <span class="resume-note">{{ note['provider'] }} 세션 {{ note['session_id'][:12] }}… 에서 이어집니다</span>
+    <span class="resume-note">
+      {{ note['provider'] }} 세션 {{ note['session_id'][:12] }}… 에서 이어집니다
+      {% if note['workdir'] %} · 작업 위치 {{ note['workdir'] }}{% endif %}
+    </span>
     <span class="spacer"></span>
     <button type="submit" class="send" aria-label="전송">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

@@ -31,12 +31,32 @@
   <ul class="note-list">{% for n in pinned %}{{ note_item(n) }}{% endfor %}</ul>
   {% endif %}
   {% for gname, gnotes in groups.items() %}
-  <div class="note-group-label">{{ gname }}</div>
-  <ul class="note-list">{% for n in gnotes %}{{ note_item(n) }}{% endfor %}</ul>
+  <div class="note-group" data-group="{{ gname }}">
+    <button type="button" class="note-group-toggle">
+      <svg class="chev" viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>
+      <span class="note-group-name">{{ gname }}</span>
+      <span class="note-count">{{ gnotes | length }}</span>
+    </button>
+    <div class="note-group-body">
+      <ul class="note-list">{% for n in gnotes %}{{ note_item(n) }}{% endfor %}</ul>
+    </div>
+  </div>
   {% endfor %}
   {% if ungrouped %}
-  {% if pinned or groups %}<div class="note-group-label">기타</div>{% endif %}
+  {% if pinned or groups %}
+  <div class="note-group" data-group="__ungrouped__">
+    <button type="button" class="note-group-toggle">
+      <svg class="chev" viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>
+      <span class="note-group-name">기타</span>
+      <span class="note-count">{{ ungrouped | length }}</span>
+    </button>
+    <div class="note-group-body">
+      <ul class="note-list">{% for n in ungrouped %}{{ note_item(n) }}{% endfor %}</ul>
+    </div>
+  </div>
+  {% else %}
   <ul class="note-list">{% for n in ungrouped %}{{ note_item(n) }}{% endfor %}</ul>
+  {% endif %}
   {% endif %}
   {% if not pinned and not groups and not ungrouped %}
   <ul class="note-list"><li class="empty-note">저장된 노트가 없습니다</li></ul>

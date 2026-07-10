@@ -17,7 +17,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import codexbar, config, db, github_cli, memory, workspace, worker
+from app import codexbar, config, db, github_cli, memory, models, workspace, worker
 from app.providers import PROVIDERS, route_auto
 
 BASE = Path(__file__).resolve().parent.parent
@@ -52,8 +52,16 @@ async def lifespan(app):
     stop = asyncio.Event()
     tasks = []
     if not os.environ.get("AOS_DISABLE_WORKER"):
+        # 기동 직후 모델 목록을 한 번 채워 구 하드코딩·빈 캐시를 바로 덮어쓴다.
+        try:
+            models.write_cache(await models.fetch())
+        except Exception:
+            pass
+        # 그룹 없는 기존 노트를 작업 위치 기준으로 소급 자동 그룹핑 (멱등)
+        memory.backfill_auto_groups(db.list_note_workdirs(db.get_conn()))
         tasks.append(asyncio.create_task(worker.worker_loop(stop)))
         tasks.append(asyncio.create_task(codexbar.refresh_loop(stop)))
+        tasks.append(asyncio.create_task(models.refresh_loop(stop)))
     yield
     stop.set()
     for task in tasks:
@@ -165,7 +173,7 @@ def _ago_str(iso, now):
 def index(request: Request):
     return templates.TemplateResponse(
         request, "index.html",
-        {"provider_models": config.PROVIDER_MODELS},
+        {"provider_models": models.get_provider_models()},
     )
 
 
@@ -191,6 +199,7 @@ async def create_job(
     attach_memory: bool = Form(False),
     timeout_min: int | None = Form(None),
     session_id: str = Form(""),
+    origin_note: str = Form(""),
     context_note: str = Form(""),
     files: list[UploadFile] = File(default=[]),
 ):
@@ -199,11 +208,14 @@ async def create_job(
         provider, _ = route_auto(prompt, usage_state=usage_state()["usage"])
     if provider not in PROVIDERS:
         raise HTTPException(status_code=400, detail="unknown provider")
-    if not _valid_model(provider, model):
+    if not models.is_valid_model(provider, model):
         model = ""
     # 등록된 작업 위치만 cwd로 허용 (임의 경로 실행 방지)
     if not workspace.valid_path(workdir):
         workdir = ""
+    # 세션 이어가기일 때만 원본 노트를 스레드 노트로 인정 → 결과를 이어 쓴다
+    if not (session_id.strip() and memory.is_managed(origin_note)):
+        origin_note = ""
     if context_note:
         note = memory.read_note(context_note)
         if note:
@@ -220,16 +232,9 @@ async def create_job(
                   timeout_sec=timeout_min * 60 if timeout_min else None,
                   session_id=session_id.strip() or None,
                   model=model or None,
-                  workdir=workdir or None)
+                  workdir=workdir or None,
+                  note_path=str(Path(origin_note).resolve()) if origin_note else None)
     return RedirectResponse("/", status_code=303)
-
-
-def _valid_model(provider, model):
-    """폼으로 넘어온 model이 해당 provider의 허용 목록에 있는지 검증."""
-    if not model:
-        return True
-    return any(m.get("model") == model
-               for m in config.PROVIDER_MODELS.get(provider, []))
 
 
 @app.get("/api/recommend")
@@ -309,7 +314,9 @@ def delete_job_endpoint(request: Request, job_id: int):
     if worker.current["job_id"] == job_id and worker.current["proc"]:
         worker.current["proc"].terminate()
     # 연결된 노트도 함께 삭제 (작업큐↔메모리 연동)
-    if job["note_path"] and memory.is_managed(job["note_path"]):
+    # 단, 다른 작업(스레드)이 같은 노트를 공유하면 노트는 남긴다
+    if (job["note_path"] and memory.is_managed(job["note_path"])
+            and db.jobs_sharing_note(conn, job["note_path"], job_id) == 0):
         try:
             memory.delete_note(job["note_path"])
         except (OSError, ValueError):
@@ -484,7 +491,8 @@ def note_archive(request: Request, path: str = Form(...)):
 @app.post("/notes/group", response_class=HTMLResponse)
 def note_group(request: Request, path: str = Form(...), group: str = Form("")):
     _managed_note_or_404(path)
-    memory.set_note_flags(path, group=group.strip() or None)
+    # 수동 변경은 auto_group=False로 표시 → 자동 그룹핑이 덮어쓰지 않는다
+    memory.set_note_flags(path, group=group.strip() or None, auto_group=False)
     return _render_memory(request)
 
 

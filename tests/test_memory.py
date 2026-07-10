@@ -72,6 +72,26 @@ def test_save_note_records_session_id(tmp_env):
     assert "session_id: sess-9" in path.read_text(encoding="utf-8")
 
 
+def test_save_note_records_workdir(tmp_env):
+    wd = "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI"
+    path = memory.save_note("q", "claude", "a", when=datetime(2026, 7, 5),
+                            session_id="sess-9", workdir=wd)
+    text = path.read_text(encoding="utf-8")
+    assert f'workdir: "{wd}"' in text
+    note = memory.read_note(path)
+    assert note["session_id"] == "sess-9"
+    assert note["workdir"] == wd
+    assert note["provider"] == "claude"
+
+
+def test_read_note_without_workdir(tmp_env):
+    path = memory.save_note("q", "claude", "a", when=datetime(2026, 7, 5),
+                            session_id="sess-1")
+    note = memory.read_note(path)
+    assert note["workdir"] is None
+    assert note["session_id"] == "sess-1"
+
+
 def test_is_managed_only_inside_memory_dir(tmp_env):
     path = memory.save_note("노트", "claude", "x", when=datetime(2026, 7, 5))
     assert memory.is_managed(path)
@@ -134,3 +154,71 @@ def test_mutations_reject_unmanaged(tmp_env):
         memory.delete_note(outside)
     with pytest.raises(ValueError):
         memory.set_note_flags(outside, pinned=True)
+
+
+# --- 스레드 노트 (append_note) ---
+
+def test_append_note_adds_numbered_sections(tmp_env):
+    path = memory.save_note("질문", "claude", "첫 답변", when=datetime(2026, 7, 5),
+                            session_id="sess-1")
+    memory.append_note(path, "이어서 질문", "claude", "두번째 답변",
+                       session_id="sess-2")
+    text = path.read_text(encoding="utf-8")
+    assert "## 프롬프트 (2차)" in text
+    assert "## 결과 (2차)" in text
+    assert "두번째 답변" in text
+    assert "date: 2026-07-05" in text          # 원본 date 유지
+    assert "session_id: sess-2" in text        # 새 세션 id로 교체
+    assert "session_id: sess-1" not in text
+    assert "updated:" in text
+    memory.append_note(path, "세번째", "claude", "셋", session_id="sess-3")
+    assert "## 결과 (3차)" in path.read_text(encoding="utf-8")
+
+
+def test_append_note_missing_or_unmanaged(tmp_env):
+    import pytest
+    config.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(FileNotFoundError):
+        memory.append_note(config.MEMORY_DIR / "없음.md", "p", "claude", "o")
+    with pytest.raises(ValueError):
+        memory.append_note("/etc/hosts", "p", "claude", "o")
+
+
+# --- 작업 위치 자동 그룹핑 ---
+
+def test_save_note_auto_groups_by_workspace(tmp_env, tmp_path):
+    from app import workspace
+    d = tmp_path / "proj"
+    d.mkdir()
+    workspace.add_local("내프로젝트", str(d))
+    path = memory.save_note("질문", "claude", "답변", when=datetime(2026, 7, 5),
+                            workdir=str(d.resolve()))
+    assert "workspace: 내프로젝트" in path.read_text(encoding="utf-8")
+    flags = memory.note_flags(path)
+    assert flags["group"] == "내프로젝트"
+    assert flags["auto_group"] is True
+
+
+def test_save_note_no_group_for_unregistered_workdir(tmp_env, tmp_path):
+    path = memory.save_note("질문", "claude", "답변", when=datetime(2026, 7, 5),
+                            workdir=str(tmp_path))
+    assert "workspace:" not in path.read_text(encoding="utf-8")
+    assert memory.note_flags(path)["group"] is None
+
+
+def test_backfill_auto_groups(tmp_env, tmp_path):
+    from app import workspace
+    d = tmp_path / "proj"
+    d.mkdir()
+    workspace.add_local("내프로젝트", str(d))
+    ungrouped = memory.save_note("가", "claude", "x", when=datetime(2026, 7, 5))
+    manual = memory.save_note("나", "claude", "y", when=datetime(2026, 7, 5))
+    cleared = memory.save_note("다", "claude", "z", when=datetime(2026, 7, 5))
+    memory.set_note_flags(manual, group="수동그룹", auto_group=False)
+    memory.set_note_flags(cleared, group=None, auto_group=False)
+    rows = [(str(p), str(d.resolve())) for p in (ungrouped, manual, cleared)]
+    memory.backfill_auto_groups(rows)
+    memory.backfill_auto_groups(rows)  # 멱등
+    assert memory.note_flags(ungrouped)["group"] == "내프로젝트"
+    assert memory.note_flags(manual)["group"] == "수동그룹"
+    assert memory.note_flags(cleared)["group"] is None

@@ -818,6 +818,53 @@ td a:hover { color: var(--accent); text-decoration: underline; }
   color: var(--muted-soft, var(--muted));
   margin: 0.6rem 0.5rem 0.15rem;
 }
+/* 접이식 그룹 폴더: 기본 접힘, 클릭 시 grid-rows 0fr→1fr로 부드럽게 펼침 */
+.note-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  margin-top: 0.35rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted-soft, var(--muted));
+  text-align: left;
+}
+.note-group-toggle:hover { background: var(--accent-soft); color: var(--text); }
+.note-group-toggle .chev {
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+.note-group.open > .note-group-toggle .chev { transform: rotate(90deg); }
+.note-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.note-count {
+  flex-shrink: 0;
+  font-size: 0.64rem;
+  color: var(--muted);
+  background: var(--accent-soft);
+  border-radius: 0.6rem;
+  padding: 0.05rem 0.45rem;
+}
+.note-group-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s ease;
+}
+.note-group-body > .note-list { overflow: hidden; min-height: 0; }
+.note-group.open > .note-group-body { grid-template-rows: 1fr; }
 .note-list { list-style: none; margin: 0; padding: 0; }
 .note-item {
   display: flex;
