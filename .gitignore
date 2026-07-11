@@ -5,6 +5,8 @@ data/
 .DS_Store
 .pytest_cache/
 .claude/
+# 개인 설정(볼트 경로·tailnet origin 등) — 각자 aos.env.example 복사해 생성
+aos.env
 # 로컬 참조용 디자인 자료 (앱 소스 아님)
 design-md/
 awesome-design-md-main/

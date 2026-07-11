@@ -2,8 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  install.sh 가 이 템플릿의 {{PLACEHOLDER}} 들을 현재 사용자 환경으로 치환해
-  ~/Library/LaunchAgents/{{LABEL}}.plist 를 생성합니다. 직접 편집하지 마세요.
+  install.sh 가 이 템플릿의 이중중괄호 자리표시자들을 현재 사용자 환경으로 치환해
+  ~/Library/LaunchAgents/<label>.plist 를 생성합니다. 직접 편집하지 마세요.
+  앱 설정(볼트 경로·tailnet origin 등)은 여기가 아니라 저장소 루트의 aos.env 에
+  두세요 — config.py 가 기동 시 읽습니다(aos.env.example 참고). PATH/HOME 만 필요.
 -->
 <plist version="1.0">
 <dict>
@@ -35,7 +37,7 @@
     <key>PATH</key>
     <string>{{PATH}}</string>
     <key>HOME</key>
-    <string>{{HOME}}</string>{{VAULT_ENV}}
+    <string>{{HOME}}</string>
   </dict>
 </dict>
 </plist>
