@@ -100,7 +100,8 @@ def _slug(text, maxlen=40):
     return s[:maxlen] or "note"
 
 
-def save_note(prompt, provider, output, when=None, session_id=None, workdir=None):
+def save_note(prompt, provider, output, when=None, session_id=None, workdir=None,
+              model=None):
     memory_dir = Path(config.MEMORY_DIR)
     memory_dir.mkdir(parents=True, exist_ok=True)
     when = when or datetime.now()
@@ -112,6 +113,7 @@ def save_note(prompt, provider, output, when=None, session_id=None, workdir=None
         n += 1
         path = memory_dir / f"{base}-{n}.md"
     summary = prompt.replace("\n", " ").replace('"', "'")[:80]
+    model_line = f"model: {model}\n" if model else ""
     session_line = f"session_id: {session_id}\n" if session_id else ""
     # 경로에 공백이 있을 수 있어 따옴표로 감싼다
     workdir_line = ""
@@ -124,6 +126,7 @@ def save_note(prompt, provider, output, when=None, session_id=None, workdir=None
         f"---\n"
         f"date: {date}\n"
         f"provider: {provider}\n"
+        f"{model_line}"
         f'prompt: "{summary}"\n'
         f"{session_line}"
         f"{workdir_line}"
@@ -148,9 +151,9 @@ def _fm_value(raw):
     return v or None
 
 
-def append_note(path, prompt, provider, output, session_id=None):
+def append_note(path, prompt, provider, output, session_id=None, model=None):
     """이어진 세션(resume)의 결과를 기존 노트에 N차 섹션으로 덧붙인다.
-    frontmatter의 session_id는 새 값으로 교체(다음 resume에 필요)하고
+    frontmatter의 session_id·model은 이번에 쓴 값으로 교체(다음 resume 기본값)하고
     updated 날짜를 갱신한다. 고정/그룹/보관 플래그는 건드리지 않는다."""
     if not is_managed(path):
         raise ValueError("managed 노트가 아닙니다")
@@ -164,7 +167,10 @@ def append_note(path, prompt, provider, output, session_id=None):
         if end != -1:
             lines = text[4:end].splitlines()
             lines = [l for l in lines
-                     if l.partition(":")[0].strip() not in ("session_id", "updated")]
+                     if l.partition(":")[0].strip()
+                     not in ("session_id", "model", "updated")]
+            if model:
+                lines.append(f"model: {model}")
             if session_id:
                 lines.append(f"session_id: {session_id}")
             lines.append(f"updated: {today}")
@@ -198,7 +204,7 @@ def read_note(path):
         return None
     text = p.read_text(encoding="utf-8", errors="replace")
     meta = {"name": p.stem, "path": str(p), "provider": None,
-            "session_id": None, "workdir": None, "body": text}
+            "session_id": None, "workdir": None, "model": None, "body": text}
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
         if end != -1:
@@ -211,6 +217,8 @@ def read_note(path):
                     meta["session_id"] = _fm_value(value)
                 elif key == "workdir":
                     meta["workdir"] = _fm_value(value)
+                elif key == "model":
+                    meta["model"] = _fm_value(value)
             meta["body"] = text[end + 5:].strip()
     return meta
 

@@ -67,6 +67,12 @@
       <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
     </button>
 
+    <!-- 모델 선택 칩 (에이전트가 자동이 아니고 모델이 여러 개일 때만 표시) -->
+    <button type="button" class="cbar-chip" id="model-btn" aria-haspopup="true" hidden>
+      <span class="chip-agent" id="model-label">모델</span>
+      <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
+    </button>
+
     <!-- 작업 위치 칩 -->
     <span class="workspace-picker" id="workspace-picker" hx-get="/partials/workspaces" hx-trigger="load"></span>
 
@@ -100,8 +106,10 @@
     </label>
   </div>
 
-  <!-- 에이전트·모델 팝업 (JS가 채움) -->
+  <!-- 에이전트 팝업 (JS가 채움) -->
   <div class="cbar-popup agent-popup" id="agent-popup" hidden></div>
+  <!-- 모델 팝업 (JS가 채움) -->
+  <div class="cbar-popup agent-popup" id="model-popup" hidden></div>
 </form>
 
 <section class="panel" id="jobs" hx-get="/partials/jobs" hx-trigger="load, every 3s, refresh-jobs from:body"></section>
