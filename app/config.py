@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -326,12 +327,25 @@ FALLBACK_PROVIDER_MODELS = {
     ],
 }
 
-VAULT_PATH = Path(
-    "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Agentic-OS"
-)
-MEMORY_DIR = VAULT_PATH / "Agentic OS"
+# 노트 저장 위치 — 환경변수로 개인 볼트 경로를 지정한다.
+#   AOS_VAULT_PATH : Obsidian 볼트(또는 임의 폴더) 루트. 설정 시 노트는 그 아래
+#                    "Agentic OS/" 하위 폴더에 저장되고, 컨텍스트 노트는 볼트 전체에서 읽힌다.
+#   AOS_NOTES_DIR  : 노트 저장 폴더를 직접 지정(볼트 하위 규칙을 무시).
+# 둘 다 없으면 저장소 안 data/notes/ 에 저장 → Obsidian 없이도 바로 동작한다.
+_vault_env = os.environ.get("AOS_VAULT_PATH", "").strip()
+_notes_env = os.environ.get("AOS_NOTES_DIR", "").strip()
+if _notes_env:
+    MEMORY_DIR = Path(_notes_env).expanduser()
+elif _vault_env:
+    MEMORY_DIR = Path(_vault_env).expanduser() / "Agentic OS"
+else:
+    MEMORY_DIR = DATA_DIR / "notes"
+# 컨텍스트 노트를 읽을 수 있는 최상위 범위. 볼트를 지정했으면 볼트 전체, 아니면 노트 폴더.
+VAULT_PATH = Path(_vault_env).expanduser() if _vault_env else MEMORY_DIR
 
-PORT = 8899
+PORT = int(os.environ.get("AOS_PORT", "8899"))
+HOST = os.environ.get("AOS_HOST", "127.0.0.1")
+MAX_UPLOAD_MB = int(os.environ.get("AOS_MAX_UPLOAD_MB", "25"))
 JOB_TIMEOUT_SEC = 30 * 60
 DEFAULT_RESUME_DELAY_MIN = 60
 MAX_ATTEMPTS = 10

@@ -5,7 +5,7 @@
 ## 목적
 
 Mac Mini M4(16GB)에서 유료 구독 중인 Claude, Gemini, SuperGrok과 Hermes agent를
-하나의 로컬 웹 대시보드에서 호출·실행하고, 결과를 Obsidian(LLM WIKI 볼트)에
+하나의 로컬 웹 대시보드에서 호출·실행하고, 결과를 Obsidian(Obsidian 볼트)에
 자동 저장하며, 사용 제한(rate limit)에 걸린 작업은 제한이 풀리는 즉시 중단
 지점부터 자동으로 이어서 완료하는 통합 레이어를 만든다.
 
@@ -30,7 +30,7 @@ Agentic OS/
 ├── static/            # CSS 등
 ├── data/aos.db        # SQLite (jobs, usage_log)
 ├── tests/             # 유닛 테스트
-└── launchd/com.elec100.agentic-os.plist
+└── launchd/agentic-os.plist.template
 ```
 
 프론트엔드는 Jinja2 서버 렌더링 + HTMX. 실행 중 작업의 출력은 SSE로
@@ -121,8 +121,8 @@ usage_log(
 
 ### memory.py — Obsidian 연동
 
-- 완료된 작업의 결과를 LLM WIKI 볼트
-  (`/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Blogging`)
+- 완료된 작업의 결과를 Obsidian 볼트
+  (`<obsidian-vault>`)
   하위 `Agentic OS/` 폴더에 마크다운 노트로 저장. frontmatter: date, provider,
   prompt 요약(첫 80자), tags.
 - 파일명: `YYYY-MM-DD-<slug>.md`, 충돌 시 숫자 접미사.

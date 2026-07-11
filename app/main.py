@@ -37,11 +37,10 @@ def asset_version():
 # 템플릿에서 ?v={{ asset_v() }} 로 사용 (모든 템플릿 공통)
 templates.env.globals["asset_v"] = asset_version
 
-# same-origin POST는 포트 무관 허용되지만, tailscale serve처럼 프록시가 Host를
-# 다시 쓰는 경우를 대비해 tailnet 이름을 명시 허용한다.
-# 추가 origin은 AOS_EXTRA_ORIGINS(콤마 구분) 환경변수로도 넣을 수 있다.
-ALLOWED_ORIGINS = {"localhost:8899", "127.0.0.1:8899",
-                   "macmini.tail22aa0a.ts.net"}
+# same-origin POST는 포트 무관 허용된다. tailscale serve처럼 프록시가 Host를
+# 다시 쓰는 경우(예: <host>.<tailnet>.ts.net)를 대비해, 신뢰하는 프록시 호스트는
+# AOS_EXTRA_ORIGINS(콤마 구분) 환경변수로 명시 허용한다.
+ALLOWED_ORIGINS = {f"localhost:{config.PORT}", f"127.0.0.1:{config.PORT}"}
 ALLOWED_ORIGINS |= {
     o.strip() for o in os.environ.get("AOS_EXTRA_ORIGINS", "").split(",") if o.strip()
 }
@@ -179,13 +178,20 @@ def index(request: Request):
 
 async def _save_uploads(files):
     saved = []
+    max_bytes = config.MAX_UPLOAD_MB * 1024 * 1024
     for f in files or []:
         if not f.filename:
             continue
+        data = await f.read()
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"파일이 너무 큽니다 (최대 {config.MAX_UPLOAD_MB}MB): {f.filename}",
+            )
         config.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         safe = re.sub(r"[^\w.\-가-힣]", "_", Path(f.filename).name)
         dest = config.UPLOAD_DIR / f"{datetime.now():%Y%m%d-%H%M%S%f}-{safe}"
-        dest.write_bytes(await f.read())
+        dest.write_bytes(data)
         saved.append(dest)
     return saved
 
