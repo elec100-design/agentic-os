@@ -80,11 +80,17 @@ uv pip install -r requirements.txt --python .venv/bin/python3
 ./install.sh
 ```
 
-`install.sh`는 [템플릿](launchd/agentic-os.plist.template)을 현재 사용자 환경(경로·포트·볼트)으로 치환해 `~/Library/LaunchAgents/`에 plist를 생성·로드합니다. 지정 포트를 점유한 잔여 프로세스도 정리합니다. 포트·레이블·볼트는 아래 환경변수로 조정할 수 있습니다.
+`install.sh`는 [템플릿](launchd/agentic-os.plist.template)을 현재 사용자 환경(경로·포트·레이블)으로 치환해 `~/Library/LaunchAgents/`에 plist를 생성·로드합니다. 지정 포트를 점유한 잔여 프로세스도 정리합니다. 볼트·origin 등 앱 설정은 plist가 아니라 아래 `aos.env`로 관리되므로, **재설치해도 유지됩니다.**
 
-## 설정 (환경변수)
+## 설정 (`aos.env`)
 
-기본값으로 바로 동작합니다. 필요 시 실행 환경(또는 launchd plist)에서 지정하세요:
+기본값으로 바로 동작합니다. 개인 설정(볼트 경로·tailnet origin 등)은 저장소 루트의 **`aos.env`** 파일에 두세요 — `config.py`가 기동 시 읽으며, **수동실행·launchd·재설치 어느 방식이든 동일하게 적용**됩니다.
+
+```bash
+cp aos.env.example aos.env   # 편집해서 값 채우기
+```
+
+`aos.env`는 git에 커밋되지 않습니다(`.gitignore`). 실제 환경변수(`export`)를 쓰면 그쪽이 우선합니다. 지원 키:
 
 | 변수 | 기본값 | 설명 |
 |------|--------|------|
@@ -137,7 +143,7 @@ tailscale serve --bg 8899        # → https://<host>.<tailnet>.ts.net
 tailscale serve --https=443 off  # 해제
 ```
 
-프록시 호스트명을 `AOS_EXTRA_ORIGINS`에 추가하세요(POST 요청의 origin 검증 통과용). 접속 기기도 같은 tailnet에 로그인되어 있어야 하며, 로컬 와이파이엔 노출되지 않습니다.
+프록시 호스트명을 `aos.env`의 `AOS_EXTRA_ORIGINS`에 추가하세요(POST 요청의 origin 검증 통과용). 접속 기기도 같은 tailnet에 로그인되어 있어야 하며, 로컬 와이파이엔 노출되지 않습니다.
 
 ### 파일 접근 권한 (macOS TCC)
 

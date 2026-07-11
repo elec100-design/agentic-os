@@ -2,6 +2,32 @@ import os
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_env_file():
+    """저장소 루트의 aos.env (KEY=VALUE, # 주석) 를 환경에 로드한다.
+    실제 환경변수(launchd plist·export)가 이미 있으면 그것이 우선한다.
+    경로는 AOS_ENV_FILE 로 바꿀 수 있다. 이 파일로 개인 설정(볼트 경로·
+    tailnet origin 등)을 영구 저장해 두면 재설치·수동실행에도 유지된다."""
+    path = Path(os.environ.get("AOS_ENV_FILE") or (BASE_DIR / "aos.env"))
+    if not path.is_file():
+        return
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+    except OSError:
+        pass
+
+
+_load_env_file()
+
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "aos.db"
 UPLOAD_DIR = DATA_DIR / "uploads"
