@@ -65,6 +65,9 @@ const modelInput = document.getElementById("model-input");
 const agentBtn = document.getElementById("agent-btn");
 const agentLabel = document.getElementById("agent-label");
 const agentPopup = document.getElementById("agent-popup");
+const modelBtn = document.getElementById("model-btn");
+const modelChipLabel = document.getElementById("model-label");
+const modelPopup = document.getElementById("model-popup");
 const toolsBtn = document.getElementById("tools-btn");
 const toolsPopup = document.getElementById("tools-popup");
 const chosenModel = {};                     // provider -> model id ("" = 기본값)
@@ -87,21 +90,34 @@ function modelLabel(p, id) {
   return m ? m.label : "";
 }
 
-function refreshAgentLabel() {
+// 모델 칩: 자동이 아니고 모델이 2개 이상인 에이전트에서만 노출한다
+function modelChipVisible(p) {
+  return p !== "auto" && (MODELS[p] || []).length > 1;
+}
+
+function refreshChips() {
   const p = providerInput.value;
-  let text = agentName(p);
-  if (p !== "auto") {
-    const id = chosenModel[p] || "";
-    if (id && id !== defaultModel(p)) text += " · " + modelLabel(p, id);
+  agentLabel.textContent = agentName(p);
+  if (modelChipVisible(p)) {
+    modelBtn.hidden = false;
+    const id = chosenModel[p] || defaultModel(p);
+    modelChipLabel.textContent = modelLabel(p, id) || "모델";
+  } else {
+    modelBtn.hidden = true;
   }
-  agentLabel.textContent = text;
 }
 
 function selectProvider(p) {
   providerInput.value = p;
   modelInput.value = p === "auto" ? "" : (chosenModel[p] || "");
-  refreshAgentLabel();
+  refreshChips();
   updateAutoHint();
+}
+
+function selectModel(p, id) {
+  chosenModel[p] = id;
+  modelInput.value = id;
+  refreshChips();
 }
 
 function renderAgentPopup() {
@@ -121,39 +137,38 @@ function renderAgentPopup() {
       `<span class="popup-check">${a.id === cur ? "✓" : ""}</span>` +
       `<span class="popup-label">${a.name}</span>` +
       (multi ? `<span class="popup-tag">모델</span>` : "");
-    row.addEventListener("click", () => { selectProvider(a.id); renderAgentPopup(); });
+    row.addEventListener("click", () => { selectProvider(a.id); closeComposerPopups(); });
     agentPopup.appendChild(row);
   }
+}
 
-  // 선택한 에이전트에 모델이 2개 이상이면 모델 섹션도 보여준다
-  if (cur !== "auto" && (MODELS[cur] || []).length > 1) {
-    const mh = document.createElement("div");
-    mh.className = "popup-head popup-head-sub";
-    mh.textContent = agentName(cur) + " 모델";
-    agentPopup.appendChild(mh);
-    const curModel = chosenModel[cur] || "";
-    for (const m of MODELS[cur]) {
-      const id = m.model || "";
-      const sel = (id === curModel) || (!curModel && m.default);
-      const row = document.createElement("button");
-      row.type = "button";
-      row.className = "popup-row";
-      row.innerHTML =
-        `<span class="popup-check">${sel ? "✓" : ""}</span>` +
-        `<span class="popup-label">${m.label}</span>` +
-        (m.default ? `<span class="popup-tag">기본값</span>` : "");
-      row.addEventListener("click", () => {
-        chosenModel[cur] = id;
-        selectProvider(cur);
-        renderAgentPopup();
-      });
-      agentPopup.appendChild(row);
-    }
+function renderModelPopup() {
+  const cur = providerInput.value;
+  modelPopup.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "popup-head";
+  head.textContent = agentName(cur) + " 모델";
+  modelPopup.appendChild(head);
+
+  const curModel = chosenModel[cur] || "";
+  for (const m of MODELS[cur] || []) {
+    const id = m.model || "";
+    const sel = (id === curModel) || (!curModel && m.default);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "popup-row";
+    row.innerHTML =
+      `<span class="popup-check">${sel ? "✓" : ""}</span>` +
+      `<span class="popup-label">${m.label}</span>` +
+      (m.default ? `<span class="popup-tag">기본값</span>` : "");
+    row.addEventListener("click", () => { selectModel(cur, id); closeComposerPopups(); });
+    modelPopup.appendChild(row);
   }
 }
 
 function closeComposerPopups() {
   if (agentPopup) agentPopup.hidden = true;
+  if (modelPopup) modelPopup.hidden = true;
   if (toolsPopup) toolsPopup.hidden = true;
   closeWsPopup();
 }
@@ -175,6 +190,12 @@ agentBtn?.addEventListener("click", (e) => {
   renderAgentPopup();
   openComposerPopup(agentPopup, agentBtn);
 });
+modelBtn?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  if (!modelPopup.hidden) { closeComposerPopups(); return; }
+  renderModelPopup();
+  openComposerPopup(modelPopup, modelBtn);
+});
 toolsBtn?.addEventListener("click", (e) => {
   e.stopPropagation();
   if (!toolsPopup.hidden) { closeComposerPopups(); return; }
@@ -182,12 +203,13 @@ toolsBtn?.addEventListener("click", (e) => {
 });
 document.addEventListener("click", (e) => {
   if (e.target.closest("#agent-popup") || e.target.closest("#agent-btn")
+      || e.target.closest("#model-popup") || e.target.closest("#model-btn")
       || e.target.closest("#tools-popup") || e.target.closest("#tools-btn")
       || e.target.closest("#ws-popup") || e.target.closest("#ws-btn")) return;
   closeComposerPopups();
 });
 window.addEventListener("resize", closeComposerPopups);
-refreshAgentLabel();
+refreshChips();
 
 // ---- 자동 모드 코칭 힌트 ------------------------------------------------
 const autoHint = document.getElementById("auto-hint");
