@@ -1,37 +1,41 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  install.sh 가 이 템플릿의 {{PLACEHOLDER}} 들을 현재 사용자 환경으로 치환해
+  ~/Library/LaunchAgents/{{LABEL}}.plist 를 생성합니다. 직접 편집하지 마세요.
+-->
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.elec100.agentic-os</string>
+  <string>{{LABEL}}</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/macmini/Documents/agentic-os/.venv/bin/python3</string>
+    <string>{{PYTHON}}</string>
     <string>-m</string>
     <string>uvicorn</string>
     <string>app.main:app</string>
     <string>--host</string>
-    <string>127.0.0.1</string>
+    <string>{{HOST}}</string>
     <string>--port</string>
-    <string>8899</string>
+    <string>{{PORT}}</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/macmini/Documents/agentic-os</string>
+  <string>{{APP_DIR}}</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/macmini/Documents/agentic-os/data/aos.log</string>
+  <string>{{APP_DIR}}/data/aos.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/macmini/Documents/agentic-os/data/aos.err.log</string>
+  <string>{{APP_DIR}}/data/aos.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/Users/macmini/.local/bin:/Users/macmini/.grok/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>{{PATH}}</string>
     <key>HOME</key>
-    <string>/Users/macmini</string>
+    <string>{{HOME}}</string>{{VAULT_ENV}}
   </dict>
 </dict>
 </plist>

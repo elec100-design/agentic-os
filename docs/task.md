@@ -48,7 +48,7 @@
 - [x] 등록된 경로만 실행 허용 (임의 경로 차단)
 
 ### 외부 접속
-- [x] Tailscale serve로 tailnet 내 HTTPS 노출 (`https://macmini.tail22aa0a.ts.net`)
+- [x] Tailscale serve로 tailnet 내 HTTPS 노출 (`https://<host>.<tailnet>.ts.net`)
 - [x] CSRF 미들웨어 same-origin 비교로 개선 (포트 무관) + tailnet origin 허용
 
 ### 운영

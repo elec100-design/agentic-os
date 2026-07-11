@@ -17,11 +17,11 @@
 - 각 서비스는 유료 구독 CLI 헤드리스 모드로만 호출: `claude -p`, `gemini -p`, `grok -p`, `hermes -z`. API 키 사용 금지.
 - 동시 실행 작업 수는 1개 (의도적 제한).
 - 웹 서버는 `127.0.0.1:8899`에만 바인딩.
-- Obsidian 저장 경로: `/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Blogging/Agentic OS/`
+- Obsidian 저장 경로: `<obsidian-vault>/Agentic OS/`
 - 기본 타임아웃 30분, 제한 시 기본 재개 지연 60분, 최대 시도 10회.
 - 상태 값은 정확히: `queued | running | rate_limited | done | failed`.
 - 외부 CDN 의존 금지 — htmx는 `static/htmx.min.js`로 vendored.
-- 프로젝트 루트: `/Users/macmini/Documents/Agentic OS` (경로에 공백 있음 — 셸 명령에서 반드시 인용).
+- 프로젝트 루트: `~/agentic-os` (경로에 공백 있음 — 셸 명령에서 반드시 인용).
 
 ---
 
@@ -76,7 +76,7 @@ DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "aos.db"
 
 VAULT_PATH = Path(
-    "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Blogging"
+    "<obsidian-vault>"
 )
 MEMORY_DIR = VAULT_PATH / "Agentic OS"
 
@@ -107,7 +107,7 @@ def tmp_env(tmp_path, monkeypatch):
 - [ ] **Step 2: venv 생성 + 의존성 설치**
 
 ```bash
-cd "/Users/macmini/Documents/Agentic OS"
+cd "~/agentic-os"
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
@@ -212,7 +212,7 @@ def test_usage_counts_and_limit_status(tmp_env):
 
 - [ ] **Step 4: 테스트 실패 확인**
 
-Run: `cd "/Users/macmini/Documents/Agentic OS" && .venv/bin/pytest tests/test_db.py -v`
+Run: `cd "~/agentic-os" && .venv/bin/pytest tests/test_db.py -v`
 Expected: FAIL — `AttributeError: module 'app.db' has no attribute ...` 또는 import 오류.
 
 - [ ] **Step 5: `app/db.py` 구현**
@@ -1126,7 +1126,7 @@ git add -A && git commit -m "feat: queue worker with rate-limit auto-resume and 
 - [ ] **Step 1: htmx vendoring**
 
 ```bash
-cd "/Users/macmini/Documents/Agentic OS"
+cd "~/agentic-os"
 mkdir -p static templates/partials
 curl -fsSL -o static/htmx.min.js https://unpkg.com/htmx.org@1.9.12/dist/htmx.min.js
 ```
@@ -1515,7 +1515,7 @@ Expected: 전부 passed (누적 37개).
 - [ ] **Step 8: 수동 스모크 테스트**
 
 ```bash
-cd "/Users/macmini/Documents/Agentic OS"
+cd "~/agentic-os"
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8899
 ```
 브라우저에서 `http://localhost:8899` 접속:
@@ -1534,14 +1534,14 @@ git add -A && git commit -m "feat: FastAPI dashboard with dispatch, queue, usage
 ### Task 6: launchd 자동 시작 + E2E 검증
 
 **Files:**
-- Create: `launchd/com.elec100.agentic-os.plist`
+- Create: `launchd/com.agentic-os.dashboard.plist`
 - Create: `install.sh`
 
 **Interfaces:**
 - Consumes: `app.main:app`, `.venv/bin/uvicorn`
-- Produces: 로그인 시 자동 시작되는 launchd 서비스 `com.elec100.agentic-os`
+- Produces: 로그인 시 자동 시작되는 launchd 서비스 `com.agentic-os.dashboard`
 
-- [ ] **Step 1: plist 작성** — `launchd/com.elec100.agentic-os.plist`
+- [ ] **Step 1: plist 작성** — `launchd/com.agentic-os.dashboard.plist`
 
 주의: `EnvironmentVariables`의 PATH에 4개 CLI 경로가 모두 포함되어야 launchd 환경에서 서브프로세스 실행이 가능하다 (`claude`/`hermes`: `~/.local/bin`, `grok`: `~/.grok/bin`, `gemini`/`rg`: `/opt/homebrew/bin`).
 
@@ -1552,10 +1552,10 @@ git add -A && git commit -m "feat: FastAPI dashboard with dispatch, queue, usage
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.elec100.agentic-os</string>
+  <string>com.agentic-os.dashboard</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/macmini/Documents/Agentic OS/.venv/bin/uvicorn</string>
+    <string>~/agentic-os/.venv/bin/uvicorn</string>
     <string>app.main:app</string>
     <string>--host</string>
     <string>127.0.0.1</string>
@@ -1563,21 +1563,21 @@ git add -A && git commit -m "feat: FastAPI dashboard with dispatch, queue, usage
     <string>8899</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>/Users/macmini/Documents/Agentic OS</string>
+  <string>~/agentic-os</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>/Users/macmini/Documents/Agentic OS/data/aos.log</string>
+  <string>~/agentic-os/data/aos.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/macmini/Documents/Agentic OS/data/aos.err.log</string>
+  <string>~/agentic-os/data/aos.err.log</string>
   <key>EnvironmentVariables</key>
   <dict>
     <key>PATH</key>
-    <string>/Users/macmini/.local/bin:/Users/macmini/.grok/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <string>~/.local/bin:~/.grok/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
     <key>HOME</key>
-    <string>/Users/macmini</string>
+    <string>~</string>
   </dict>
 </dict>
 </plist>
@@ -1589,8 +1589,8 @@ git add -A && git commit -m "feat: FastAPI dashboard with dispatch, queue, usage
 #!/bin/sh
 # Agentic OS launchd 서비스 설치/재설치
 set -e
-PLIST_SRC="$(cd "$(dirname "$0")" && pwd)/launchd/com.elec100.agentic-os.plist"
-PLIST_DST="$HOME/Library/LaunchAgents/com.elec100.agentic-os.plist"
+PLIST_SRC="$(cd "$(dirname "$0")" && pwd)/launchd/com.agentic-os.dashboard.plist"
+PLIST_DST="$HOME/Library/LaunchAgents/com.agentic-os.dashboard.plist"
 mkdir -p "$HOME/Library/LaunchAgents" "$(dirname "$PLIST_SRC")/../data"
 launchctl unload "$PLIST_DST" 2>/dev/null || true
 cp "$PLIST_SRC" "$PLIST_DST"
@@ -1605,7 +1605,7 @@ chmod +x install.sh
 - [ ] **Step 3: 서비스 설치 및 기동 확인**
 
 ```bash
-cd "/Users/macmini/Documents/Agentic OS" && ./install.sh
+cd "~/agentic-os" && ./install.sh
 sleep 3
 curl -s -o /dev/null -w "%{http_code}" http://localhost:8899/
 ```
@@ -1622,7 +1622,7 @@ Expected: `200`.
 
 확인:
 ```bash
-ls "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI/Blogging/Agentic OS/"
+ls "<obsidian-vault>/Agentic OS/"
 ```
 Expected: 노트 4개 생성. 사용량 패널에 서비스별 성공 1씩 표시.
 
@@ -1631,7 +1631,7 @@ Expected: 노트 4개 생성. 사용량 패널에 서비스별 성공 1씩 표�
 가짜 rate_limited 작업을 주입해 자동 재개를 검증:
 
 ```bash
-cd "/Users/macmini/Documents/Agentic OS"
+cd "~/agentic-os"
 .venv/bin/python - <<'EOF'
 from datetime import datetime, timedelta, timezone
 from app import db
@@ -1649,7 +1649,7 @@ Expected: 워커가 `resume_at`이 지난 작업을 집어 자동 실행 완료.
 - [ ] **Step 6: 재시작 복구 검증**
 
 ```bash
-launchctl kickstart -k gui/$(id -u)/com.elec100.agentic-os
+launchctl kickstart -k gui/$(id -u)/com.agentic-os.dashboard
 sleep 3
 curl -s -o /dev/null -w "%{http_code}" http://localhost:8899/
 ```

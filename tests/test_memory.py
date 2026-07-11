@@ -104,7 +104,7 @@ def test_save_note_records_session_id(tmp_env):
 
 
 def test_save_note_records_workdir(tmp_env):
-    wd = "/Users/macmini/Library/Mobile Documents/com~apple~CloudDocs/LLM WIKI"
+    wd = "/tmp/example-vault/notes"
     path = memory.save_note("q", "claude", "a", when=datetime(2026, 7, 5),
                             session_id="sess-9", workdir=wd)
     text = path.read_text(encoding="utf-8")

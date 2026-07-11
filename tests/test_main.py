@@ -76,6 +76,18 @@ def test_create_job_with_session_and_workdir(tmp_env, tmp_path):
     assert job["workdir"] == str(d.resolve())
 
 
+def test_create_job_rejects_oversized_upload(tmp_env, monkeypatch):
+    """업로드가 한도를 넘으면 413으로 거부한다."""
+    from app import config
+    monkeypatch.setattr(config, "MAX_UPLOAD_MB", 1)
+    big = b"x" * (1024 * 1024 + 1)   # 1MB + 1바이트
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "분석", "provider": "claude"},
+                        files={"files": ("big.bin", big, "application/octet-stream")},
+                        follow_redirects=False)
+    assert r.status_code == 413
+
+
 def test_create_job_with_upload_appends_path(tmp_env):
     from app import config, db
     with _client(tmp_env) as client:
@@ -103,7 +115,7 @@ def test_note_view_and_containment(tmp_env):
 
 def test_note_view_resume_form_includes_workdir(tmp_env):
     from app import memory
-    wd = "/Users/macmini/Documents/agentic-os"
+    wd = "/tmp/example-project"
     path = memory.save_note(
         "질문", "claude", "답변", session_id="sess-abc-123", workdir=wd)
     with _client(tmp_env) as client:
