@@ -28,8 +28,14 @@
   <input type="hidden" name="workdir" value="{{ note['workdir'] }}">
   {% endif %}
   <input type="hidden" name="origin_note" value="{{ note['path'] }}">
+  <div class="resume-note" id="resume-hint"></div>
 
-  <div class="resume-options">
+  <div class="composer-bar">
+    <!-- 첨부·도구 메뉴 (+) : 메인뷰 컴포저와 동일 -->
+    <button type="button" class="cbar-btn" id="resume-tools-btn" aria-label="첨부·도구" aria-haspopup="true">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+    </button>
+
     <label class="resume-opt">에이전트
       <select class="ws-select" name="provider" id="resume-agent">
         {% for a in agents %}
@@ -40,19 +46,34 @@
     <label class="resume-opt">모델
       <select class="ws-select" name="model" id="resume-model"></select>
     </label>
-    <label class="resume-opt resume-file">
-      <input type="file" name="files" id="resume-files" multiple>
-    </label>
-  </div>
 
-  <div class="composer-bar">
-    <span class="resume-note" id="resume-hint"></span>
     <span class="spacer"></span>
     <button type="submit" class="send" aria-label="전송">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
       </svg>
     </button>
+  </div>
+
+  <!-- 도구 팝업: 파일·메모리·타임아웃 (폼 안이라 그대로 제출된다) -->
+  <div class="cbar-popup tools-popup" id="resume-tools-popup" hidden>
+    <label class="tools-row" title="사진·파일 첨부">
+      <input type="file" name="files" id="resume-files" multiple>
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13.2 7.2 8.4 12a3.4 3.4 0 0 1-4.8-4.8l4.8-4.8a2.3 2.3 0 0 1 3.2 3.2L6.8 10.4a1.1 1.1 0 0 1-1.6-1.6l4.4-4.4"/>
+      </svg>
+      <span>파일 첨부…</span>
+    </label>
+    <label class="tools-row">
+      <input type="checkbox" name="attach_memory" value="true">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 3 4.5v4c0 3 2.2 4.6 5 5.5 2.8-.9 5-2.5 5-5.5v-4z"/></svg>
+      <span>메모리 첨부</span>
+    </label>
+    <label class="tools-row tools-timeout">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="5"/><path d="M8 6.5V9l1.6 1M6 1.8h4"/></svg>
+      <span>타임아웃</span>
+      <input type="number" name="timeout_min" min="1" placeholder="자동"> 분
+    </label>
   </div>
 </form>
 
@@ -62,19 +83,28 @@ const NOTE = {
   provider: {{ note['provider'] | tojson }},
   session_id: {{ note['session_id'] | tojson }},
   workdir: {{ (note['workdir'] or '') | tojson }},
+  model: {{ (note['model'] or '') | tojson }},
 };
 const agentSel = document.getElementById("resume-agent");
 const modelSel = document.getElementById("resume-model");
 const hint = document.getElementById("resume-hint");
 
 function fillModels() {
-  const list = PROVIDER_MODELS[agentSel.value] || [];
+  const p = agentSel.value;
+  const list = PROVIDER_MODELS[p] || [];
+  // 이전 채팅과 같은 에이전트면 그때 쓴 모델을 기본 선택, 없으면 기본값
+  let target = (p === NOTE.provider && NOTE.model) ? NOTE.model : "";
+  if (!list.some((m) => (m.model || "") === target)) {
+    const d = list.find((m) => m.default) || list[0];
+    target = d ? (d.model || "") : "";
+  }
   modelSel.innerHTML = "";
   for (const m of list) {
+    const id = m.model || "";
     const o = document.createElement("option");
-    o.value = m.model || "";
+    o.value = id;
     o.textContent = m.label + (m.default && !m.label.includes("기본값") ? " (기본값)" : "");
-    if (m.default) o.selected = true;
+    o.selected = id === target;
     modelSel.appendChild(o);
   }
   modelSel.disabled = list.length <= 1;
@@ -92,6 +122,31 @@ agentSel.addEventListener("change", () => { fillModels(); fillHint(); });
 fillModels();
 fillHint();
 
+// --- 도구(+) 팝업: 메인뷰와 동일한 열기/닫기·위치 계산 ---
+const toolsBtn = document.getElementById("resume-tools-btn");
+const toolsPopup = document.getElementById("resume-tools-popup");
+function closeToolsPopup() { toolsPopup.hidden = true; }
+function openToolsPopup() {
+  toolsPopup.hidden = false;
+  const r = toolsBtn.getBoundingClientRect();
+  const w = toolsPopup.offsetWidth || 220;
+  let left = r.left + window.scrollX;
+  const maxLeft = window.scrollX + document.documentElement.clientWidth - w - 8;
+  if (left > maxLeft) left = Math.max(8, maxLeft);
+  toolsPopup.style.top = (r.bottom + 6 + window.scrollY) + "px";
+  toolsPopup.style.left = left + "px";
+}
+toolsBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  toolsPopup.hidden ? openToolsPopup() : closeToolsPopup();
+});
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#resume-tools-popup") || e.target.closest("#resume-tools-btn")) return;
+  closeToolsPopup();
+});
+window.addEventListener("resize", closeToolsPopup);
+
+// 파일 첨부 칩
 document.getElementById("resume-files").addEventListener("change", (e) => {
   const chips = document.getElementById("resume-chips");
   chips.innerHTML = "";

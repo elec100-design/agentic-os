@@ -15,6 +15,37 @@ def test_save_note_creates_file_with_frontmatter(tmp_env):
     assert path.name.startswith("2026-07-05-")
 
 
+def test_save_note_records_model_and_read_note_parses_it(tmp_env):
+    """모델을 노트에 기록하고 다시 읽으면 그대로 나온다(재개 폼 프리필용)."""
+    path = memory.save_note("모델 기록", "claude", "out",
+                            when=datetime(2026, 7, 5),
+                            session_id="s1", model="opus")
+    assert "model: opus" in path.read_text(encoding="utf-8")
+    note = memory.read_note(str(path))
+    assert note["model"] == "opus"
+    assert note["provider"] == "claude"
+
+
+def test_save_note_without_model_omits_line(tmp_env):
+    path = memory.save_note("모델 없음", "claude", "out",
+                            when=datetime(2026, 7, 5))
+    assert "model:" not in path.read_text(encoding="utf-8")
+    assert memory.read_note(str(path))["model"] is None
+
+
+def test_append_note_updates_model(tmp_env):
+    """이어가기 결과를 덧붙일 때 model을 최신값으로 교체한다."""
+    path = memory.save_note("최초", "claude", "out",
+                            when=datetime(2026, 7, 5),
+                            session_id="s1", model="opus")
+    memory.append_note(path, "이어서", "claude", "out2",
+                       session_id="s2", model="sonnet")
+    text = path.read_text(encoding="utf-8")
+    assert "model: sonnet" in text
+    assert "model: opus" not in text
+    assert memory.read_note(str(path))["model"] == "sonnet"
+
+
 def test_save_note_dedupes_filename(tmp_env):
     a = memory.save_note("같은 제목", "claude", "1", when=datetime(2026, 7, 5))
     b = memory.save_note("같은 제목", "claude", "2", when=datetime(2026, 7, 5))

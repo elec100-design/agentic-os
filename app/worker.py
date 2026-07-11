@@ -132,13 +132,14 @@ async def run_job(conn, job, providers=None, save=True):
                 try:
                     note_path = memory.append_note(
                         target, job["prompt"], provider.name, result.text,
-                        session_id=new_session)
+                        session_id=new_session, model=job["model"])
                 except FileNotFoundError:
                     note_path = None  # 원본이 삭제됨 → 새 노트로 폴백
             if note_path is None:
                 note_path = memory.save_note(
                     job["prompt"], provider.name, result.text,
-                    session_id=new_session, workdir=job["workdir"])
+                    session_id=new_session, workdir=job["workdir"],
+                    model=job["model"])
             # 노트↔작업 연동을 위해 생성된 노트 경로를 작업에 기록
             db.update_job(conn, job["id"], note_path=str(note_path.resolve()))
         except OSError as e:
