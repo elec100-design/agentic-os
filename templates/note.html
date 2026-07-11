@@ -19,19 +19,34 @@
 
 {% if can_resume %}
 <h2 class="section-label">이 세션 이어서 진행</h2>
-<form class="composer" method="post" action="/jobs">
+<form class="composer" id="resume-form" method="post" action="/jobs" enctype="multipart/form-data">
   <textarea name="prompt" rows="3" required placeholder="이어서 무엇을 할까요?"></textarea>
-  <input type="hidden" name="provider" value="{{ note['provider'] }}">
+  <div class="resume-chips" id="resume-chips"></div>
   <input type="hidden" name="session_id" value="{{ note['session_id'] }}">
+  <input type="hidden" name="resume_provider" value="{{ note['provider'] }}">
   {% if note['workdir'] %}
   <input type="hidden" name="workdir" value="{{ note['workdir'] }}">
   {% endif %}
   <input type="hidden" name="origin_note" value="{{ note['path'] }}">
+
+  <div class="resume-options">
+    <label class="resume-opt">에이전트
+      <select class="ws-select" name="provider" id="resume-agent">
+        {% for a in agents %}
+        <option value="{{ a }}"{% if a == note['provider'] %} selected{% endif %}>{{ a|capitalize }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="resume-opt">모델
+      <select class="ws-select" name="model" id="resume-model"></select>
+    </label>
+    <label class="resume-opt resume-file">
+      <input type="file" name="files" id="resume-files" multiple>
+    </label>
+  </div>
+
   <div class="composer-bar">
-    <span class="resume-note">
-      {{ note['provider'] }} 세션 {{ note['session_id'][:12] }}… 에서 이어집니다
-      {% if note['workdir'] %} · 작업 위치 {{ note['workdir'] }}{% endif %}
-    </span>
+    <span class="resume-note" id="resume-hint"></span>
     <span class="spacer"></span>
     <button type="submit" class="send" aria-label="전송">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -40,6 +55,54 @@
     </button>
   </div>
 </form>
+
+<script>
+const PROVIDER_MODELS = {{ provider_models | tojson }};
+const NOTE = {
+  provider: {{ note['provider'] | tojson }},
+  session_id: {{ note['session_id'] | tojson }},
+  workdir: {{ (note['workdir'] or '') | tojson }},
+};
+const agentSel = document.getElementById("resume-agent");
+const modelSel = document.getElementById("resume-model");
+const hint = document.getElementById("resume-hint");
+
+function fillModels() {
+  const list = PROVIDER_MODELS[agentSel.value] || [];
+  modelSel.innerHTML = "";
+  for (const m of list) {
+    const o = document.createElement("option");
+    o.value = m.model || "";
+    o.textContent = m.label + (m.default && !m.label.includes("기본값") ? " (기본값)" : "");
+    if (m.default) o.selected = true;
+    modelSel.appendChild(o);
+  }
+  modelSel.disabled = list.length <= 1;
+}
+
+function fillHint() {
+  const same = agentSel.value === NOTE.provider;
+  const wd = NOTE.workdir ? ` · 작업 위치 ${NOTE.workdir}` : "";
+  hint.textContent = same
+    ? `${NOTE.provider} 세션 ${NOTE.session_id.slice(0, 12)}… 에서 이어집니다${wd}`
+    : `${agentSel.value}로 전환 — 이 노트를 컨텍스트로 같은 위치에서 이어갑니다${wd}`;
+}
+
+agentSel.addEventListener("change", () => { fillModels(); fillHint(); });
+fillModels();
+fillHint();
+
+document.getElementById("resume-files").addEventListener("change", (e) => {
+  const chips = document.getElementById("resume-chips");
+  chips.innerHTML = "";
+  for (const f of e.target.files) {
+    const c = document.createElement("span");
+    c.className = "chip";
+    c.textContent = f.name;
+    chips.appendChild(c);
+  }
+});
+</script>
 {% else %}
 <h2 class="section-label">이 노트를 참고해 새 작업</h2>
 <form class="composer" method="post" action="/jobs">

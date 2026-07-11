@@ -199,6 +199,7 @@ async def create_job(
     attach_memory: bool = Form(False),
     timeout_min: int | None = Form(None),
     session_id: str = Form(""),
+    resume_provider: str = Form(""),
     origin_note: str = Form(""),
     context_note: str = Form(""),
     files: list[UploadFile] = File(default=[]),
@@ -213,6 +214,13 @@ async def create_job(
     # 등록된 작업 위치만 cwd로 허용 (임의 경로 실행 방지)
     if not workspace.valid_path(workdir):
         workdir = ""
+    # 노트에서 세션 이어가기 중 에이전트를 바꾼 경우: session_id는 원본
+    # provider 전용이라 다른 CLI로는 재개할 수 없다. 대신 같은 작업 위치에서
+    # 노트를 컨텍스트로 붙여 새 에이전트로 이어간다(멀티에이전트 폴백).
+    if session_id.strip() and resume_provider and provider != resume_provider:
+        if origin_note and not context_note:
+            context_note = origin_note
+        session_id = ""
     # 세션 이어가기일 때만 원본 노트를 스레드 노트로 인정 → 결과를 이어 쓴다
     if not (session_id.strip() and memory.is_managed(origin_note)):
         origin_note = ""
@@ -254,8 +262,13 @@ def note_view(request: Request, path: str):
         note["session_id"] and note["provider"] in PROVIDERS
         and note["provider"] != "hermes"
     )
+    pm = models.get_provider_models()
+    order = ["claude", "antigravity", "grok", "hermes"]
+    agents = [p for p in order if p in pm] + [p for p in pm if p not in order]
     return templates.TemplateResponse(
-        request, "note.html", {"note": note, "can_resume": can_resume}
+        request, "note.html",
+        {"note": note, "can_resume": can_resume,
+         "provider_models": pm, "agents": agents},
     )
 
 

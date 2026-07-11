@@ -116,6 +116,57 @@ def test_note_view_resume_form_includes_workdir(tmp_env):
         assert "작업 위치" in r.text
 
 
+def test_note_resume_form_has_agent_model_and_file(tmp_env):
+    """재개 폼에 에이전트·모델 선택과 파일 첨부 UI가 렌더된다."""
+    from app import memory
+    path = memory.save_note("질문", "claude", "답변", session_id="sess-1")
+    with _client(tmp_env) as client:
+        r = client.get("/note", params={"path": str(path)})
+    assert 'name="resume_provider"' in r.text
+    assert 'id="resume-agent"' in r.text
+    assert 'id="resume-model"' in r.text
+    assert 'type="file"' in r.text
+
+
+def test_resume_same_agent_keeps_session(tmp_env):
+    """같은 에이전트를 고르면 진짜 세션 재개: session_id·스레드 노트 유지,
+    노트 본문은 컨텍스트로 붙이지 않는다."""
+    from app import config, db, memory
+    path = memory.save_note("원래 질문", "claude", "원래 답변", session_id="sess-77")
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={
+            "prompt": "이어서 해줘",
+            "provider": "claude",
+            "session_id": "sess-77",
+            "resume_provider": "claude",
+            "origin_note": str(path),
+        }, follow_redirects=False)
+    job = db.list_jobs(db.get_conn(config.DB_PATH))[0]
+    assert job["session_id"] == "sess-77"
+    assert job["note_path"] == str(path.resolve())
+    assert "원래 질문" not in job["prompt"]
+
+
+def test_resume_switching_agent_drops_session_and_attaches_note(tmp_env):
+    """다른 에이전트를 고르면 그 세션 id로는 재개할 수 없으므로 session_id를
+    버리고, 노트를 컨텍스트로 붙여 같은 위치에서 이어간다."""
+    from app import config, db, memory
+    path = memory.save_note("원래 질문", "grok", "원래 답변", session_id="latest")
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={
+            "prompt": "이어서 해줘",
+            "provider": "claude",
+            "session_id": "latest",
+            "resume_provider": "grok",
+            "origin_note": str(path),
+        }, follow_redirects=False)
+    job = db.list_jobs(db.get_conn(config.DB_PATH))[0]
+    assert job["provider"] == "claude"
+    assert job["session_id"] is None
+    assert job["note_path"] is None
+    assert "원래 질문" in job["prompt"]
+
+
 def test_create_job_with_valid_model(tmp_env):
     from app import config, db
     # 폴백 목록의 패밀리 별칭(opus) — CLI가 항상 최신 full id로 해석

@@ -453,6 +453,26 @@ td a:hover { color: var(--accent); text-decoration: underline; }
 }
 .resume-note { color: var(--muted); font-size: 0.76rem; }
 
+/* 노트 세션 이어가기 — 에이전트·모델·파일 선택 */
+.resume-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.resume-chips:not(:empty) { margin: 0.3rem 0.2rem 0; }
+.resume-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  margin-top: 0.6rem;
+}
+.resume-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+.resume-opt select:disabled { opacity: 0.55; }
+.resume-file input { font-size: 0.78rem; color: var(--muted); max-width: 12rem; }
+
 /* 보조 버튼 (취소 등) */
 .btn-ghost {
   padding: 0.25rem 0.7rem;
