@@ -9,6 +9,18 @@ from app.providers import CONTINUE_PROMPT, PROVIDERS
 current = {"job_id": None, "proc": None}
 
 
+def terminate_job_procs(job_id):
+    """잡의 실행 중 프로세스를 모두 종료한다 (단일 CLI 잡 + 협의 잡의 병렬 CLI들)."""
+    if current["job_id"] == job_id and current["proc"]:
+        current["proc"].terminate()
+    from app import council
+    for proc in list(council.council_procs.get(job_id, [])):
+        try:
+            proc.terminate()
+        except ProcessLookupError:
+            pass
+
+
 def _clean_env():
     env = dict(os.environ)
     for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
@@ -27,6 +39,10 @@ async def _pump(stream, sink):
 
 async def run_job(conn, job, providers=None, save=True):
     providers = providers or PROVIDERS
+    if job["provider"] == "council":
+        from app import council
+        await council.run_council(conn, job, providers=providers, save=save)
+        return
     provider = providers[job["provider"]]
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
     # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.

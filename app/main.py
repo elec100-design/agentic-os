@@ -17,8 +17,10 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import codexbar, config, db, github_cli, memory, models, workspace, worker
-from app.providers import PROVIDERS, route_auto
+from app import (
+    codexbar, config, council, db, github_cli, memory, models, workspace, worker,
+)
+from app.providers import COUNCIL, PROVIDERS, route_auto
 
 BASE = Path(__file__).resolve().parent.parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
@@ -213,7 +215,18 @@ async def create_job(
     conn = db.get_conn()
     if provider == "auto":
         provider, _ = route_auto(prompt, usage_state=usage_state()["usage"])
-    if provider not in PROVIDERS:
+    if provider == COUNCIL:
+        # 협의 모드: 가용 에이전트가 최소 인원 이상인지 미리 확인.
+        # 세션 재개·모델·작업 위치는 지원하지 않는다 (매 호출 stateless,
+        # 여러 CLI가 같은 폴더에 동시에 쓰면 충돌할 수 있음).
+        try:
+            council.select_members(usage_state()["usage"])
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        model = ""
+        workdir = ""
+        session_id = ""
+    elif provider not in PROVIDERS:
         raise HTTPException(status_code=400, detail="unknown provider")
     if not models.is_valid_model(provider, model):
         model = ""
@@ -294,8 +307,7 @@ def cancel_job(job_id: int):
         raise HTTPException(status_code=404)
     db.update_job(conn, job_id, status="failed", error="cancelled",
                   finished_at=db.now_iso())
-    if worker.current["job_id"] == job_id and worker.current["proc"]:
-        worker.current["proc"].terminate()
+    worker.terminate_job_procs(job_id)
     return RedirectResponse("/", status_code=303)
 
 
@@ -330,8 +342,7 @@ def delete_job_endpoint(request: Request, job_id: int):
     if job is None:
         raise HTTPException(status_code=404)
     # 실행 중이면 먼저 중단
-    if worker.current["job_id"] == job_id and worker.current["proc"]:
-        worker.current["proc"].terminate()
+    worker.terminate_job_procs(job_id)
     # 연결된 노트도 함께 삭제 (작업큐↔메모리 연동)
     # 단, 다른 작업(스레드)이 같은 노트를 공유하면 노트는 남긴다
     if (job["note_path"] and memory.is_managed(job["note_path"])

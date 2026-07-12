@@ -72,13 +72,19 @@ const toolsBtn = document.getElementById("tools-btn");
 const toolsPopup = document.getElementById("tools-popup");
 const chosenModel = {};                     // provider -> model id ("" = 기본값)
 
-// 팝업에 노출할 에이전트: 자동 + 지정 순서(claude/antigravity/grok/hermes)
-const AGENTS = [{ id: "auto", name: "자동" }].concat(
-  AGENT_ORDER.filter((p) => MODELS[p]).map((p) => ({ id: p, name: agentName(p) }))
-);
+// 팝업에 노출할 에이전트: 자동 + 지정 순서(claude/antigravity/grok/hermes) + 협의
+// 협의(council)는 여러 에이전트가 제안·비평하고 하나가 종합하는 모드 —
+// 모델 선택이 없어(MODELS에 없음) 모델 칩은 자동으로 숨겨진다.
+const AGENTS = [{ id: "auto", name: "자동" }]
+  .concat(
+    AGENT_ORDER.filter((p) => MODELS[p]).map((p) => ({ id: p, name: agentName(p) }))
+  )
+  .concat([{ id: "council", name: "협의" }]);
 
 function agentName(p) {
-  return p === "auto" ? "자동" : p.charAt(0).toUpperCase() + p.slice(1);
+  if (p === "auto") return "자동";
+  if (p === "council") return "협의";
+  return p.charAt(0).toUpperCase() + p.slice(1);
 }
 function defaultModel(p) {
   const list = MODELS[p] || [];
@@ -136,7 +142,9 @@ function renderAgentPopup() {
     row.innerHTML =
       `<span class="popup-check">${a.id === cur ? "✓" : ""}</span>` +
       `<span class="popup-label">${a.name}</span>` +
-      (multi ? `<span class="popup-tag">모델</span>` : "");
+      (a.id === "council"
+        ? `<span class="popup-tag" title="여러 에이전트가 제안·비평하고 하나가 종합합니다 (사용량 다중 소모)">토론</span>`
+        : multi ? `<span class="popup-tag">모델</span>` : "");
     row.addEventListener("click", () => { selectProvider(a.id); closeComposerPopups(); });
     agentPopup.appendChild(row);
   }
