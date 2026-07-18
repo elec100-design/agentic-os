@@ -202,6 +202,11 @@ async def run_council(conn, job, providers=None, save=True, usage_state=None):
     def emit(text):
         db.append_output(conn, job_id, text)
 
+    # 방어적 초기화: 이 잡의 output에 이전 시도 잔여물이 남아있지 않도록 한다
+    # (정상 경로에서는 항상 비어있다 — recover_running이 council 잡을 재큐잉하지
+    # 않으므로. 다만 output 누적 중복을 다시 만들지 않도록 안전장치로 둔다)
+    db.update_job(conn, job_id, output="")
+
     try:
         members = select_members(usage, providers)
     except ValueError as e:
