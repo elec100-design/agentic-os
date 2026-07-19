@@ -111,6 +111,17 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
 - [ ] 데모 GIF (스크린샷은 완료)
 - [ ] GitHub 메타(description·topics·homepage) — 저장소 Settings에서 수동 설정 필요
 
+### V3 Phase 2 — clone→첫 성공 마찰 제거 (대부분 완료)
+- [x] `bootstrap.sh` — uv/venv 감지 + deps + aos.env 시드 + 포트 확인 + 브라우저
+      오픈, macOS·Linux 공용
+- [x] `/api/health` + `aos doctor` (`app/health.py`, `app/__main__.py`) — 서버·CLI·
+      설정 진단, `python -m app doctor` / JSON
+- [x] 패키징 — pyproject `[build-system]`(hatchling) + `[project.scripts]` `aos`,
+      `python -m app`/`aos`/`aos doctor` 지원
+- [x] Linux 지원 — config가 홈 이하로 이미 동작(iCloud 자동 우회), systemd 유닛
+      템플릿 `deploy/agentic-os.service` 추가
+- [ ] UI i18n(영문 기본 + 한국어) — 규모 큰 UI 번역이라 별도 진행
+
 ### V3 Phase 1~4 — 나머지 (docs/plan.md 참고, 다음 순서)
 - [x] 마크다운 렌더링(job/note 출력) — marked.js + highlight.js vendored,
       코드 복사 버튼, 라이트/다크 테마 (`static/render.js`, `static/marked.min.js`,

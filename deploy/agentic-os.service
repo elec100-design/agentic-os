@@ -1,0 +1,26 @@
+# Agentic OS — Linux systemd 사용자 서비스 (로그인 시 백그라운드 자동 시작).
+# macOS의 launchd(install.sh) 대응. 아래 자리표시자를 실제 경로로 바꾼 뒤:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/agentic-os.service ~/.config/systemd/user/agentic-os.service
+#   # __APP_DIR__ 을 저장소 절대경로로 치환 (예: sed -i "s#__APP_DIR__#$PWD#g" ~/.config/systemd/user/agentic-os.service)
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agentic-os
+#   loginctl enable-linger "$USER"   # 로그아웃해도 계속 실행하려면
+#
+# 앱 설정(볼트 경로·포트 등)은 이 파일이 아니라 저장소 루트의 aos.env 에 둡니다
+# (config.py가 기동 시 읽음). 로그: journalctl --user -u agentic-os -f
+
+[Unit]
+Description=Agentic OS local dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=__APP_DIR__
+ExecStart=__APP_DIR__/.venv/bin/python3 -m app
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

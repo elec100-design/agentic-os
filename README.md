@@ -112,36 +112,60 @@ subscription account and read/write files in permitted folders.
 
 ## Install
 
+### Quickstart (one command)
+
 ```bash
 git clone https://github.com/elec100-design/agentic-os.git
 cd agentic-os
+./bootstrap.sh
+```
+
+`bootstrap.sh` creates a virtualenv (uses `uv` if present, else
+`python -m venv`), installs dependencies, seeds `aos.env`, and launches the
+server + opens your browser. Works on macOS and Linux. Use
+`./bootstrap.sh --no-run` to set up without starting.
+
+### Manual
+
+```bash
 uv venv .venv
 uv pip install -r requirements.txt --python .venv/bin/python3
+.venv/bin/python3 -m app          # or: .venv/bin/uvicorn app.main:app --port 8899
 ```
 
 > The system `python3 -m venv` can fail `ensurepip` on some setups, hence
 > the `uv` recommendation.
 
-### Run it
-
-```bash
-.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8899
-```
-
 Open [http://localhost:8899](http://localhost:8899) — first visit takes you
 straight to the **setup wizard**.
 
-### Optional: launchd service (auto-start on login)
+### Diagnostics
+
+```bash
+.venv/bin/python3 -m app doctor    # or `aos doctor` after `pip install -e .`
+```
+
+Prints Python/platform, port, data-dir writability, and which agent CLIs and
+optional tools are detected — the fastest way to see why something isn't
+working. The same data is served at `GET /api/health`.
+
+### Optional: auto-start on login
+
+**macOS (launchd):**
 
 ```bash
 ./install.sh
 ```
 
-`install.sh` fills in the [plist template](launchd/agentic-os.plist.template)
-with your user's paths/port/label and loads it into
-`~/Library/LaunchAgents/`, clearing out anything already bound to the port.
-App settings (vault path, tailnet origin, etc.) live in `aos.env` below, not
-the plist, so **they survive reinstalls.**
+Fills in the [plist template](launchd/agentic-os.plist.template) with your
+user's paths/port/label and loads it into `~/Library/LaunchAgents/`.
+
+**Linux (systemd user service):** see
+[`deploy/agentic-os.service`](deploy/agentic-os.service) for the unit template
+and setup steps.
+
+In both cases, app settings (vault path, tailnet origin, etc.) live in
+`aos.env`, not the service file, so **they survive reinstalls.**
 
 ## First-run setup
 
@@ -272,6 +296,8 @@ agentic-os/
 │   ├── council.py     # Council mode — multi-agent propose/critique/synthesize
 │   ├── settings.py    # user settings (enabled agents) — data/settings.json
 │   ├── setup.py       # first-run setup — CLI/tool install detection
+│   ├── health.py      # diagnostics for /api/health and `aos doctor`
+│   ├── __main__.py    # `python -m app` / `aos` entry point (serve + doctor)
 │   ├── models.py      # dynamic per-CLI model list collection + cache
 │   ├── codexbar.py    # CodexBar real usage lookup + cache
 │   ├── workspace.py   # workspace (local folder / GitHub repo) management
@@ -283,7 +309,9 @@ agentic-os/
 ├── static/            # style.css, app.js, setup.js, vendored htmx
 ├── data/              # SQLite, caches, notes (default), uploads, workspaces, settings (git-ignored)
 ├── tests/             # unit tests
-├── launchd/           # launchd plist template
+├── launchd/           # macOS launchd plist template
+├── deploy/            # Linux systemd unit template
+├── bootstrap.sh       # one-command setup + run (macOS/Linux)
 └── docs/              # roadmap, task history, design docs
 ```
 

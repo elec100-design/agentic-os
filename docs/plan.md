@@ -136,20 +136,25 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 **의도적으로 미룸:** React 전환, 디자인 시스템 전면 교체, 모바일 네이티브 앱.
 HTMX + vanilla 스택은 이 제품 규모에 맞다.
 
-**Phase 2 — "clone → 첫 성공" 마찰 제거**
+**Phase 2 — "clone → 첫 성공" 마찰 제거 (대부분 완료)**
 
 - [x] **CLI 설치·보조도구 감지 API** — `/api/setup/status`(`app/setup.py`)가
       claude/agy/grok/hermes 설치 여부 + codexbar/gh/rg 감지 (재확인 버튼으로 재조회)
-- [ ] **`bootstrap.sh`**: uv 확인 + venv + deps + `aos.env` 시드 + 포트 확인 + 브라우저
-      오픈까지 한 번에 (기존 `install.sh`=launchd 등록과 역할 분리)
-- [ ] **범용 `/api/health`**: Python/venv, 포트, TCC 안내까지 포함한 진단 엔드포인트
-      (`/api/setup/status`는 CLI 감지만 담당 — 서버 자체 헬스체크는 별도 필요)
-- [ ] **플랫폼 독립화** (G7):
-  - `is_browse_allowed`를 일반 폴더 탐색으로 확장, iCloud/CloudStorage는 macOS 선택 기능으로 분리
-  - Linux 수동 실행 smoke test + systemd 유닛 템플릿 (launchd와 병행)
-- [ ] **패키징** (G8): pyproject에 `[build-system]` + `[project.scripts]` `aos` 엔트리포인트
-      → `pipx install agentic-os` 경로 검토 (PATH·워커 연동 검증 후)
-- [ ] **UI i18n**: 영문 기본 + 한국어 (템플릿 `lang="ko"` 하드코딩 해소)
+- [x] **`bootstrap.sh`**: uv/venv 감지 + deps + `aos.env` 시드 + 포트 확인 + 브라우저
+      오픈까지 한 번에. macOS·Linux 공용 (기존 `install.sh`=launchd 등록과 역할 분리)
+- [x] **범용 `/api/health` + `aos doctor`** (`app/health.py`, `app/__main__.py`):
+      Python/플랫폼/포트/데이터 쓰기 가능 여부 + CLI·보조도구 감지 + 셋업 상태.
+      `python -m app doctor`로 터미널 진단, `/api/health`로 JSON
+- [x] **플랫폼 독립화** (G7):
+  - Linux smoke 확인 — `is_browse_allowed`는 이미 "홈 이하"로 동작하고
+    iCloud/CloudStorage는 `.is_dir()` 가드로 자동 우회(크래시 없음). 홈 제한은
+    보안상 유지(임의 경로 실행 방지)
+  - `deploy/agentic-os.service` systemd 사용자 서비스 템플릿 (launchd와 병행)
+- [x] **패키징** (G8): pyproject에 `[build-system]`(hatchling) + `[project.scripts]`
+      `aos` 엔트리포인트. `pip install -e .` 시 `aos`/`aos doctor` 명령
+      (editable라 templates/static/data 경로 유지). 독립 wheel(자산 번들)은 후속
+- [ ] **UI i18n**: 영문 기본 + 한국어 (템플릿 `lang="ko"` 하드코딩 해소) — **미착수,
+      규모 큰 UI 번역이라 별도 진행**
 
 **성공 지표:** 문서만 보고 Time-to-first-job ≤ 15분 (Claude CLI 있는 Mac 기준).
 

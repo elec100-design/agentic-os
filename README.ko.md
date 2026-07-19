@@ -61,30 +61,49 @@ API 키를 쓰지 않고 이미 구독 중인 CLI의 헤드리스 모드만 호�
 
 ## 설치
 
+### 빠른 시작 (한 명령)
+
 ```bash
 git clone https://github.com/elec100-design/agentic-os.git
 cd agentic-os
+./bootstrap.sh
+```
+
+`bootstrap.sh`는 가상환경 생성(`uv` 있으면 uv, 없으면 `python -m venv`), 의존성 설치, `aos.env` 시드, 서버 실행 + 브라우저 열기까지 한 번에 합니다. macOS·Linux 모두 동작하며, 설치만 하려면 `./bootstrap.sh --no-run`.
+
+### 수동 설치
+
+```bash
 uv venv .venv
 uv pip install -r requirements.txt --python .venv/bin/python3
+.venv/bin/python3 -m app          # 또는: .venv/bin/uvicorn app.main:app --port 8899
 ```
 
 > 시스템 `python3 -m venv`는 일부 환경에서 ensurepip가 실패할 수 있어 `uv`를 권장합니다.
 
-### 수동 실행
-
-```bash
-.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8899
-```
-
 브라우저에서 [http://localhost:8899](http://localhost:8899) 접속하면 **첫 실행 셋업 위저드**로 안내됩니다.
 
-### launchd 서비스 (선택, 로그인 시 자동 시작)
+### 진단 (doctor)
+
+```bash
+.venv/bin/python3 -m app doctor    # 또는 `pip install -e .` 후 `aos doctor`
+```
+
+Python·플랫폼·포트·데이터 디렉터리 쓰기 가능 여부, 감지된 에이전트 CLI·보조 도구를 출력합니다 — "왜 안 되지?"를 가장 빠르게 확인하는 방법입니다. 같은 정보를 `GET /api/health`로도 제공합니다.
+
+### 로그인 시 자동 시작 (선택)
+
+**macOS (launchd):**
 
 ```bash
 ./install.sh
 ```
 
-`install.sh`는 [템플릿](launchd/agentic-os.plist.template)을 현재 사용자 환경(경로·포트·레이블)으로 치환해 `~/Library/LaunchAgents/`에 plist를 생성·로드합니다. 지정 포트를 점유한 잔여 프로세스도 정리합니다. 볼트·origin 등 앱 설정은 plist가 아니라 아래 `aos.env`로 관리되므로, **재설치해도 유지됩니다.**
+[템플릿](launchd/agentic-os.plist.template)을 현재 사용자 환경으로 치환해 `~/Library/LaunchAgents/`에 plist를 생성·로드합니다.
+
+**Linux (systemd 사용자 서비스):** 유닛 템플릿과 설정 절차는 [`deploy/agentic-os.service`](deploy/agentic-os.service) 참고.
+
+두 경우 모두 볼트·origin 등 앱 설정은 서비스 파일이 아니라 `aos.env`로 관리되므로 **재설치해도 유지됩니다.**
 
 ## 첫 실행 셋업
 
@@ -181,6 +200,8 @@ agentic-os/
 │   ├── council.py     # 협의(Council) 모드 — 다중 에이전트 제안·비평·종합
 │   ├── settings.py    # 사용자 설정(활성 에이전트) — data/settings.json
 │   ├── setup.py       # 첫 실행 셋업 — CLI·보조도구 설치 감지
+│   ├── health.py      # /api/health·`aos doctor` 진단 정보
+│   ├── __main__.py    # `python -m app`/`aos` 진입점 (서버 실행 + doctor)
 │   ├── models.py      # CLI 모델 목록 동적 수집 + 캐시
 │   ├── codexbar.py    # CodexBar 실측 사용량 조회 + 캐시
 │   ├── workspace.py   # 작업 위치(로컬 폴더 / GitHub 리포) 관리
@@ -192,7 +213,9 @@ agentic-os/
 ├── static/            # style.css, app.js, setup.js, htmx (vendored)
 ├── data/              # SQLite, 캐시, 노트(기본), 업로드, 워크스페이스, 셋업 설정 (git 제외)
 ├── tests/             # 유닛 테스트
-├── launchd/           # launchd plist 템플릿
+├── launchd/           # macOS launchd plist 템플릿
+├── deploy/            # Linux systemd 유닛 템플릿
+├── bootstrap.sh       # 원스톱 설치+실행 (macOS/Linux)
 └── docs/              # 로드맵·작업 내역·설계 문서
 ```
 

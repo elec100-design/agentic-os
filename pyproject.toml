@@ -15,6 +15,18 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "pytest-asyncio", "httpx"]
 
+# `aos` / `aos doctor` 명령. editable 설치(`pip install -e .`)로 쓰면
+# templates/static/data 경로가 저장소 기준으로 유지된다.
+[project.scripts]
+aos = "app.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

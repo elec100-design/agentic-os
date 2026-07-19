@@ -18,8 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import (
-    codexbar, config, council, db, github_cli, memory, models, settings, setup,
-    workspace, worker,
+    codexbar, config, council, db, github_cli, health, memory, models, settings,
+    setup, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -198,6 +198,12 @@ def setup_page(request: Request):
          "council_members": config.COUNCIL_MEMBERS,
          "council_min": config.COUNCIL_MIN_MEMBERS},
     )
+
+
+@app.get("/api/health")
+def api_health():
+    """서버·CLI·설정 진단. `aos doctor`도 이 정보를 사용한다."""
+    return health.collect()
 
 
 @app.get("/api/setup/status")
