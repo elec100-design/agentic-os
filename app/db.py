@@ -51,19 +51,20 @@ def get_conn(db_path=None):
 def _migrate(conn):
     """기존 DB에 없는 컬럼을 더한다 (CREATE TABLE IF NOT EXISTS는 새 컬럼을 못 붙임)."""
     cols = {r["name"] for r in conn.execute("PRAGMA table_info(jobs)")}
-    for col in ("model", "note_path", "workdir"):
+    for col in ("model", "note_path", "workdir", "route_reason"):
         if col not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
     conn.commit()
 
 
 def create_job(conn, prompt, provider, timeout_sec=None, session_id=None,
-               model=None, workdir=None, note_path=None):
+               model=None, workdir=None, note_path=None, route_reason=None):
     cur = conn.execute(
         "INSERT INTO jobs (prompt, provider, model, timeout_sec, session_id, "
-        "workdir, note_path, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "workdir, note_path, route_reason, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (prompt, provider, model, timeout_sec, session_id, workdir, note_path,
-         now_iso()),
+         route_reason, now_iso()),
     )
     conn.commit()
     return cur.lastrowid

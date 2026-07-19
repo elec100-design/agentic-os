@@ -1490,3 +1490,19 @@ h2.section-label {
   max-height: 12rem;
   overflow-y: auto;
 }
+
+/* ---- 자동 라우팅 이유 표시 ---- */
+.route-reason {
+  margin: 0.3rem 0 0.6rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.auto-tag {
+  font-size: 0.64rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 0.3rem;
+  padding: 0.03em 0.32em;
+  vertical-align: middle;
+  margin-left: 0.15rem;
+}

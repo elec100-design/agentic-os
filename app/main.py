@@ -257,9 +257,12 @@ async def create_job(
 ):
     conn = db.get_conn()
     enabled = settings.enabled_providers()
+    route_reason = None
     if provider == "auto":
-        provider, _ = route_auto(prompt, usage_state=usage_state()["usage"],
-                                 enabled=enabled)
+        # 자동 라우팅으로 정해진 provider와 그 이유를 함께 기록해 둔다
+        # (작업 히스토리에서 "왜 이 에이전트로 갔는지" 확인용).
+        provider, route_reason = route_auto(
+            prompt, usage_state=usage_state()["usage"], enabled=enabled)
     if provider == COUNCIL:
         # 협의 모드: 가용 에이전트가 최소 인원 이상인지 미리 확인.
         # 세션 재개·모델·작업 위치는 지원하지 않는다 (매 호출 stateless,
@@ -309,7 +312,8 @@ async def create_job(
                   session_id=session_id.strip() or None,
                   model=model or None,
                   workdir=workdir or None,
-                  note_path=str(Path(origin_note).resolve()) if origin_note else None)
+                  note_path=str(Path(origin_note).resolve()) if origin_note else None,
+                  route_reason=route_reason)
     return RedirectResponse("/", status_code=303)
 
 
@@ -530,9 +534,12 @@ def api_github_branches(repo: str):
 
 @app.get("/partials/usage", response_class=HTMLResponse)
 def partial_usage(request: Request):
-    return templates.TemplateResponse(
-        request, "partials/usage.html", usage_state()
-    )
+    ctx = usage_state()
+    # 최근 24시간 에이전트별 실행 횟수(활동 추세) — usage_log 기반
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(
+        timespec="seconds")
+    ctx["recent"] = db.usage_counts(db.get_conn(), since)
+    return templates.TemplateResponse(request, "partials/usage.html", ctx)
 
 
 def _render_memory(request, q=""):

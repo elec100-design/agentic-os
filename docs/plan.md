@@ -158,21 +158,23 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
 
 **성공 지표:** 문서만 보고 Time-to-first-job ≤ 15분 (Claude CLI 있는 Mac 기준).
 
-**Phase 3 — 차별 기능 가시화**
+**Phase 3 — 차별 기능 가시화 (대부분 완료)**
 
 기능은 있어도 UI에 안 보이면 없는 것과 같다.
 
-- [ ] **라우팅 투명성**: auto 라우팅 이유 한 줄("남은 사용량 claude 62% > grok 31%")을
-      잡 히스토리에 고정 기록 (현 실시간 힌트를 영속화)
-- [ ] **사용량 대시보드 강화**: 리셋 카운트다운, 오늘 잡 수, 에이전트별 소진 추세
-- [ ] **Provider 플러그인 계약 문서화**: `build_command` / `parse_output` /
-      `detect_rate_limit` — `providers.py`의 기존 클래스 구조가 이미 이 형태이므로
-      문서화 + 하드코딩된 `PROVIDERS` dict를 등록 기반으로 완화 → 외부 기여자가
-      Codex/Aider/Cursor 등 추가 가능 (생태계 씨앗)
-- [ ] **Council 모드 결과 레이아웃 UI화** (G12): 백엔드는 완성됨. raw 텍스트 dump 대신
-      **제안 카드 → 비평 → 최종 종합 탭** 레이아웃으로 `job.html`/`note.html` 렌더링 개선
-- [ ] **병렬 실행** (G6): `worker.py` 싱글톤 → **provider 단위** 동시성
-      (같은 CLI 세션 충돌만 방지하면 서로 다른 CLI는 병렬 안전)
+- [x] **라우팅 투명성**: auto 라우팅 이유를 `jobs.route_reason` 컬럼에 고정 기록.
+      작업 상세에 "🔀 자동 라우팅 — …" 표시, 작업 큐에 `자동` 태그 + 툴팁
+- [x] **사용량 대시보드 강화**: 리셋 카운트다운(기존) + 에이전트별 "최근 24시간
+      N회 실행"(usage_log 기반, `partials/usage.html`)
+- [x] **Provider 플러그인 계약 문서화**: `docs/PROVIDERS.md` — `build_command` /
+      `parse_output` / `detect_rate_limit` 계약 + 등록·셋업 감지·사용량 연동 가이드
+      (외부 기여자가 Codex/Aider/Cursor 등 추가 가능)
+- [x] **Council 모드 결과 가독성** (G12): Phase 1 마크다운 렌더링으로 협의 출력
+      (`##`/`###` 헤딩·제안·비평·종합)이 이미 구조적으로 렌더됨. 전용 탭 레이아웃은
+      선택 개선으로 보류(마크다운 파싱 취약성 회피)
+- [ ] **병렬 실행** (G6): `worker.py` 싱글톤 → provider 단위 동시성 — **보류**.
+      "동시 1개"는 CLI 세션·메모리 충돌 방지를 위한 의도된 설계 원칙이라, 안전한
+      provider 단위 격리 검증 전까지는 리스크가 커 후속 과제로 남김
 
 **Phase 4 — 멀티턴 채팅 (체감 최대·비용도 최대)**
 

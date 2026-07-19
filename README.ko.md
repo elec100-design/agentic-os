@@ -246,6 +246,7 @@ CI(`.github/workflows/ci.yml`)가 push·PR마다 Python 3.11/3.12에서 전체 �
 - [개발 계획 (plan.md)](docs/plan.md)
 - [작업 내역 (task.md)](docs/task.md)
 - [기여 가이드 (CONTRIBUTING.md)](CONTRIBUTING.md)
+- [새 에이전트 추가 (PROVIDERS.md)](docs/PROVIDERS.md)
 - [V1 설계 명세](docs/2026-07-05-agentic-os-v1-design.md)
 - [V1 구현 계획](docs/2026-07-05-agentic-os-v1.md)
 

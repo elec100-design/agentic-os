@@ -122,6 +122,14 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
       템플릿 `deploy/agentic-os.service` 추가
 - [ ] UI i18n(영문 기본 + 한국어) — 규모 큰 UI 번역이라 별도 진행
 
+### V3 Phase 3 — 차별 기능 가시화 (대부분 완료)
+- [x] 라우팅 투명성 — `jobs.route_reason` 컬럼, 작업 상세 "🔀 자동 라우팅" 표시,
+      작업 큐 `자동` 태그+툴팁
+- [x] 사용량 패널 강화 — 에이전트별 "최근 24시간 N회 실행"(usage_log 기반)
+- [x] Provider 플러그인 계약 문서 — `docs/PROVIDERS.md`
+- [x] Council 결과 가독성 — 마크다운 렌더링으로 협의 출력 구조화(전용 탭은 보류)
+- [ ] 병렬 실행 — "동시 1개" 설계 원칙과 충돌, 안전 격리 검증 후 후속
+
 ### V3 Phase 1~4 — 나머지 (docs/plan.md 참고, 다음 순서)
 - [x] 마크다운 렌더링(job/note 출력) — marked.js + highlight.js vendored,
       코드 복사 버튼, 라이트/다크 테마 (`static/render.js`, `static/marked.min.js`,

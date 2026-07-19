@@ -18,6 +18,7 @@
   {% if job['model'] %}<span class="job-meta">{{ job['model'] }}</span>{% endif %}
 </h1>
 {% if job['workdir'] %}<p class="job-meta">📁 작업 위치: <code>{{ job['workdir'] }}</code></p>{% endif %}
+{% if job['route_reason'] %}<p class="route-reason">🔀 자동 라우팅 — {{ job['route_reason'] }}</p>{% endif %}
 <h2 class="section-label">프롬프트</h2>
 <pre class="prompt-block">{{ job['prompt'] }}</pre>
 {% if job['error'] %}

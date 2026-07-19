@@ -13,7 +13,7 @@
       {% if j['workdir'] %}<span class="job-loc" title="{{ j['workdir'] }}">📁 {{ j['workdir'].split('/')[-1] }}</span>{% endif %}
     </td>
     <td class="job-agent">
-      <span class="provider-name">{{ j['provider'] }}</span>
+      <span class="provider-name"{% if j['route_reason'] %} title="자동 라우팅 — {{ j['route_reason'] }}"{% endif %}>{{ j['provider'] }}{% if j['route_reason'] %} <span class="auto-tag">자동</span>{% endif %}</span>
       {% if j['model'] %}<br><span class="job-model">{{ j['model'] }}</span>{% endif %}
     </td>
     <td class="job-status">

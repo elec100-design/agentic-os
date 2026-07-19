@@ -344,6 +344,7 @@ on every push and PR.
 - [Roadmap (plan.md)](docs/plan.md)
 - [Task history (task.md)](docs/task.md)
 - [Contributing guide](CONTRIBUTING.md)
+- [Adding a provider (PROVIDERS.md)](docs/PROVIDERS.md)
 - [V1 design spec](docs/2026-07-05-agentic-os-v1-design.md)
 - [V1 implementation plan](docs/2026-07-05-agentic-os-v1.md)
 

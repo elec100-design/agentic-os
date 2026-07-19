@@ -44,6 +44,8 @@
   {% elif u.source == 'none' %}
     <div class="usage-note">CodexBar 연동 필요</div>
   {% endif %}
+  {% set r = (recent or {}).get(p) if recent is defined else None %}
+  {% if r %}<div class="usage-note">최근 24시간 · {{ r.values()|sum }}회 실행</div>{% endif %}
 </div>
 {% endfor %}
 </div>
