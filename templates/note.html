@@ -16,8 +16,12 @@
   {% if note['provider'] %}<span class="job-meta provider-name">{{ note['provider'] }}</span>{% endif %}
 </h1>
 
-<h2 class="section-label">노트</h2>
+<h2 class="section-label">대화</h2>
+{% if turns %}
+<div class="chat-thread" id="chat-thread"></div>
+{% else %}
 <div class="md-body" id="note-body"></div>
+{% endif %}
 
 {% if can_resume %}
 <h2 class="section-label">이 세션 이어서 진행</h2>
@@ -191,7 +195,29 @@ document.getElementById("resume-files").addEventListener("change", (e) => {
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
 <script>
+{% if turns %}
+// 노트 스레드를 채팅 말풍선으로 렌더 (가짜 멀티턴)
+const TURNS = {{ turns | tojson }};
+const AGENT = {{ (note['provider'] or 'agent') | tojson }};
+const thread = document.getElementById("chat-thread");
+for (const t of TURNS) {
+  const row = document.createElement("div");
+  row.className = "chat-turn " + t.role;
+  const role = document.createElement("div");
+  role.className = "chat-role";
+  role.textContent = t.role === "user"
+    ? "나" + (t.turn > 1 ? " · " + t.turn + "차" : "")
+    : AGENT + (t.turn > 1 ? " · " + t.turn + "차" : "");
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble md-body";
+  row.appendChild(role);
+  row.appendChild(bubble);
+  thread.appendChild(row);
+  renderMarkdown(bubble, t.content);
+}
+{% else %}
 renderMarkdown(document.getElementById("note-body"), {{ note['body'] | tojson }});
+{% endif %}
 </script>
 </body>
 </html>

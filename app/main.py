@@ -341,7 +341,8 @@ def note_view(request: Request, path: str):
     return templates.TemplateResponse(
         request, "note.html",
         {"note": note, "can_resume": can_resume,
-         "provider_models": pm, "agents": agents},
+         "provider_models": pm, "agents": agents,
+         "turns": memory.parse_thread(note["body"])},
     )
 
 

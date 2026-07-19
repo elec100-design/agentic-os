@@ -1506,3 +1506,45 @@ h2.section-label {
   vertical-align: middle;
   margin-left: 0.15rem;
 }
+
+/* ---- 노트 스레드 채팅 뷰 (가짜 멀티턴) ---- */
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0.4rem 0 0.5rem;
+}
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  max-width: 88%;
+}
+.chat-turn.user { align-self: flex-end; align-items: flex-end; }
+.chat-turn.assistant { align-self: flex-start; align-items: flex-start; }
+.chat-role {
+  font-size: 0.72rem;
+  color: var(--muted);
+  padding: 0 0.4rem;
+}
+.chat-bubble {
+  padding: 0.7rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow-x: auto;
+}
+.chat-turn.user .chat-bubble {
+  background: var(--accent-soft);
+  border-color: transparent;
+  border-bottom-right-radius: 0.35rem;
+}
+.chat-turn.assistant .chat-bubble {
+  border-bottom-left-radius: 0.35rem;
+}
+/* 말풍선 안 마크다운 여백을 살짝 줄여 촘촘하게 */
+.chat-bubble > *:first-child { margin-top: 0; }
+.chat-bubble > *:last-child { margin-bottom: 0; }
+@media (max-width: 640px) {
+  .chat-turn { max-width: 100%; }
+}
