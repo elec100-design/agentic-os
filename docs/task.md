@@ -23,6 +23,14 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
 - [x] 테스트 30개 추가 (총 208개)
 - [x] Council 모드가 masterplan 브랜치 분기 이후 merge된 것을 뒤늦게 발견 →
       `origin/master` 재병합으로 누락 해소, 마스터플랜 진단 정정
+- [x] `docs/masterplan.md`를 `docs/plan.md`의 V3 섹션으로 통합, 기존 "V3 후보"는
+      V4로 이름 변경(멀티턴·병렬은 V3 Phase 3/4로 편입돼 중복 제거)
+- [x] **V3 Phase 0(신뢰·첫인상) 완료** — `CONTRIBUTING.md` 교체(다른 프로젝트
+      문서였던 확정 버그 수정), `.github/workflows/ci.yml`(Python 3.11/3.12
+      pytest), 이슈·PR 템플릿, README 영문 전환 + 스크린샷 4장 + CI·라이선스
+      배지, 기존 한국어 내용은 `README.ko.md`로 보존
+- [ ] GitHub 저장소 description/topics/homepage — API 도구 없음, 수동 설정 필요
+- [ ] 데모 GIF — 정적 스크린샷만 있음
 
 ## 완료 (V2.2 — 세션 파편화 해소, 2026-07)
 
@@ -99,13 +107,11 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
 
 ## 진행/예정
 
-### V3 Phase 0 — 신뢰·첫인상 (다음 순서, 미착수)
-- [ ] CONTRIBUTING.md 교체 (현재 다른 프로젝트 문서가 들어있는 확정 버그)
-- [ ] `.github/workflows/ci.yml` — pytest CI + README 배지
-- [ ] Issue/PR 템플릿
-- [ ] README 영문 전환 + 스크린샷/GIF + GitHub 메타(description·topics)
+### V3 Phase 0 — 신뢰·첫인상 (거의 완료)
+- [ ] 데모 GIF (스크린샷은 완료)
+- [ ] GitHub 메타(description·topics·homepage) — 저장소 Settings에서 수동 설정 필요
 
-### V3 Phase 1~4 — 나머지 (docs/plan.md 참고)
+### V3 Phase 1~4 — 나머지 (docs/plan.md 참고, 다음 순서)
 - [ ] 마크다운 렌더링(job/note 출력), 키보드 단축키, 다크모드 토글
 - [ ] `bootstrap.sh`, 범용 `/api/health`, 플랫폼 독립화(Linux/systemd), 패키징, i18n
 - [ ] 라우팅 이유 기록, 사용량 대시보드 강화, provider 플러그인 문서화

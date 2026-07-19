@@ -85,9 +85,9 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 
 | # | 항목 | 근거 | 상태 |
 |---|---|---|---|
-| G1 | `CONTRIBUTING.md`가 다른 프로젝트 문서 ("Awesome Design MD") | 파일 1행 | 미착수 — **확정 버그** |
-| G2 | CI·이슈/PR 템플릿 없음 | `.github/` 디렉토리 자체 부재 | 미착수 |
-| G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | 미착수 |
+| G1 | `CONTRIBUTING.md`가 다른 프로젝트 문서 ("Awesome Design MD") | 파일 1행 | ✅ **완료** — 실제 기여 가이드로 교체 |
+| G2 | CI·이슈/PR 템플릿 없음 | `.github/` 디렉토리 자체 부재 | ✅ **완료** — `ci.yml`(3.11/3.12) + 이슈·PR 템플릿 |
+| G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | ✅ **완료** — 영문 기본 README + 스크린샷 4장, 한국어는 `README.ko.md` |
 | G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | 미착수 — "투박함" 체감 1순위 |
 | G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | 미착수 |
 | G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | 미착수 |
@@ -100,21 +100,24 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 
 #### 로드맵
 
-**Phase 0 — 신뢰·첫인상 (미착수, 채택 ROI 최고 — 다음 순서)**
+**Phase 0 — 신뢰·첫인상 (대부분 완료)**
 
 코드 기능보다 **"받기 전 설득"**이 먼저다. 전부 저비용·고효과.
 
-- [ ] **CONTRIBUTING.md 교체** (G1): 개발 환경 셋업, 테스트 실행, provider 추가 가이드 포함
-- [ ] **`.github/` 생성** (G2):
-  - `workflows/ci.yml` — push/PR 시 pytest (Python 3.11/3.12), README에 배지
-  - Issue 템플릿 (bug: OS / CLI 버전 / 셋업 상태 첨부), PR 템플릿
-- [ ] **README 개편** (G3):
+- [x] **CONTRIBUTING.md 교체** (G1): 개발 환경 셋업, 테스트 실행, provider 추가 가이드 포함
+- [x] **`.github/` 생성** (G2):
+  - `workflows/ci.yml` — push/PR 시 pytest (Python 3.11/3.12)
+  - Issue 템플릿(버그·기능제안), PR 템플릿
+- [x] **README 개편** (G3):
   - `README.md`를 영문 기본으로 전환, 한국어는 `README.ko.md`로 분리
-  - 스크린샷 3–5장 (대시보드·셋업 위저드·사용량 패널·작업 스트리밍) + 15–30초 데모 GIF
-  - 최상단 "30초 가치 제안" 블록 + **"Claude Code 하나만 있어도 시작 가능"** 명시
+  - 스크린샷 4장 (대시보드·사용량 패널·셋업 위저드 2장)
+  - 최상단 가치 제안 블록 + **"Claude Code 하나만 있어도 시작 가능"** 명시
+  - CI·라이선스 배지
+- [ ] **데모 GIF** — 정적 스크린샷만 있음, 15–30초 동작 GIF는 미착수
 - [ ] **GitHub 메타**: description / topics(`ai`, `claude-code`, `multi-agent`, `fastapi`,
-      `local-first`, `usage-routing`) / homepage 설정
-- [ ] Security 섹션 유지·강조 (localhost 바인딩 + Tailscale — 이미 좋음)
+      `local-first`, `usage-routing`) / homepage 설정 — **API 도구로 설정 불가, 저장소
+      Settings 페이지에서 수동으로 해야 함**
+- [x] Security 섹션 유지·강조 (localhost 바인딩 + Tailscale — 이미 좋았음, 그대로 유지)
 
 **검증:** 처음 보는 사람이 README 스크롤 없이 "구독 CLI 여러 개 + 사용량 라우팅"을
 이해하는가.
