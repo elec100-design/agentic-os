@@ -18,7 +18,8 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import (
-    codexbar, config, council, db, github_cli, memory, models, workspace, worker,
+    codexbar, config, council, db, github_cli, memory, models, settings, setup,
+    workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -121,7 +122,7 @@ def usage_state(now=None):
     now = now or datetime.now(timezone.utc)
     cache = codexbar.read_cache()
     cached = cache.get("providers", {})
-    providers = ["claude", "antigravity", "grok", "hermes"]
+    providers = settings.enabled_providers()
     state = {}
     for p in providers:
         if p == "hermes":
@@ -172,10 +173,46 @@ def _ago_str(iso, now):
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
+    # 첫 실행이면 셋업 위저드로. `/`만 리다이렉트한다 — partials/API/jobs는
+    # 그대로 두어 HTMX 폴링·딥링크가 깨지지 않고, 리다이렉트 루프도 없다.
+    if not settings.setup_completed():
+        return RedirectResponse("/setup")
     return templates.TemplateResponse(
         request, "index.html",
-        {"provider_models": models.get_provider_models()},
+        {"provider_models": models.get_provider_models(),
+         "agent_order": settings.enabled_providers(),
+         "council_enabled": settings.council_available()},
     )
+
+
+# --- 첫 실행 셋업 위저드 ---
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page(request: Request):
+    current = settings.load()
+    return templates.TemplateResponse(
+        request, "setup.html",
+        {"current": current,
+         "memory_dir": str(config.MEMORY_DIR),
+         "vault_set": bool(os.environ.get("AOS_VAULT_PATH", "").strip()),
+         "council_members": config.COUNCIL_MEMBERS,
+         "council_min": config.COUNCIL_MIN_MEMBERS},
+    )
+
+
+@app.get("/api/setup/status")
+def api_setup_status():
+    """CLI·보조 도구 설치 상태 (재확인 버튼이 수시 호출 — binary 존재만 확인)."""
+    return setup.detect()
+
+
+@app.post("/api/setup/complete")
+def api_setup_complete(providers: list[str] = Form(default=[])):
+    try:
+        saved = settings.save(providers)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "enabled": saved["enabled_providers"], "redirect": "/"}
 
 
 async def _save_uploads(files):
@@ -213,14 +250,16 @@ async def create_job(
     files: list[UploadFile] = File(default=[]),
 ):
     conn = db.get_conn()
+    enabled = settings.enabled_providers()
     if provider == "auto":
-        provider, _ = route_auto(prompt, usage_state=usage_state()["usage"])
+        provider, _ = route_auto(prompt, usage_state=usage_state()["usage"],
+                                 enabled=enabled)
     if provider == COUNCIL:
         # 협의 모드: 가용 에이전트가 최소 인원 이상인지 미리 확인.
         # 세션 재개·모델·작업 위치는 지원하지 않는다 (매 호출 stateless,
         # 여러 CLI가 같은 폴더에 동시에 쓰면 충돌할 수 있음).
         try:
-            council.select_members(usage_state()["usage"])
+            council.select_members(usage_state()["usage"], enabled=enabled)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         model = ""
@@ -228,6 +267,10 @@ async def create_job(
         session_id = ""
     elif provider not in PROVIDERS:
         raise HTTPException(status_code=400, detail="unknown provider")
+    elif provider not in enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
     if not models.is_valid_model(provider, model):
         model = ""
     # 등록된 작업 위치만 cwd로 허용 (임의 경로 실행 방지)
@@ -268,7 +311,8 @@ async def create_job(
 def api_recommend(prompt: str = ""):
     """자동 모드 코칭: 지금 이 프롬프트를 자동으로 보내면 어느 에이전트로
     가는지와 그 이유를 JSON으로 돌려준다 (컴포저에서 실시간 표시)."""
-    provider, reason = route_auto(prompt or " ", usage_state=usage_state()["usage"])
+    provider, reason = route_auto(prompt or " ", usage_state=usage_state()["usage"],
+                                  enabled=settings.enabled_providers())
     return {"provider": provider, "reason": reason}
 
 
@@ -282,8 +326,8 @@ def note_view(request: Request, path: str):
         and note["provider"] != "hermes"
     )
     pm = models.get_provider_models()
-    order = ["claude", "antigravity", "grok", "hermes"]
-    agents = [p for p in order if p in pm] + [p for p in pm if p not in order]
+    order = settings.enabled_providers()
+    agents = [p for p in order if p in pm] or list(pm)
     return templates.TemplateResponse(
         request, "note.html",
         {"note": note, "can_resume": can_resume,

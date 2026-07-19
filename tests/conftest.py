@@ -16,7 +16,16 @@ def tmp_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MODELS_CACHE_PATH", tmp_path / "models_cache.json")
     monkeypatch.setattr(config, "NOTE_STATE_PATH", tmp_path / "note_state.json")
     monkeypatch.setattr(config, "WORKSPACES_PATH", tmp_path / "workspaces.json")
+    monkeypatch.setattr(config, "SETTINGS_PATH", tmp_path / "settings.json")
     monkeypatch.setattr(config, "WORKSPACES_DIR", tmp_path / "workspaces")
     monkeypatch.setattr(config, "VAULT_PATH", tmp_path / "vault")
     monkeypatch.setattr(config, "MEMORY_DIR", tmp_path / "vault" / "Agentic OS")
     return tmp_path
+
+
+@pytest.fixture
+def completed_setup(tmp_env):
+    """셋업 완료 상태(전체 활성) — `/`가 /setup으로 리다이렉트하지 않는다."""
+    from app import settings
+    settings.save(["claude", "antigravity", "grok", "hermes"])
+    return tmp_env

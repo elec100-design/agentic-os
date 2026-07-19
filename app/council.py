@@ -63,13 +63,16 @@ def usage_snapshot():
     return state
 
 
-def select_members(usage_state, providers=None):
-    """참여자 선정 — 설정된 멤버 중 사용량이 소진되지 않은 에이전트.
+def select_members(usage_state, providers=None, enabled=None):
+    """참여자 선정 — 설정된 멤버 중 사용량이 소진되지 않은 활성 에이전트.
+    enabled(활성 목록, None=전체)를 주면 그 안에서만 뽑는다.
     최소 인원 미달이면 ValueError."""
     providers = providers or PROVIDERS
     members = []
     for name in config.COUNCIL_MEMBERS:
         if name not in providers:
+            continue
+        if enabled is not None and name not in enabled:
             continue
         st = (usage_state or {}).get(name) or {}
         if st.get("available") is False:  # 사용량 소진
@@ -207,8 +210,12 @@ async def run_council(conn, job, providers=None, save=True, usage_state=None):
     # 않으므로. 다만 output 누적 중복을 다시 만들지 않도록 안전장치로 둔다)
     db.update_job(conn, job_id, output="")
 
+    from app import settings
+    # 셋업을 마친 경우에만 활성 에이전트 필터 적용 (미완료 = 전체 허용,
+    # 테스트·기존 환경과의 호환 유지)
+    enabled = settings.enabled_providers() if settings.setup_completed() else None
     try:
-        members = select_members(usage, providers)
+        members = select_members(usage, providers, enabled=enabled)
     except ValueError as e:
         _fail(conn, job_id, str(e))
         return
