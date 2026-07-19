@@ -1304,3 +1304,119 @@ h2.section-label {
   .setup-steps { gap: 0.9rem; }
   .setup-steps .step-name { display: none; }
 }
+
+/* ---- 마크다운 렌더 (job/note 출력) ---- */
+.md-body {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: var(--text);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+.md-body > *:first-child { margin-top: 0; }
+.md-body > *:last-child { margin-bottom: 0; }
+.md-body h1, .md-body h2, .md-body h3,
+.md-body h4, .md-body h5, .md-body h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+}
+.md-body h1 { font-size: 1.5rem; }
+.md-body h2 { font-size: 1.28rem; }
+.md-body h3 { font-size: 1.12rem; }
+.md-body h4 { font-size: 1rem; }
+.md-body h5, .md-body h6 { font-size: 0.92rem; color: var(--muted); }
+.md-body p { margin: 0.7em 0; }
+.md-body ul, .md-body ol { margin: 0.7em 0; padding-left: 1.5em; }
+.md-body li { margin: 0.25em 0; }
+.md-body li > ul, .md-body li > ol { margin: 0.25em 0; }
+.md-body a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.md-body a:hover { color: var(--accent-hover); }
+.md-body strong { font-weight: 650; }
+.md-body hr { border: none; border-top: 1px solid var(--border); margin: 1.5em 0; }
+.md-body blockquote {
+  margin: 0.9em 0;
+  padding: 0.2em 1em;
+  border-left: 3px solid var(--accent-soft);
+  color: var(--muted);
+}
+.md-body blockquote > *:first-child { margin-top: 0; }
+.md-body blockquote > *:last-child { margin-bottom: 0; }
+
+/* 인라인 코드 */
+.md-body :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  padding: 0.1em 0.35em;
+  word-break: break-word;
+}
+
+/* 코드 블록 */
+.md-body pre {
+  position: relative;
+  margin: 0.9em 0;
+  padding: 0;                       /* code.hljs가 자체 패딩(1em)을 가짐 */
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  overflow: hidden;
+}
+.md-body pre > code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.6;
+  padding: 1rem 1.1rem;
+  overflow-x: auto;
+  background: transparent;          /* hljs 테마 배경 대신 surface-2 사용 */
+}
+.md-body pre > code.hljs { background: transparent; }
+
+/* 코드 복사 버튼 */
+.code-copy {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.md-body pre:hover .code-copy,
+.code-copy:focus-visible { opacity: 1; }
+.code-copy:hover { color: var(--text); border-color: var(--muted); }
+.code-copy.copied { color: var(--ok); border-color: var(--ok); opacity: 1; }
+/* 터치 기기: hover가 없으므로 항상 노출 */
+@media (hover: none) {
+  .code-copy { opacity: 0.7; }
+}
+
+/* 표 */
+.md-body table {
+  border-collapse: collapse;
+  margin: 0.9em 0;
+  font-size: 0.86rem;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.md-body th, .md-body td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.7em;
+  text-align: left;
+}
+.md-body th { background: var(--surface-2); font-weight: 600; }
+.md-body img { max-width: 100%; height: auto; border-radius: 0.5rem; }

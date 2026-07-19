@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>작업 #{{ job['id'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
 </head>
 <body>
 <main class="page">
@@ -17,17 +18,31 @@
 </h1>
 {% if job['workdir'] %}<p class="job-meta">📁 작업 위치: <code>{{ job['workdir'] }}</code></p>{% endif %}
 <h2 class="section-label">프롬프트</h2>
-<pre>{{ job['prompt'] }}</pre>
+<pre class="prompt-block">{{ job['prompt'] }}</pre>
 {% if job['error'] %}<p class="error">⚠️ {{ job['error'] }}</p>{% endif %}
 <h2 class="section-label">출력</h2>
-<pre id="out">{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>
+<div class="md-body" id="out"></div>
 </main>
+<script src="/static/marked.min.js?v={{ asset_v() }}"></script>
+<script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
+<script src="/static/render.js?v={{ asset_v() }}"></script>
 <script>
 const status = "{{ job['status'] }}";
+const out = document.getElementById("out");
+// 스트리밍 중에는 원시 텍스트를 누적하고, 프레임마다 전체를 다시 렌더한다.
+let raw = {% if job['status'] in ('done', 'failed') %}{{ job['output'] | tojson }}{% else %}""{% endif %};
+let pending = false;
+function paint() {
+  pending = false;
+  renderMarkdown(out, raw);
+}
+paint();
+
 if (["queued", "running", "rate_limited"].includes(status)) {
   const es = new EventSource("/jobs/{{ job['id'] }}/stream");
   es.onmessage = (e) => {
-    document.getElementById("out").textContent += JSON.parse(e.data);
+    raw += JSON.parse(e.data);
+    if (!pending) { pending = true; requestAnimationFrame(paint); }
   };
   es.addEventListener("status", () => { es.close(); location.reload(); });
 }

@@ -88,7 +88,7 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | G1 | `CONTRIBUTING.md`가 다른 프로젝트 문서 ("Awesome Design MD") | 파일 1행 | ✅ **완료** — 실제 기여 가이드로 교체 |
 | G2 | CI·이슈/PR 템플릿 없음 | `.github/` 디렉토리 자체 부재 | ✅ **완료** — `ci.yml`(3.11/3.12) + 이슈·PR 템플릿 |
 | G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | ✅ **완료** — 영문 기본 README + 스크린샷 4장, 한국어는 `README.ko.md` |
-| G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | 미착수 — "투박함" 체감 1순위 |
+| G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | ✅ **완료** — marked.js + highlight.js vendored, 코드 복사 버튼 |
 | G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | 미착수 |
 | G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | 미착수 |
 | G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | 미착수 |
@@ -127,7 +127,7 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | 항목 | 내용 | 상태 |
 |---|---|---|
 | **미설치 CLI 감지** (G9) | 기동 시 `shutil.which` 스캔 → UI 반영, `route_auto`는 활성 provider만 대상 | ✅ **완료** — `/setup` 위저드 + `app/settings.py` |
-| **마크다운 렌더** (G4) | job/note 출력에 marked.js + highlight.js **vendored** 적용 (빌드 무관 원칙 유지), 코드 블록 복사 버튼 | 미착수 |
+| **마크다운 렌더** (G4) | job/note 출력에 marked.js + highlight.js **vendored** 적용 (빌드 무관 원칙 유지), 코드 블록 복사 버튼 | ✅ **완료** — `static/render.js`, 라이트/다크 hljs 테마, `.md-body` 스타일 |
 | **키보드/테마** | ⌘/Ctrl+Enter 전송, 다크모드 명시 토글(현재 `prefers-color-scheme`만) | 미착수 |
 | **작업 상태 카드** | 큐에서 running 시 provider/model/경과시간 미니 프리뷰 | 미착수 |
 | **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | 미착수 |

@@ -112,7 +112,11 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
 - [ ] GitHub 메타(description·topics·homepage) — 저장소 Settings에서 수동 설정 필요
 
 ### V3 Phase 1~4 — 나머지 (docs/plan.md 참고, 다음 순서)
-- [ ] 마크다운 렌더링(job/note 출력), 키보드 단축키, 다크모드 토글
+- [x] 마크다운 렌더링(job/note 출력) — marked.js + highlight.js vendored,
+      코드 복사 버튼, 라이트/다크 테마 (`static/render.js`, `static/marked.min.js`,
+      `static/highlight.min.js`, `static/hljs-theme.css`). 프롬프트는 원문 유지,
+      출력·노트 본문만 렌더
+- [ ] 키보드 단축키(⌘/Ctrl+Enter), 다크모드 명시 토글
 - [ ] `bootstrap.sh`, 범용 `/api/health`, 플랫폼 독립화(Linux/systemd), 패키징, i18n
 - [ ] 라우팅 이유 기록, 사용량 대시보드 강화, provider 플러그인 문서화
 - [ ] Council 모드 결과 레이아웃 UI화(제안 카드 → 비평 → 종합 탭)

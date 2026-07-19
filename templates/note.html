@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ note['name'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
 </head>
 <body>
 <main class="page">
@@ -15,7 +16,7 @@
 </h1>
 
 <h2 class="section-label">노트</h2>
-<pre>{{ note['body'] }}</pre>
+<div class="md-body" id="note-body"></div>
 
 {% if can_resume %}
 <h2 class="section-label">이 세션 이어서 진행</h2>
@@ -176,5 +177,12 @@ document.getElementById("resume-files").addEventListener("change", (e) => {
 </form>
 {% endif %}
 </main>
+<!-- 노트 본문 마크다운 렌더 (resume 여부와 무관하게 항상 실행) -->
+<script src="/static/marked.min.js?v={{ asset_v() }}"></script>
+<script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
+<script src="/static/render.js?v={{ asset_v() }}"></script>
+<script>
+renderMarkdown(document.getElementById("note-body"), {{ note['body'] | tojson }});
+</script>
 </body>
 </html>
