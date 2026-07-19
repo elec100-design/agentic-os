@@ -72,14 +72,14 @@ const toolsBtn = document.getElementById("tools-btn");
 const toolsPopup = document.getElementById("tools-popup");
 const chosenModel = {};                     // provider -> model id ("" = 기본값)
 
-// 팝업에 노출할 에이전트: 자동 + 지정 순서(claude/antigravity/grok/hermes) + 협의
-// 협의(council)는 여러 에이전트가 제안·비평하고 하나가 종합하는 모드 —
-// 모델 선택이 없어(MODELS에 없음) 모델 칩은 자동으로 숨겨진다.
+// 팝업에 노출할 에이전트: 자동 + 활성 에이전트(서버가 /setup 선택을 반영해
+// AGENT_ORDER로 주입) + 협의. 협의(council)는 활성 멤버가 2명 이상일 때만
+// 노출되고, 모델 선택이 없어(MODELS에 없음) 모델 칩은 자동으로 숨겨진다.
 const AGENTS = [{ id: "auto", name: "자동" }]
   .concat(
     AGENT_ORDER.filter((p) => MODELS[p]).map((p) => ({ id: p, name: agentName(p) }))
   )
-  .concat([{ id: "council", name: "협의" }]);
+  .concat(COUNCIL_ENABLED ? [{ id: "council", name: "협의" }] : []);
 
 function agentName(p) {
   if (p === "auto") return "자동";

@@ -35,6 +35,7 @@ USAGE_CACHE_PATH = DATA_DIR / "usage_cache.json"
 MODELS_CACHE_PATH = DATA_DIR / "models_cache.json"
 NOTE_STATE_PATH = DATA_DIR / "note_state.json"
 WORKSPACES_PATH = DATA_DIR / "workspaces.json"   # 등록된 작업 위치 목록
+SETTINGS_PATH = DATA_DIR / "settings.json"       # 셋업(활성 에이전트) 설정
 WORKSPACES_DIR = DATA_DIR / "workspaces"         # GitHub 리포 클론 대상
 GIT_CLONE_TIMEOUT_SEC = 180
 BROWSE_ROOT = Path.home()                        # 폴더 탐색 팝업의 최상위(홈 이하만)

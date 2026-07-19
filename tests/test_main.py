@@ -735,3 +735,54 @@ def test_same_origin_post_is_allowed(tmp_env):
                         headers={"origin": "http://localhost:8899"},
                         follow_redirects=False)
         assert r.status_code == 303
+
+
+# --- 에이전트 활성화 필터링 (셋업 연동) ---
+
+def test_disabled_provider_job_rejected(tmp_env):
+    from app import settings
+    settings.save(["claude"])
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "안녕", "provider": "grok"},
+                        follow_redirects=False)
+        assert r.status_code == 400
+        assert "비활성" in r.json()["detail"]
+
+
+def test_auto_route_respects_enabled(tmp_env):
+    from app import config, db, settings
+    settings.save(["claude"])  # hermes 비활성 → 단순 작업도 claude로
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={"prompt": "안녕", "provider": "auto"},
+                    follow_redirects=False)
+    assert db.list_jobs(db.get_conn(config.DB_PATH))[0]["provider"] == "claude"
+
+
+def test_usage_partial_shows_only_enabled(tmp_env):
+    from app import settings
+    settings.save(["claude", "hermes"])
+    with _client(tmp_env) as client:
+        r = client.get("/partials/usage")
+        assert r.status_code == 200
+        assert "claude" in r.text
+        assert "grok" not in r.text
+
+
+def test_council_rejected_when_enabled_below_min(tmp_env):
+    from app import settings
+    settings.save(["claude"])
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "어려운 문제", "provider": "council"},
+                        follow_redirects=False)
+        assert r.status_code == 400
+        assert "부족" in r.json()["detail"]
+
+
+def test_index_injects_enabled_agent_order(tmp_env):
+    from app import settings
+    settings.save(["claude", "hermes"])
+    with _client(tmp_env) as client:
+        r = client.get("/")
+        assert r.status_code == 200
+        assert '"claude"' in r.text.replace("'", '"')
+        assert "antigravity" not in r.text.split("AGENT_ORDER")[1].split(";")[0]

@@ -194,3 +194,14 @@ def test_rank_cloud_orders_by_remaining():
     }
     ranked = rank_cloud(usage)
     assert [name for name, _ in ranked] == ["grok", "claude"]
+
+
+def test_select_members_respects_enabled(monkeypatch):
+    import pytest
+    from app import config, council
+    monkeypatch.setattr(config, "COUNCIL_MEMBERS",
+                        ["claude", "antigravity", "grok", "hermes"])
+    members = council.select_members({}, enabled=["claude", "grok", "hermes"])
+    assert members == ["claude", "grok", "hermes"]
+    with pytest.raises(ValueError):
+        council.select_members({}, enabled=["claude"])

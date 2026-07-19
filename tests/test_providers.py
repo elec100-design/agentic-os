@@ -209,3 +209,39 @@ def test_route_auto_known_high_beats_unknown():
     # grok만 잔여를 알고 90% 남음 → unknown(=50)인 claude/antigravity보다 우선
     st = {"grok": {"remaining": 90, "available": True}}
     assert route_auto("코드 구현해줘", usage_state=st)[0] == "grok"
+
+
+def test_rank_cloud_filters_by_enabled():
+    from app.providers import rank_cloud
+    ranked = rank_cloud({}, enabled=["grok", "hermes"])
+    assert [n for n, _ in ranked] == ["grok"]
+
+
+def test_route_auto_simple_without_hermes_uses_cloud():
+    from app.providers import route_auto
+    p, reason = route_auto("안녕", enabled=["claude"])
+    assert p == "claude"
+    assert "Hermes 비활성" in reason
+
+
+def test_route_auto_complex_only_enabled():
+    from app.providers import route_auto
+    usage = {"claude": {"remaining": 90, "available": True},
+             "grok": {"remaining": 10, "available": True}}
+    p, _ = route_auto("이 코드 버그 수정 구현", usage_state=usage,
+                      enabled=["grok", "hermes"])
+    assert p == "grok"
+
+
+def test_route_auto_all_enabled_exhausted_no_hermes():
+    from app.providers import route_auto
+    usage = {"claude": {"remaining": 0, "available": False}}
+    p, reason = route_auto("이 코드 버그 수정 구현", usage_state=usage,
+                           enabled=["claude"])
+    assert p == "claude"
+    assert "소진" in reason
+
+
+def test_route_auto_enabled_none_unchanged():
+    from app.providers import route_auto
+    assert route_auto("안녕")[0] == "hermes"

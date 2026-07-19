@@ -34,6 +34,7 @@
   </div>
   <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
   <section class="side-usage" id="usage" hx-get="/partials/usage" hx-trigger="load, every 15s"></section>
+  <a class="side-settings" href="/setup" title="에이전트 활성화·설치 상태 재설정">⚙︎ 에이전트 설정</a>
 </aside>
 
 <main>
@@ -130,7 +131,8 @@
 
 <script>
 const MODELS = {{ provider_models | tojson }};
-const AGENT_ORDER = ['claude', 'antigravity', 'grok', 'hermes'];
+const AGENT_ORDER = {{ agent_order | tojson }};
+const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 </script>
 <script src="/static/app.js?v={{ asset_v() }}"></script>
 </body>
