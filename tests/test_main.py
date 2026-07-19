@@ -76,6 +76,34 @@ def test_create_job_with_session_and_workdir(tmp_env, tmp_path):
     assert job["workdir"] == str(d.resolve())
 
 
+def test_create_job_council_queues_it(tmp_env):
+    from app import config, db
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={
+            "prompt": "아주 어려운 문제",
+            "provider": "council",
+            # 협의 모드는 세션·모델·작업 위치를 지원하지 않으므로 무시된다
+            "model": "opus",
+            "session_id": "sess-1",
+        }, follow_redirects=False)
+        assert r.status_code == 303
+    job = db.list_jobs(db.get_conn(config.DB_PATH))[0]
+    assert job["provider"] == "council"
+    assert job["model"] is None
+    assert job["session_id"] is None
+    assert job["workdir"] is None
+
+
+def test_create_job_council_requires_min_members(tmp_env, monkeypatch):
+    from app import config
+    monkeypatch.setattr(config, "COUNCIL_MEMBERS", ["claude"])
+    with _client(tmp_env) as client:
+        r = client.post("/jobs", data={"prompt": "문제", "provider": "council"},
+                        follow_redirects=False)
+        assert r.status_code == 400
+        assert "부족" in r.json()["detail"]
+
+
 def test_create_job_rejects_oversized_upload(tmp_env, monkeypatch):
     """업로드가 한도를 넘으면 413으로 거부한다."""
     from app import config

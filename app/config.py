@@ -376,3 +376,22 @@ JOB_TIMEOUT_SEC = 30 * 60
 DEFAULT_RESUME_DELAY_MIN = 60
 MAX_ATTEMPTS = 10
 WORKER_POLL_SEC = 5
+
+# 협의(Council) 모드 — 여러 에이전트가 제안·비평하고 한 에이전트가 종합한다.
+#   AOS_COUNCIL_MEMBERS    : 참여 에이전트 목록(콤마 구분, 기본 4개 전체)
+#   AOS_COUNCIL_AGGREGATOR : 종합자 고정(기본 빈 값 = 잔여 사용량 기반 자동)
+#   AOS_COUNCIL_ROUNDS     : 2=제안+상호비평(기본), 1=제안만
+#   AOS_COUNCIL_STAGE_TIMEOUT_SEC : 단계별 CLI 1회 실행 타임아웃(기본 600초)
+COUNCIL_MEMBERS = [
+    p.strip()
+    for p in os.environ.get(
+        "AOS_COUNCIL_MEMBERS", "claude,antigravity,grok,hermes"
+    ).split(",")
+    if p.strip()
+]
+COUNCIL_AGGREGATOR = os.environ.get("AOS_COUNCIL_AGGREGATOR", "").strip()
+COUNCIL_ROUNDS = int(os.environ.get("AOS_COUNCIL_ROUNDS", "2"))
+COUNCIL_STAGE_TIMEOUT_SEC = int(
+    os.environ.get("AOS_COUNCIL_STAGE_TIMEOUT_SEC", "600"))
+COUNCIL_MIN_MEMBERS = 2          # 이 인원 미만이면 협의 불가
+COUNCIL_ANSWER_MAX_CHARS = 8000  # 비평·종합 프롬프트에 넣는 답변당 최대 길이

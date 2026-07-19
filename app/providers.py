@@ -125,6 +125,10 @@ PROVIDERS = {
     for p in [ClaudeProvider(), AntigravityProvider(), GrokProvider(), HermesProvider()]
 }
 
+# 협의(Council) 모드 — 실제 CLI가 아니라 app.council 오케스트레이터가 처리하는
+# 가상 프로바이더 값. PROVIDERS에는 넣지 않는다(3메서드 인터페이스 미구현).
+COUNCIL = "council"
+
 # 복잡한 작업 판별 키워드 — 매칭되거나 프롬프트가 길면 복잡한 작업으로 간주
 _COMPLEX_KW = [
     "구현", "분석", "설계", "리팩터", "작성", "코드", "디버그", "테스트",
@@ -146,6 +150,23 @@ def is_complex(prompt):
     return any(kw in low for kw in _COMPLEX_KW)
 
 
+def rank_cloud(usage_state=None):
+    """소진되지 않은 클라우드 프로바이더를 잔여 사용량 순으로 정렬해 반환.
+    [(name, remaining), ...] — 잔여 많은 순, 동률이면 우선순위(claude>antigravity>grok) 순.
+    """
+    usage_state = usage_state or {}
+    ranked = []
+    for name in _CLOUD_ROUTED:
+        st = usage_state.get(name) or {}
+        if st.get("available") is False:  # 사용량 소진
+            continue
+        remaining = st.get("remaining")
+        rank = _UNKNOWN_REMAINING if remaining is None else remaining
+        ranked.append((rank, _CLOUD_ROUTED.index(name), name, remaining))
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    return [(name, remaining) for _, _, name, remaining in ranked]
+
+
 def route_auto(prompt, usage_state=None):
     """자동 모드 라우팅. (provider, reason) 반환.
 
@@ -158,20 +179,10 @@ def route_auto(prompt, usage_state=None):
     """
     if not is_complex(prompt):
         return "hermes", "단순 작업이라 로컬 Hermes로 처리해 클라우드 사용량을 아낍니다"
-    usage_state = usage_state or {}
-    ranked = []
-    for name in _CLOUD_ROUTED:
-        st = usage_state.get(name) or {}
-        if st.get("available") is False:  # 사용량 소진
-            continue
-        remaining = st.get("remaining")
-        rank = _UNKNOWN_REMAINING if remaining is None else remaining
-        ranked.append((rank, _CLOUD_ROUTED.index(name), name, remaining))
+    ranked = rank_cloud(usage_state)
     if not ranked:
         return "hermes", "클라우드 에이전트가 모두 소진되어 Hermes로 처리합니다"
-    # 잔여 많은 순, 동률이면 우선순위(claude>antigravity>grok) 순
-    ranked.sort(key=lambda x: (-x[0], x[1]))
-    _, _, best, remaining = ranked[0]
+    best, remaining = ranked[0]
     if remaining is None:
         reason = f"복잡한 작업 → {best} (사용량 정보 없음, 우선순위로 선택)"
     else:
