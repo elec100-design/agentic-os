@@ -144,7 +144,16 @@ def claim_next_job(conn):
 
 
 def recover_running(conn):
-    conn.execute("UPDATE jobs SET status = 'queued' WHERE status = 'running'")
+    """서버 재시작 시 'running' 상태 잡을 복구한다.
+    협의(council) 잡은 재시도가 매우 비싸고(여러 CLI 재실행), 재개 시
+    누적 출력이 중복 저장되므로 처음부터 다시 돌리지 않고 실패 처리한다."""
+    conn.execute(
+        "UPDATE jobs SET status = 'failed', error = 'interrupted: server restarted', "
+        "finished_at = ? WHERE status = 'running' AND provider = 'council'",
+        (now_iso(),),
+    )
+    conn.execute(
+        "UPDATE jobs SET status = 'queued' WHERE status = 'running'")
     conn.commit()
 
 

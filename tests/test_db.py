@@ -73,6 +73,18 @@ def test_recover_running(tmp_env):
     assert db.get_job(conn, job_id)["status"] == "queued"
 
 
+def test_recover_running_fails_council_jobs_instead_of_requeuing(tmp_env):
+    conn = _conn(tmp_env)
+    job_id = db.create_job(conn, "p", "council")
+    db.update_job(conn, job_id, status="running", output="partial progress")
+    db.recover_running(conn)
+    job = db.get_job(conn, job_id)
+    assert job["status"] == "failed"
+    assert job["error"] == "interrupted: server restarted"
+    # 부분 출력은 그대로 보존 (재시도로 인한 중복 누적을 막는 것이 목적)
+    assert job["output"] == "partial progress"
+
+
 def test_usage_counts_and_limit_status(tmp_env):
     conn = _conn(tmp_env)
     db.log_usage(conn, "claude", 1.5, "ok")
