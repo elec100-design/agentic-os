@@ -23,7 +23,7 @@ grok / hermes) 협의(Council) 세션의 제안·비평을 실제 코드 검증�
 2. **실측 남은 사용량**으로 자동 배분 (API 키 불필요 → 추가 과금 없음)
 3. rate limit 시 **큐에 넣고 자동 재개**
 4. 결과를 **노트/Obsidian 볼트에 영구 축적**
-5. (신규) 여러 에이전트가 교차검증하는 **Council 모드**
+5. 여러 에이전트가 교차검증하는 **Council 모드** (백엔드 구현 완료, UI 가시화만 남음)
 
 **UI 개선의 성공 기준**은 "Claude처럼 예쁘다"가 아니라:
 **작업을 던지고 → 누가 도는지 보이고 → 결과가 읽히고 → 이어가기 쉽다.**
@@ -43,6 +43,8 @@ grok / hermes) 협의(Council) 세션의 제안·비평을 실제 코드 검증�
 - API 키 없음 — 워커가 API 키 환경변수를 제거하고 구독 CLI만 spawn (`app/worker.py`)
 - 작업 큐 + rate limit 감지·자동 재개 (`provider.detect_rate_limit` → `resume_at` 재클레임)
 - 스레드당 노트 1개 + N차 append + 워크스페이스 자동 그룹핑 (`app/memory.py`)
+- **Council(협의) 모드**: 여러 에이전트 제안 → 상호 비평 → 종합의 3단계를
+  `asyncio.gather` 내부 병렬로 실행 (`app/council.py`, PR #10로 merge됨) — UI 노출만 부족
 - 빌드 도구 없는 경량 스택 (FastAPI + Jinja2 + HTMX + vanilla JS)
 - 테스트 10파일 ~2,000줄, MIT 라이선스
 
@@ -61,7 +63,7 @@ grok / hermes) 협의(Council) 세션의 제안·비평을 실제 코드 검증�
 | G9 | 미설치 CLI가 UI에서 그대로 선택 가능 → 작업 실패 | 경로 탐지는 있으나(`models.py` `shutil.which`) UI 반영 없음 | 신규 사용자 첫 실패 확률↑ |
 | G10 | 헬스/진단 엔드포인트 없음 | `/health` 류 라우트 부재 | "왜 안 되지?" 디버깅 불가 |
 | G11 | 멀티턴 채팅·병렬 실행 미구현 | plan.md V3 후보 | Claude/Grok 대비 최대 UX 갭 |
-| G12 | Council 모드 **미구현** | 저장소 전체 grep 0건 | 협의 출력에서 "이미 있음"으로 언급됐으나 사실과 다름 — 신규 구현 필요 |
+| G12 | Council 모드 결과가 다른 작업과 동일하게 평문 `<pre>`로만 표시 | `app/council.py`(제안→비평→종합 3단계, `asyncio.gather` 내부 병렬) — PR #10로 이미 master에 merge됨 | 백엔드는 완성, 결과를 "협의했다"는 서사로 보여주는 UI가 없어 raw 텍스트 덤프처럼 느껴짐 |
 
 ---
 
@@ -126,10 +128,10 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
       `detect_rate_limit` — `providers.py`의 기존 클래스 구조가 이미 이 형태이므로
       문서화 + 하드코딩된 `PROVIDERS` dict를 등록 기반으로 완화 → 외부 기여자가
       Codex/Aider/Cursor 등 추가 가능 (생태계 씨앗)
-- [ ] **Council 모드 신규 구현** (G12): 동일 프롬프트를 N개 provider에 배분 → 제안
-      수집 → 상호 비평 → 지정 provider가 종합. UI는 raw 텍스트 dump가 아닌
-      **제안 카드 → 비평 → 최종 종합 탭** 레이아웃. 단일 워커 제약 하에서는 순차
-      실행으로 시작, 병렬 실행(아래)과 시너지
+- [ ] **Council 모드 결과 레이아웃 UI화** (G12): 백엔드(`app/council.py`, 제안→비평→
+      종합 3단계 + `asyncio.gather` 내부 병렬)는 이미 완성돼 master에 merge됨
+      (PR #10). 남은 작업은 UI뿐 — raw 텍스트 dump 대신 **제안 카드 → 비평 →
+      최종 종합 탭** 레이아웃으로 `job.html`/`note.html` 렌더링 개선
 - [ ] **병렬 실행** (G6, plan.md V3): `worker.py` 싱글톤 → **provider 단위** 동시성
       (같은 CLI 세션 충돌만 방지하면 서로 다른 CLI는 병렬 안전)
 
