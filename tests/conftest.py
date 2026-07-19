@@ -6,6 +6,14 @@ import pytest
 from app import config
 
 
+@pytest.fixture(autouse=True)
+def _reset_lang():
+    """UI 언어 contextvar가 테스트 간에 누수되지 않도록 매 테스트 전 기본값으로."""
+    from app import i18n
+    i18n.set_lang(i18n.DEFAULT_LANG)
+    yield
+
+
 @pytest.fixture
 def tmp_env(tmp_path, monkeypatch):
     """테스트마다 DB/볼트를 임시 디렉토리로 격리한다."""

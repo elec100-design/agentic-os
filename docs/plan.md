@@ -153,8 +153,10 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
 - [x] **패키징** (G8): pyproject에 `[build-system]`(hatchling) + `[project.scripts]`
       `aos` 엔트리포인트. `pip install -e .` 시 `aos`/`aos doctor` 명령
       (editable라 templates/static/data 경로 유지). 독립 wheel(자산 번들)은 후속
-- [ ] **UI i18n**: 영문 기본 + 한국어 (템플릿 `lang="ko"` 하드코딩 해소) — **미착수,
-      규모 큰 UI 번역이라 별도 진행**
+- [x] **UI i18n**: 영문 기본 + 한국어 (`app/i18n.py` — 한국어 원문을 키로 쓰고 영어
+      매핑, 미번역 시 원문 폴백). 언어는 쿠키 > Accept-Language > 영어로 결정,
+      사이드바 토글(`/lang/{code}`)로 전환. 템플릿은 `{{ '한국어' | t }}` 필터
+      (pass_context로 상수 폴딩 방지), JS는 `window.I18N`+`t()` 헬퍼로 처리
 
 **성공 지표:** 문서만 보고 Time-to-first-job ≤ 15분 (Claude CLI 있는 Mac 기준).
 

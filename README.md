@@ -78,6 +78,8 @@ subscription account and read/write files in permitted folders.
   limit)
 - **Usage panel** — real per-agent usage % and time-to-reset
 - **Optional launchd auto-start** — background on login, restarts on crash
+- **English / Korean UI** — defaults to English (or your browser's language);
+  toggle anytime from the sidebar
 
 ## Design principles
 
@@ -297,6 +299,7 @@ agentic-os/
 │   ├── settings.py    # user settings (enabled agents) — data/settings.json
 │   ├── setup.py       # first-run setup — CLI/tool install detection
 │   ├── health.py      # diagnostics for /api/health and `aos doctor`
+│   ├── i18n.py        # UI translations (English default + Korean)
 │   ├── __main__.py    # `python -m app` / `aos` entry point (serve + doctor)
 │   ├── models.py      # dynamic per-CLI model list collection + cache
 │   ├── codexbar.py    # CodexBar real usage lookup + cache

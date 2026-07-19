@@ -221,7 +221,7 @@ def test_route_auto_simple_without_hermes_uses_cloud():
     from app.providers import route_auto
     p, reason = route_auto("안녕", enabled=["claude"])
     assert p == "claude"
-    assert "Hermes 비활성" in reason
+    assert "Hermes" in reason      # 기본 언어(en): "Hermes disabled → claude"
 
 
 def test_route_auto_complex_only_enabled():
@@ -239,7 +239,7 @@ def test_route_auto_all_enabled_exhausted_no_hermes():
     p, reason = route_auto("이 코드 버그 수정 구현", usage_state=usage,
                            enabled=["claude"])
     assert p == "claude"
-    assert "소진" in reason
+    assert "exhausted" in reason   # 기본 언어(en)
 
 
 def test_route_auto_enabled_none_unchanged():

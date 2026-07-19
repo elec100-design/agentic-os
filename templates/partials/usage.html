@@ -1,6 +1,6 @@
 <button type="button" class="usage-toggle" aria-expanded="false" aria-controls="usage-detail">
   <div class="usage-head-row">
-    <h2>사용량 <svg class="usage-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg></h2>
+    <h2>{{ '사용량' | t }} <svg class="usage-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg></h2>
     <span class="usage-updated">{{ updated_in }}</span>
   </div>
   <div class="usage-summary">
@@ -21,11 +21,11 @@
   <div class="usage-head">
     <span class="provider-name">{{ p }}</span>
     {% if u.source == 'local' %}
-    <span class="usage-num">로컬 · 무제한</span>
+    <span class="usage-num">{{ '로컬 · 무제한' | t }}</span>
     {% elif u.source == 'codexbar' %}
-    <span class="usage-num{% if u.remaining <= 10 %} danger{% endif %}">{{ u.remaining }}% 남음</span>
+    <span class="usage-num{% if u.remaining <= 10 %} danger{% endif %}">{{ u.remaining }}% {{ '남음' | t }}</span>
     {% else %}
-    <span class="usage-num muted">정보 없음</span>
+    <span class="usage-num muted">{{ '정보 없음' | t }}</span>
     {% endif %}
   </div>
 
@@ -37,15 +37,15 @@
       </div>
       <div class="usage-wlabel">
         <span>{{ w.title }} · {{ w.used }}%</span>
-        {% if w.resume_in %}<span class="usage-reset">{{ w.resume_in }} 후 리셋</span>{% endif %}
+        {% if w.resume_in %}<span class="usage-reset">{{ w.resume_in }} {{ '후 리셋' | t }}</span>{% endif %}
       </div>
     </div>
     {% endfor %}
   {% elif u.source == 'none' %}
-    <div class="usage-note">CodexBar 연동 필요</div>
+    <div class="usage-note">{{ 'CodexBar 연동 필요' | t }}</div>
   {% endif %}
   {% set r = (recent or {}).get(p) if recent is defined else None %}
-  {% if r %}<div class="usage-note">최근 24시간 · {{ r.values()|sum }}회 실행</div>{% endif %}
+  {% if r %}<div class="usage-note">{{ '최근 24시간' | t }} · {{ r.values()|sum }} {{ '회 실행' | t }}</div>{% endif %}
 </div>
 {% endfor %}
 </div>

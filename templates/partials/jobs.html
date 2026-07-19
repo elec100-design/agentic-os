@@ -1,9 +1,9 @@
-<h2>작업 큐</h2>
+<h2>{{ '작업 큐' | t }}</h2>
 {% if not jobs %}
-<p class="empty-note">아직 작업이 없습니다. 위에서 첫 작업을 보내 보세요.</p>
+<p class="empty-note">{{ '아직 작업이 없습니다. 위에서 첫 작업을 보내 보세요.' | t }}</p>
 {% else %}
 <table class="jobs-table">
-  <thead><tr><th>#</th><th>프롬프트</th><th>에이전트</th><th>상태</th><th></th></tr></thead>
+  <thead><tr><th>#</th><th>{{ '프롬프트' | t }}</th><th>{{ '에이전트' | t }}</th><th>{{ '상태' | t }}</th><th></th></tr></thead>
   <tbody>
   {% for j in jobs %}
   <tr>
@@ -13,21 +13,21 @@
       {% if j['workdir'] %}<span class="job-loc" title="{{ j['workdir'] }}">📁 {{ j['workdir'].split('/')[-1] }}</span>{% endif %}
     </td>
     <td class="job-agent">
-      <span class="provider-name"{% if j['route_reason'] %} title="자동 라우팅 — {{ j['route_reason'] }}"{% endif %}>{{ j['provider'] }}{% if j['route_reason'] %} <span class="auto-tag">자동</span>{% endif %}</span>
+      <span class="provider-name"{% if j['route_reason'] %} title="{{ '자동 라우팅' | t }} — {{ j['route_reason'] }}"{% endif %}>{{ j['provider'] }}{% if j['route_reason'] %} <span class="auto-tag">{{ '자동' | t }}</span>{% endif %}</span>
       {% if j['model'] %}<br><span class="job-model">{{ j['model'] }}</span>{% endif %}
     </td>
     <td class="job-status">
       <span class="badge badge-{{ j['status'] }}">{{ j['status'] }}</span>
-      {% if j['status'] == 'rate_limited' %}<br><span class="resume-note">재개: {{ j['resume_at'] }}</span>{% endif %}
+      {% if j['status'] == 'rate_limited' %}<br><span class="resume-note">{{ '재개' | t }}: {{ j['resume_at'] }}</span>{% endif %}
     </td>
     <td class="job-actions">
       {% if j['status'] in ('queued', 'running', 'rate_limited') %}
-      <form method="post" action="/jobs/{{ j['id'] }}/cancel"><button class="btn-ghost">취소</button></form>
+      <form method="post" action="/jobs/{{ j['id'] }}/cancel"><button class="btn-ghost">{{ '취소' | t }}</button></form>
       {% endif %}
       <button class="btn-ghost btn-del"
               hx-post="/jobs/{{ j['id'] }}/delete"
               hx-target="#jobs" hx-swap="innerHTML"
-              hx-confirm="이 작업과 연결된 메모리 노트를 삭제할까요?">삭제</button>
+              hx-confirm="{{ '이 작업과 연결된 메모리 노트를 삭제할까요?' | t }}">{{ '삭제' | t }}</button>
     </td>
   </tr>
   {% endfor %}

@@ -1,0 +1,264 @@
+"""아주 가벼운 UI 국제화(i18n).
+
+한국어 원문을 그대로 키로 쓰고 영어 번역만 매핑한다. 장점:
+- 별도 키를 발명하지 않아도 되고, 번역이 없으면 원문(한국어)으로 폴백해
+  화면이 깨지지 않는다.
+- 기본 언어는 영어("영문 기본")이며, 쿠키(aos-lang) 또는 Accept-Language로
+  한국어를 선택할 수 있다.
+
+요청별 현재 언어는 contextvar로 들고 다녀(동시 요청 안전) 템플릿 필터
+`t`와 JS 주입 카탈로그가 같은 값을 참조한다.
+"""
+from __future__ import annotations
+
+from contextvars import ContextVar
+
+LANGS = ("en", "ko")
+DEFAULT_LANG = "en"
+
+_current = ContextVar("aos_lang", default=DEFAULT_LANG)
+
+
+def set_lang(lang):
+    _current.set(lang if lang in LANGS else DEFAULT_LANG)
+
+
+def get_lang():
+    return _current.get()
+
+
+def resolve_lang(cookie=None, accept_language=None):
+    """쿠키 > Accept-Language > 기본(영어) 순으로 언어를 정한다."""
+    if cookie in LANGS:
+        return cookie
+    al = (accept_language or "").lower()
+    # ko, ko-KR 등이 en보다 앞에 오면 한국어로 본다(대략적 판정)
+    if "ko" in al:
+        ko_at = al.find("ko")
+        en_at = al.find("en")
+        if en_at == -1 or ko_at < en_at:
+            return "ko"
+    return DEFAULT_LANG
+
+
+def t(text):
+    """현재 언어로 번역. 영어면 카탈로그에서 찾고, 없으면 원문 그대로."""
+    if get_lang() == "en":
+        return EN.get(text, text)
+    return text
+
+
+# 한국어 원문 → 영어. 없는 항목은 원문으로 폴백된다.
+EN = {
+    # --- 공통 / 대시보드 ---
+    "무엇을 도와드릴까요?": "What can I help with?",
+    "작업을 설명해 주세요… 파일을 끌어다 놓을 수도 있어요":
+        "Describe a task… you can also drag files in",
+    "자동": "Auto",
+    "모델": "Model",
+    "협의": "Council",
+    "메모리": "Memory",
+    "노트 검색…": "Search notes…",
+    "저장된 노트가 없습니다": "No saved notes yet",
+    "검색 결과가 없습니다": "No results",
+    "고정됨": "Pinned",
+    "기타": "Other",
+    "사용량": "Usage",
+    "작업 큐": "Job queue",
+    "아직 작업이 없습니다. 위에서 첫 작업을 보내 보세요.":
+        "No jobs yet. Send your first one above.",
+    "에이전트 설정": "Agent settings",
+    "⚙︎ 에이전트 설정": "⚙︎ Agent settings",
+    "대시보드": "Dashboard",
+    "← 대시보드": "← Dashboard",
+    # --- 작업 큐 테이블 ---
+    "프롬프트": "Prompt",
+    "에이전트": "Agent",
+    "상태": "Status",
+    "취소": "Cancel",
+    "삭제": "Delete",
+    "이 작업과 연결된 메모리 노트를 삭제할까요?":
+        "Delete the memory note linked to this job?",
+    # --- 사용량 패널 ---
+    "로컬 · 무제한": "Local · unlimited",
+    "정보 없음": "No data",
+    "CodexBar 연동 필요": "Needs CodexBar",
+    "갱신 대기": "Awaiting update",
+    "방금": "just now",
+    "곧": "soon",
+    "남음": "left",
+    "후 리셋": "until reset",
+    "최근 24시간": "last 24h",
+    "회 실행": "runs",
+    "재개": "Resume",
+    "노트 메뉴": "Note menu",
+    # --- 작업 상세 ---
+    "출력": "Output",
+    "작업 위치": "Workspace",
+    "자동 라우팅": "Auto-routed",
+    # --- 노트 / 대화 ---
+    "대화": "Conversation",
+    "노트": "Note",
+    "나": "You",
+    "이 세션 이어서 진행": "Continue this session",
+    "이어서 무엇을 할까요?": "What next?",
+    "이 노트를 참고해 새 작업": "New task using this note",
+    "이 노트를 컨텍스트로 무엇을 할까요?": "What should I do with this note as context?",
+    "노트 내용이 프롬프트 앞에 첨부됩니다": "The note is prepended to your prompt",
+    "기본값": "default",
+    # --- 도구 / 컴포저 ---
+    "파일 첨부…": "Attach files…",
+    "메모리 첨부": "Attach memory",
+    "타임아웃": "Timeout",
+    "분": "min",
+    "첨부·도구": "Attach / tools",
+    "전송": "Send",
+    "사이드바 열기/닫기": "Toggle sidebar",
+    "라이트/다크 테마 전환": "Toggle light/dark theme",
+    "테마 전환": "Toggle theme",
+    "언어 전환 (한국어/English)": "Switch language (English/한국어)",
+    # --- 작업 위치 ---
+    "기본(연동 안 함)": "Default (none)",
+    "작업이 실행될 폴더/리포": "Folder/repo the job runs in",
+    "폴더 탐색 또는 GitHub 리포에서 작업 위치 추가":
+        "Add a workspace from a folder or GitHub repo",
+    "연동 해제": "Remove",
+    "📁 폴더 선택": "📁 Folder",
+    "⑂ GitHub 리포": "⑂ GitHub repo",
+    "닫기": "Close",
+
+    # --- 작업 상세 에러 배너 ---
+    "CLI를 찾을 수 없습니다.": "CLI not found.",
+    "에이전트의 CLI가 설치되어 PATH에 있는지 확인하세요.":
+        "agent's CLI is installed and on your PATH.",
+    "셋업에서 확인 →": "Check in setup →",
+    "시간 초과.": "Timed out.",
+    "작업이 제한 시간 안에 끝나지 않았습니다. 컴포저의 ＋ 메뉴에서 타임아웃을 늘려 다시 시도해 보세요.":
+        "The job didn't finish in time. Increase the timeout from the composer's ＋ menu and retry.",
+    "인증이 필요합니다.": "Authentication required.",
+    "터미널에서": "In your terminal, finish the login for",
+    "CLI 로그인을 완료한 뒤 다시 시도하세요.": "CLI, then retry.",
+    "로그인 안내 →": "Login help →",
+    "취소된 작업입니다.": "This job was cancelled.",
+    "사용 제한.": "Rate limited.",
+    "제한이 풀리면 자동으로 재개됩니다.": "It resumes automatically once the limit clears.",
+    "작업이 실패했습니다.": "The job failed.",
+
+    # --- JS: 에이전트/모델 팝업 ---
+    "토론": "Debate",
+    "여러 에이전트가 제안·비평하고 하나가 종합합니다 (사용량 다중 소모)":
+        "Several agents propose & critique; one synthesizes (uses multiple quotas)",
+    # --- JS: 노트 컨텍스트 메뉴 ---
+    "고정": "Pin",
+    "고정 해제": "Unpin",
+    "이름 변경": "Rename",
+    "새 이름": "New name",
+    "새 그룹…": "New group…",
+    "그룹 이름": "Group name",
+    "그룹에서 제거": "Remove from group",
+    "그룹으로 이동": "Move to group",
+    "보관": "Archive",
+    "보관 해제": "Unarchive",
+    "이 노트를 삭제할까요? 되돌릴 수 없습니다.": "Delete this note? This can't be undone.",
+    # --- JS: 작업 위치 모달 ---
+    "이 폴더에서 작업이 실행됩니다": "Jobs will run in this folder",
+    "요청한 iCloud 폴더가 이 Mac에 없습니다. Finder에서 먼저 내려받은 뒤 다시 선택하세요.":
+        "That iCloud folder isn't on this Mac. Download it in Finder first, then pick it again.",
+    "추가하지 못했습니다.": "Couldn't add it.",
+    "리포 검색…": "Search repos…",
+    "리포 목록을 불러오지 못했습니다.": "Couldn't load the repo list.",
+    "클론 중…": "Cloning…",
+    "클론해서 추가": "Clone & add",
+    "바로가기": "Shortcuts",
+    "상위 폴더": "Parent folder",
+    "하위 폴더가 없습니다": "No subfolders",
+    "이 폴더 선택": "Select this folder",
+    "GitHub 확인 중…": "Checking GitHub…",
+    "gh(GitHub CLI)가 설치되어 있지 않습니다.": "The gh (GitHub CLI) isn't installed.",
+    "GitHub 로그인이 필요합니다.<br>터미널에서 <code>gh auth login</code> 후 다시 시도하세요.":
+        "GitHub login required.<br>Run <code>gh auth login</code> in your terminal, then retry.",
+    "로그인:": "Signed in:",
+    "리포 목록 불러오는 중…": "Loading repos…",
+    "브랜치": "Branch",
+    "불러오는 중…": "Loading…",
+    "브랜치 조회 실패": "Failed to load branches",
+    "선택한 브랜치를 클론해 추가합니다": "Clones the selected branch and adds it",
+    "검색 결과 없음": "No matches",
+
+    # --- 셋업 위저드 (setup.js) ---
+    "Agentic OS에 오신 것을 환영합니다": "Welcome to Agentic OS",
+    "구독 중인 AI CLI들을 하나의 대시보드로 — 실측 남은 사용량으로 자동 배분하고, 결과는 노트로 쌓입니다.":
+        "All your AI CLIs in one dashboard — routed by real remaining quota, with results saved as notes.",
+    "자동 라우팅": "Auto-routing",
+    "남은 사용량이 가장 많은 에이전트로 작업을 배분합니다":
+        "Sends work to whichever agent has the most quota left",
+    "작업 큐": "Job queue",
+    "사용 제한에 걸리면 큐에 두었다가 자동으로 재개합니다":
+        "Queues work through rate limits and resumes automatically",
+    "노트 메모리": "Note memory",
+    "모든 결과가 마크다운 노트로 저장되고 이어서 작업할 수 있습니다":
+        "Every result is saved as a Markdown note you can continue from",
+    "협의 모드": "Council mode",
+    "여러 에이전트가 제안·비평하고 하나가 종합합니다":
+        "Several agents propose & critique; one synthesizes",
+    "사용하는 에이전트를 선택하세요": "Choose the agents you use",
+    "설치가 감지된 CLI는 자동으로 선택됩니다. 나중에 ⚙︎ 에이전트 설정에서 바꿀 수 있어요.":
+        "Detected CLIs are pre-selected. You can change this later under ⚙︎ Agent settings.",
+    "재확인": "Re-check",
+    "✓ 설치됨": "✓ Installed",
+    "✗ 없음": "✗ Not found",
+    "CLI가 없으면 이 에이전트의 작업은 실패합니다 — 설치:":
+        "Without the CLI, this agent's jobs will fail — install:",
+    "각 CLI에 로그인하세요": "Log in to each CLI",
+    "Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 계속 진행하세요. (로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다)":
+        "Agentic OS can't log in for you. Finish each CLI's OAuth login in your terminal, then continue. (You can proceed without it, but that agent's jobs will fail.)",
+    "로그인 불필요": "No login needed",
+    "보조 도구 (선택)": "Optional tools",
+    "노트 저장 위치:": "Notes saved to:",
+    "— <code>aos.env</code>의 <code>AOS_VAULT_PATH</code>로 Obsidian 볼트를 지정할 수 있어요":
+        " — set <code>AOS_VAULT_PATH</code> in <code>aos.env</code> to use an Obsidian vault",
+    "준비가 끝났습니다": "You're all set",
+    "선택한 에이전트만 대시보드·사용량·자동 라우팅에 나타납니다.":
+        "Only the agents you picked appear in the dashboard, usage, and auto-routing.",
+    "협의 모드 사용 가능": "Council mode available",
+    "개 에이전트": "agents",
+    "협의 모드는 에이전트": "Council mode needs at least",
+    "개 이상이 필요해 비활성화됩니다": "agents, so it's disabled",
+    "확인 중…": "Checking…",
+    "시작하기": "Get started",
+    "완료": "Finish",
+    "다음": "Next",
+    "이전": "Back",
+    "건너뛰기": "Skip",
+    "저장에 실패했습니다": "Failed to save",
+    "서버에 연결할 수 없습니다": "Couldn't reach the server",
+    "환영": "Welcome",
+    "로그인": "Login",
+    "셋업 진행 단계": "Setup progress",
+    "차": "#",
+    "자동 추천": "Auto pick",
+    "복사": "Copy",
+    "복사됨": "Copied",
+
+    # --- CLI 메타데이터 (app/setup.py, /api/setup/status로 전달) ---
+    "로컬": "Local",
+    "코딩·분석·글쓰기에 강한 범용 에이전트":
+        "Versatile agent, strong at coding, analysis, and writing",
+    "Gemini 기반 에이전트 — Google 계정으로 로그인":
+        "Gemini-based agent — sign in with a Google account",
+    "xAI Grok — SuperGrok 구독 CLI": "xAI Grok — SuperGrok subscription CLI",
+    "로컬 실행 모델 — 무제한·개인 데이터에 적합":
+        "Local model — unlimited, good for private data",
+    "터미널에서 claude 를 한 번 실행하면 브라우저 로그인(구독 계정 OAuth)이 열립니다. 로그인 후 재확인을 누르세요.":
+        "Run claude once in your terminal to open the browser login (subscription OAuth). Then hit Re-check.",
+    "agy 첫 실행 시 Google 계정 OAuth 로그인이 진행되고 시스템 키체인에 저장됩니다.":
+        "On first run, agy walks you through Google OAuth and stores it in the system keychain.",
+    "grok CLI 자체 로그인 절차(브라우저 인증)를 완료하세요.":
+        "Complete the grok CLI's own login (browser auth).",
+    "로컬 실행 — 로그인 불필요, 사용량 무제한입니다.":
+        "Runs locally — no login needed, unlimited usage.",
+    "사용량 실측 표시 (claude·grok 잔여 사용량 기반 자동 라우팅)":
+        "Real usage display (auto-routing by claude/grok remaining quota)",
+    "GitHub 리포를 작업 위치로 연동": "Use a GitHub repo as a workspace",
+    "노트(메모리) 전문 검색": "Full-text search over notes (memory)",
+}

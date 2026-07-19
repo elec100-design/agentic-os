@@ -38,15 +38,16 @@ function _decorateCodeBlocks(root) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "code-copy";
-    btn.innerHTML = _copyIcon() + "<span>복사</span>";
+    const _t = window.t || ((s) => s);
+    btn.innerHTML = _copyIcon() + "<span>" + _t("복사") + "</span>";
     btn.addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(code.textContent);
         btn.classList.add("copied");
-        btn.querySelector("span").textContent = "복사됨";
+        btn.querySelector("span").textContent = _t("복사됨");
         setTimeout(() => {
           btn.classList.remove("copied");
-          btn.querySelector("span").textContent = "복사";
+          btn.querySelector("span").textContent = _t("복사");
         }, 1400);
       } catch (_) { /* clipboard 미허용 환경 무시 */ }
     });

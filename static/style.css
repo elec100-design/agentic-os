@@ -1548,3 +1548,22 @@ h2.section-label {
 @media (max-width: 640px) {
   .chat-turn { max-width: 100%; }
 }
+
+/* ---- 언어 토글 (사이드바) ---- */
+.side-foot-btns { display: flex; align-items: center; gap: 0.4rem; }
+.lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.9rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.lang-toggle:hover { color: var(--accent); border-color: var(--accent); }

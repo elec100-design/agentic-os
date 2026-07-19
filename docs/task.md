@@ -120,7 +120,10 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
       `python -m app`/`aos`/`aos doctor` 지원
 - [x] Linux 지원 — config가 홈 이하로 이미 동작(iCloud 자동 우회), systemd 유닛
       템플릿 `deploy/agentic-os.service` 추가
-- [ ] UI i18n(영문 기본 + 한국어) — 규모 큰 UI 번역이라 별도 진행
+- [x] UI i18n(영문 기본 + 한국어) — `app/i18n.py`(한국어 원문=키, 영어 매핑),
+      쿠키/Accept-Language 기반 언어 결정 + 사이드바 토글(`/lang/{code}`),
+      템플릿 `t` 필터(pass_context로 상수 폴딩 방지) + JS `window.I18N`/`t()`,
+      route_auto 이유·시간 포맷·CLI 메타데이터까지 번역. 테스트 224개
 
 ### V3 Phase 3 — 차별 기능 가시화 (대부분 완료)
 - [x] 라우팅 투명성 — `jobs.route_reason` 컬럼, 작업 상세 "🔀 자동 라우팅" 표시,
