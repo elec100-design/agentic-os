@@ -5,6 +5,28 @@ document.getElementById("nav-toggle")?.addEventListener("click", () => {
   document.body.classList.toggle("nav-open");
 });
 
+// ---- 테마 토글 (라이트/다크, localStorage 유지) -------------------------
+// 저장값이 없으면 OS 설정(prefers-color-scheme)을 따르고, 한 번 누르면
+// 명시값(data-theme)으로 고정된다. head의 인라인 스크립트가 페인트 전에
+// data-theme를 적용해 깜빡임(FOUC)을 막는다.
+const THEME_KEY = "aos-theme";
+const themeToggle = document.getElementById("theme-toggle");
+function effectiveTheme() {
+  const explicit = document.documentElement.getAttribute("data-theme");
+  if (explicit) return explicit;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function syncThemeLabel() {
+  if (themeToggle) themeToggle.dataset.theme = effectiveTheme();
+}
+themeToggle?.addEventListener("click", () => {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem(THEME_KEY, next); } catch (_) { /* 무시 */ }
+  syncThemeLabel();
+});
+syncThemeLabel();
+
 // ---- 사용량 패널 접기/펼치기 (기본 접힘, 상태는 localStorage 유지) --------
 const usageSection = document.getElementById("usage");
 const USAGE_KEY = "aos-usage-open";
@@ -26,6 +48,15 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   if (e.target && e.target.id === "usage") applyUsageState();
 });
 applyUsageState();
+
+// ---- ⌘/Ctrl+Enter 전송 --------------------------------------------------
+// 컴포저 textarea에서 ⌘Enter(맥)·Ctrl+Enter로 폼 제출 (채팅 UX 표준)
+document.getElementById("prompt")?.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    e.target.form?.requestSubmit();
+  }
+});
 
 // ---- 파일 첨부 칩 + 드래그 앤 드롭 -------------------------------------
 const composer = document.getElementById("composer");
@@ -75,15 +106,15 @@ const chosenModel = {};                     // provider -> model id ("" = 기본
 // 팝업에 노출할 에이전트: 자동 + 활성 에이전트(서버가 /setup 선택을 반영해
 // AGENT_ORDER로 주입) + 협의. 협의(council)는 활성 멤버가 2명 이상일 때만
 // 노출되고, 모델 선택이 없어(MODELS에 없음) 모델 칩은 자동으로 숨겨진다.
-const AGENTS = [{ id: "auto", name: "자동" }]
+const AGENTS = [{ id: "auto", name: t("자동") }]
   .concat(
     AGENT_ORDER.filter((p) => MODELS[p]).map((p) => ({ id: p, name: agentName(p) }))
   )
-  .concat(COUNCIL_ENABLED ? [{ id: "council", name: "협의" }] : []);
+  .concat(COUNCIL_ENABLED ? [{ id: "council", name: t("협의") }] : []);
 
 function agentName(p) {
-  if (p === "auto") return "자동";
-  if (p === "council") return "협의";
+  if (p === "auto") return t("자동");
+  if (p === "council") return t("협의");
   return p.charAt(0).toUpperCase() + p.slice(1);
 }
 function defaultModel(p) {
@@ -107,7 +138,7 @@ function refreshChips() {
   if (modelChipVisible(p)) {
     modelBtn.hidden = false;
     const id = chosenModel[p] || defaultModel(p);
-    modelChipLabel.textContent = modelLabel(p, id) || "모델";
+    modelChipLabel.textContent = modelLabel(p, id) || t("모델");
   } else {
     modelBtn.hidden = true;
   }
@@ -131,7 +162,7 @@ function renderAgentPopup() {
   agentPopup.innerHTML = "";
   const head = document.createElement("div");
   head.className = "popup-head";
-  head.textContent = "에이전트";
+  head.textContent = t("에이전트");
   agentPopup.appendChild(head);
 
   for (const a of AGENTS) {
@@ -143,8 +174,8 @@ function renderAgentPopup() {
       `<span class="popup-check">${a.id === cur ? "✓" : ""}</span>` +
       `<span class="popup-label">${a.name}</span>` +
       (a.id === "council"
-        ? `<span class="popup-tag" title="여러 에이전트가 제안·비평하고 하나가 종합합니다 (사용량 다중 소모)">토론</span>`
-        : multi ? `<span class="popup-tag">모델</span>` : "");
+        ? `<span class="popup-tag" title="${t("여러 에이전트가 제안·비평하고 하나가 종합합니다 (사용량 다중 소모)")}">${t("토론")}</span>`
+        : multi ? `<span class="popup-tag">${t("모델")}</span>` : "");
     row.addEventListener("click", () => { selectProvider(a.id); closeComposerPopups(); });
     agentPopup.appendChild(row);
   }
@@ -155,7 +186,7 @@ function renderModelPopup() {
   modelPopup.innerHTML = "";
   const head = document.createElement("div");
   head.className = "popup-head";
-  head.textContent = agentName(cur) + " 모델";
+  head.textContent = agentName(cur) + " " + t("모델");
   modelPopup.appendChild(head);
 
   const curModel = chosenModel[cur] || "";
@@ -168,7 +199,7 @@ function renderModelPopup() {
     row.innerHTML =
       `<span class="popup-check">${sel ? "✓" : ""}</span>` +
       `<span class="popup-label">${m.label}</span>` +
-      (m.default ? `<span class="popup-tag">기본값</span>` : "");
+      (m.default ? `<span class="popup-tag">${t("기본값")}</span>` : "");
     row.addEventListener("click", () => { selectModel(cur, id); closeComposerPopups(); });
     modelPopup.appendChild(row);
   }
@@ -232,7 +263,7 @@ async function updateAutoHint() {
     if (!res.ok) return;
     const d = await res.json();
     autoHint.innerHTML =
-      `<span class="hint-mark">자동 추천</span> ${d.provider} — ${d.reason}`;
+      `<span class="hint-mark">${t("자동 추천")}</span> ${d.provider} — ${d.reason}`;
     autoHint.hidden = false;
   } catch (_) { /* 무시 */ }
 }
@@ -320,15 +351,15 @@ function openDropdown(btn) {
     const d = document.createElement("div"); d.className = "dd-sep"; dropdown.appendChild(d);
   };
 
-  add(pinned ? "고정 해제" : "고정", () => postNote("/notes/pin", path));
-  add("이름 변경", () => {
-    const name = prompt("새 이름", btn.closest(".note-item")?.querySelector(".note-link")?.textContent.trim());
+  add(pinned ? t("고정 해제") : t("고정"), () => postNote("/notes/pin", path));
+  add(t("이름 변경"), () => {
+    const name = prompt(t("새 이름"), btn.closest(".note-item")?.querySelector(".note-link")?.textContent.trim());
     if (name) postNote("/notes/rename", path, { name });
   });
   // 그룹으로 이동
   const groupBtn = document.createElement("div");
   groupBtn.className = "dd-item dd-has-sub";
-  groupBtn.innerHTML = `<span>그룹으로 이동</span><span class="dd-arrow">›</span>`;
+  groupBtn.innerHTML = `<span>${t("그룹으로 이동")}</span><span class="dd-arrow">›</span>`;
   const sub = document.createElement("div");
   sub.className = "dd-sub";
   const addSub = (label, fn, cls) => {
@@ -338,21 +369,21 @@ function openDropdown(btn) {
     b.addEventListener("click", (e) => { e.stopPropagation(); closeDropdown(); fn(); });
     sub.appendChild(b);
   };
-  addSub("새 그룹…", () => {
-    const g = prompt("그룹 이름");
+  addSub(t("새 그룹…"), () => {
+    const g = prompt(t("그룹 이름"));
     if (g) postNote("/notes/group", path, { group: g });
   });
   for (const g of existingGroups()) {
     addSub(g, () => postNote("/notes/group", path, { group: g }));
   }
-  addSub("그룹에서 제거", () => postNote("/notes/group", path, { group: "" }), "dd-muted");
+  addSub(t("그룹에서 제거"), () => postNote("/notes/group", path, { group: "" }), "dd-muted");
   groupBtn.appendChild(sub);
   dropdown.appendChild(groupBtn);
 
-  add(archived ? "보관 해제" : "보관", () => postNote("/notes/archive", path));
+  add(archived ? t("보관 해제") : t("보관"), () => postNote("/notes/archive", path));
   sep();
-  add("삭제", () => {
-    if (confirm("이 노트를 삭제할까요? 되돌릴 수 없습니다.")) postNote("/notes/delete", path);
+  add(t("삭제"), () => {
+    if (confirm(t("이 노트를 삭제할까요? 되돌릴 수 없습니다."))) postNote("/notes/delete", path);
   }, "dd-danger");
 
   // 앵커는 항상 보이는 note-item 기준 (··· 버튼은 hover 시에만 표시돼 rect가 0일 수 있음)
@@ -381,7 +412,7 @@ window.addEventListener("resize", closeDropdown);
 document.querySelector(".note-scroll") && document.addEventListener("scroll", closeDropdown, true);
 
 // ---- 작업 위치(workspace) 선택·추가·제거 --------------------------------
-const WS_DEFAULT = "기본(연동 안 함)";
+const WS_DEFAULT = t("기본(연동 안 함)");
 let wsSelectedPath = "";
 
 function selectWorkspace(path) {
@@ -467,7 +498,10 @@ document.addEventListener("click", (e) => {
   if (e.target.closest(".ws-item-remove")) {
     e.stopPropagation();
     const btn = e.target.closest(".ws-item-remove");
-    if (confirm(`'${btn.dataset.name}' 연동을 해제할까요? (폴더 자체는 삭제되지 않습니다)`))
+    const msg = window.LANG === "en"
+      ? `Remove the '${btn.dataset.name}' workspace? (The folder itself is not deleted.)`
+      : `'${btn.dataset.name}' 연동을 해제할까요? (폴더 자체는 삭제되지 않습니다)`;
+    if (confirm(msg))
       postWorkspace("/workspaces/remove", { id: btn.dataset.id });
     return;
   }
@@ -523,7 +557,7 @@ async function loadFolders(path) {
   const rows = [];
   if (d.shortcuts?.length) {
     rows.push('<div class="folder-shortcuts-panel">');
-    rows.push('<div class="folder-shortcuts-label">바로가기</div>');
+    rows.push(`<div class="folder-shortcuts-label">${t("바로가기")}</div>`);
     rows.push('<ul class="folder-list folder-shortcuts">');
     for (const s of d.shortcuts) {
       const icon = s.kind === "icloud" || s.kind === "cloud" ? "☁️" : "📁";
@@ -539,7 +573,7 @@ async function loadFolders(path) {
     rows.push(`<div class="folder-notice">${d.notice}</div>`);
   }
   rows.push('<ul class="folder-list">');
-  if (d.canUp) rows.push(`<li class="folder-item up" data-path="${d.parent}">⬆︎ 상위 폴더</li>`);
+  if (d.canUp) rows.push(`<li class="folder-item up" data-path="${d.parent}">⬆︎ ${t("상위 폴더")}</li>`);
   for (const f of d.dirs) {
     const label = f.label || f.name;
     rows.push(
@@ -547,7 +581,7 @@ async function loadFolders(path) {
     );
   }
   if (!d.dirs.length && !d.canUp && !d.shortcuts?.length) {
-    rows.push('<li class="modal-empty">하위 폴더가 없습니다</li>');
+    rows.push(`<li class="modal-empty">${t("하위 폴더가 없습니다")}</li>`);
   }
   rows.push("</ul>");
   wsBody.innerHTML = rows.join("");
@@ -559,51 +593,51 @@ async function loadFolders(path) {
   wsFoot.innerHTML =
     `<span class="modal-hint">${
       pickBlocked
-        ? "요청한 iCloud 폴더가 이 Mac에 없습니다. Finder에서 먼저 내려받은 뒤 다시 선택하세요."
-        : "이 폴더에서 작업이 실행됩니다"
+        ? t("요청한 iCloud 폴더가 이 Mac에 없습니다. Finder에서 먼저 내려받은 뒤 다시 선택하세요.")
+        : t("이 폴더에서 작업이 실행됩니다")
     }</span>` +
     `<button type="button" class="btn-primary" id="folder-pick"${
       pickBlocked ? " disabled" : ""
-    }>이 폴더 선택</button>`;
+    }>${t("이 폴더 선택")}</button>`;
   if (!pickBlocked) {
     document.getElementById("folder-pick").addEventListener("click", async () => {
       const r = await postWorkspace("/workspaces/add", { value: d.path });
       if (r.ok) closeWsModal();
-      else alert("추가하지 못했습니다.\n" + r.msg);
+      else alert(t("추가하지 못했습니다.") + "\n" + r.msg);
     });
   }
 }
 
 // --- GitHub 리포/브랜치 ---
 async function loadGithub() {
-  wsBody.innerHTML = '<div class="modal-loading">GitHub 확인 중…</div>';
+  wsBody.innerHTML = `<div class="modal-loading">${t("GitHub 확인 중…")}</div>`;
   wsFoot.innerHTML = "";
   let st;
   try { st = await (await fetch("/api/github/status")).json(); }
   catch (_) { st = { installed: false, loggedIn: false }; }
 
   if (!st.installed) {
-    wsBody.innerHTML = '<div class="modal-empty">gh(GitHub CLI)가 설치되어 있지 않습니다.</div>';
+    wsBody.innerHTML = `<div class="modal-empty">${t("gh(GitHub CLI)가 설치되어 있지 않습니다.")}</div>`;
     return;
   }
   if (!st.loggedIn) {
-    wsBody.innerHTML = '<div class="modal-empty">GitHub 로그인이 필요합니다.<br>터미널에서 <code>gh auth login</code> 후 다시 시도하세요.</div>';
+    wsBody.innerHTML = `<div class="modal-empty">${t("GitHub 로그인이 필요합니다.<br>터미널에서 <code>gh auth login</code> 후 다시 시도하세요.")}</div>`;
     return;
   }
 
   wsBody.innerHTML =
-    `<div class="gh-user">로그인: <b>${st.user}</b></div>` +
-    `<input class="search gh-filter" id="gh-filter" placeholder="리포 검색…">` +
-    `<div class="modal-loading" id="gh-repos-loading">리포 목록 불러오는 중…</div>` +
+    `<div class="gh-user">${t("로그인:")} <b>${st.user}</b></div>` +
+    `<input class="search gh-filter" id="gh-filter" placeholder="${t("리포 검색…")}">` +
+    `<div class="modal-loading" id="gh-repos-loading">${t("리포 목록 불러오는 중…")}</div>` +
     `<ul class="gh-repo-list" id="gh-repo-list" hidden></ul>` +
     `<div class="gh-branch-row" id="gh-branch-row" hidden>` +
-      `<label>브랜치 <select class="ws-select" id="gh-branch"></select></label>` +
+      `<label>${t("브랜치")} <select class="ws-select" id="gh-branch"></select></label>` +
     `</div>`;
 
   let repos = [];
   try { repos = (await (await fetch("/api/github/repos")).json()).repos; }
   catch (_) {
-    document.getElementById("gh-repos-loading").textContent = "리포 목록을 불러오지 못했습니다.";
+    document.getElementById("gh-repos-loading").textContent = t("리포 목록을 불러오지 못했습니다.");
     return;
   }
   const listEl = document.getElementById("gh-repo-list");
@@ -623,7 +657,7 @@ async function loadGithub() {
       li.addEventListener("click", () => pickRepo(r.repo));
       listEl.appendChild(li);
     }
-    if (!listEl.children.length) listEl.innerHTML = '<li class="modal-empty">검색 결과 없음</li>';
+    if (!listEl.children.length) listEl.innerHTML = `<li class="modal-empty">${t("검색 결과 없음")}</li>`;
   }
   document.getElementById("gh-filter").addEventListener("input", (e) => renderRepos(e.target.value));
   renderRepos("");
@@ -635,11 +669,11 @@ async function loadGithub() {
     selectedRepo = repo;
     renderRepos(document.getElementById("gh-filter").value);
     branchRow.hidden = false;
-    branchSel.innerHTML = '<option>불러오는 중…</option>';
+    branchSel.innerHTML = `<option>${t("불러오는 중…")}</option>`;
     wsFoot.innerHTML = "";
     let b;
     try { b = await (await fetch("/api/github/branches?repo=" + encodeURIComponent(repo))).json(); }
-    catch (_) { branchSel.innerHTML = '<option>브랜치 조회 실패</option>'; return; }
+    catch (_) { branchSel.innerHTML = `<option>${t("브랜치 조회 실패")}</option>`; return; }
     branchSel.innerHTML = "";
     for (const name of b.branches) {
       const o = document.createElement("option");
@@ -648,15 +682,15 @@ async function loadGithub() {
       branchSel.appendChild(o);
     }
     wsFoot.innerHTML =
-      `<span class="modal-hint">선택한 브랜치를 클론해 추가합니다</span>` +
-      `<button type="button" class="btn-primary" id="gh-add">클론해서 추가</button>`;
+      `<span class="modal-hint">${t("선택한 브랜치를 클론해 추가합니다")}</span>` +
+      `<button type="button" class="btn-primary" id="gh-add">${t("클론해서 추가")}</button>`;
     document.getElementById("gh-add").addEventListener("click", async () => {
       const btn = document.getElementById("gh-add");
-      btn.disabled = true; btn.textContent = "클론 중…";
+      btn.disabled = true; btn.textContent = t("클론 중…");
       const r = await postWorkspace("/workspaces/add-github",
         { repo: selectedRepo, branch: branchSel.value });
       if (r.ok) closeWsModal();
-      else { btn.disabled = false; btn.textContent = "클론해서 추가"; alert("추가하지 못했습니다.\n" + r.msg); }
+      else { btn.disabled = false; btn.textContent = t("클론해서 추가"); alert(t("추가하지 못했습니다.") + "\n" + r.msg); }
     });
   }
 }

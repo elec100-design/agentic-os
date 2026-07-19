@@ -1,33 +1,71 @@
 <!doctype html>
-<html lang="ko">
+<html lang="{{ lang() }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>작업 #{{ job['id'] }} — Agentic OS</title>
+<title>{{ '작업' | t }} #{{ job['id'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 </head>
 <body>
 <main class="page">
-<a class="back-link" href="/">← 대시보드</a>
+<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
 <h1 class="job-title">
-  작업 #{{ job['id'] }}
+  {{ '작업' | t }} #{{ job['id'] }}
   <span class="badge badge-{{ job['status'] }}">{{ job['status'] }}</span>
   <span class="job-meta provider-name">{{ job['provider'] }}</span>
   {% if job['model'] %}<span class="job-meta">{{ job['model'] }}</span>{% endif %}
 </h1>
-{% if job['workdir'] %}<p class="job-meta">📁 작업 위치: <code>{{ job['workdir'] }}</code></p>{% endif %}
-<h2 class="section-label">프롬프트</h2>
-<pre>{{ job['prompt'] }}</pre>
-{% if job['error'] %}<p class="error">⚠️ {{ job['error'] }}</p>{% endif %}
-<h2 class="section-label">출력</h2>
-<pre id="out">{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>
+{% if job['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ job['workdir'] }}</code></p>{% endif %}
+{% if job['route_reason'] %}<p class="route-reason">🔀 {{ '자동 라우팅' | t }} — {{ job['route_reason'] }}</p>{% endif %}
+<h2 class="section-label">{{ '프롬프트' | t }}</h2>
+<pre class="prompt-block">{{ job['prompt'] }}</pre>
+{% if job['error'] %}
+{% set e = job['error']|lower %}
+<div class="err-banner">
+  <p class="err-headline">
+  {% if 'no such file' in e or 'not found' in e or 'errno 2' in e %}
+    ⚠️ <b>{{ 'CLI를 찾을 수 없습니다.' | t }}</b> <code>{{ job['provider'] }}</code> {{ '에이전트의 CLI가 설치되어 PATH에 있는지 확인하세요.' | t }} <a href="/setup">{{ '셋업에서 확인 →' | t }}</a>
+  {% elif 'timeout' == e or 'timeout' in e %}
+    ⚠️ <b>{{ '시간 초과.' | t }}</b> {{ '작업이 제한 시간 안에 끝나지 않았습니다. 컴포저의 ＋ 메뉴에서 타임아웃을 늘려 다시 시도해 보세요.' | t }}
+  {% elif 'unauthorized' in e or '401' in e or 'not authenticated' in e or 'please login' in e or 'log in' in e %}
+    ⚠️ <b>{{ '인증이 필요합니다.' | t }}</b> {{ '터미널에서' | t }} <code>{{ job['provider'] }}</code> {{ 'CLI 로그인을 완료한 뒤 다시 시도하세요.' | t }} <a href="/setup">{{ '로그인 안내 →' | t }}</a>
+  {% elif e == 'cancelled' %}
+    ⓘ {{ '취소된 작업입니다.' | t }}
+  {% elif 'rate' in e and 'limit' in e %}
+    ⏳ <b>{{ '사용 제한.' | t }}</b> {{ '제한이 풀리면 자동으로 재개됩니다.' | t }}
+  {% else %}
+    ⚠️ <b>{{ '작업이 실패했습니다.' | t }}</b>
+  {% endif %}
+  </p>
+  <pre class="err-raw">{{ job['error'] }}</pre>
+</div>
+{% endif %}
+<h2 class="section-label">{{ '출력' | t }}</h2>
+<div class="md-body" id="out"></div>
 </main>
+<script src="/static/marked.min.js?v={{ asset_v() }}"></script>
+<script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
+<script src="/static/render.js?v={{ asset_v() }}"></script>
 <script>
 const status = "{{ job['status'] }}";
+const out = document.getElementById("out");
+// 스트리밍 중에는 원시 텍스트를 누적하고, 프레임마다 전체를 다시 렌더한다.
+let raw = {% if job['status'] in ('done', 'failed') %}{{ job['output'] | tojson }}{% else %}""{% endif %};
+let pending = false;
+function paint() {
+  pending = false;
+  renderMarkdown(out, raw);
+}
+paint();
+
 if (["queued", "running", "rate_limited"].includes(status)) {
   const es = new EventSource("/jobs/{{ job['id'] }}/stream");
   es.onmessage = (e) => {
-    document.getElementById("out").textContent += JSON.parse(e.data);
+    raw += JSON.parse(e.data);
+    if (!pending) { pending = true; requestAnimationFrame(paint); }
   };
   es.addEventListener("status", () => { es.close(); location.reload(); });
 }

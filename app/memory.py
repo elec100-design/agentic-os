@@ -223,6 +223,38 @@ def read_note(path):
     return meta
 
 
+_THREAD_HEAD = re.compile(r"^##\s+(프롬프트|결과)(?:\s*\((\d+)차\))?\s*$")
+
+
+def parse_thread(body):
+    """노트 본문을 채팅 턴 리스트로 파싱한다(가짜 멀티턴 뷰용).
+
+    노트는 `## 프롬프트[ (N차)]` / `## 결과[ (N차)]` 섹션의 반복이다
+    (save_note·append_note가 그렇게 쓴다). 이를 사용자/에이전트 말풍선으로
+    나눈다. 예상 형식이 아니면 [] 를 반환해 호출측이 전체 본문 렌더로
+    폴백하게 한다.
+
+    반환: [{"role": "user"|"assistant", "turn": int, "content": str}, ...]
+    """
+    lines = (body or "").splitlines()
+    heads = []
+    for i, line in enumerate(lines):
+        m = _THREAD_HEAD.match(line)
+        if m:
+            role = "user" if m.group(1) == "프롬프트" else "assistant"
+            turn = int(m.group(2)) if m.group(2) else 1
+            heads.append((i, role, turn))
+    if not heads:
+        return []
+    turns = []
+    for idx, (line_i, role, turn) in enumerate(heads):
+        start = line_i + 1
+        end = heads[idx + 1][0] if idx + 1 < len(heads) else len(lines)
+        content = "\n".join(lines[start:end]).strip()
+        turns.append({"role": role, "turn": turn, "content": content})
+    return turns
+
+
 def _note_entry(path):
     p = Path(path)
     entry = {"name": p.stem, "path": str(p), "managed": is_managed(p)}

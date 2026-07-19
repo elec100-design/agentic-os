@@ -2,6 +2,36 @@
 
 완료/진행/예정 작업 추적. 로드맵은 [plan.md](plan.md) 참고.
 
+## 완료 (V3 — 공개 배포 착수, 2026-07)
+
+4개 CLI(claude/antigravity/grok/hermes) 협의(Council) 세션의 개선 제안을 코드
+검증과 대조해 [docs/plan.md](plan.md)의 V3 로드맵(Phase 0~4)으로 세움. 이후 Phase 1의
+G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
+
+- [x] **공개 배포 마스터플랜 작성** — 이후 `docs/plan.md`의 V3 섹션으로 통합
+      (별도 `docs/masterplan.md`는 통합 후 제거)
+- [x] **첫 실행 셋업 위저드(`/setup`)** — 환영 → 에이전트 선택(설치 감지) → CLI별
+      OAuth 로그인 안내 → 완료의 4단계. 첫 실행 시 `/`가 자동 안내, 사이드바
+      ⚙︎ 링크로 재설정 가능 (`templates/setup.html`, `static/setup.js`)
+- [x] **CLI·보조도구 설치 감지** — `shutil.which` 기반, CLI를 실행하지 않아
+      로그인 프롬프트·사용량 소모 없음 (`app/setup.py`, `/api/setup/status`)
+- [x] **활성 에이전트 필터링(`app/settings.py`, `data/settings.json`)** — 선택한
+      에이전트만 사용량 사이드바·에이전트 칩·`/note`·자동 라우팅
+      (`route_auto`/`rank_cloud`)·협의 모드(`select_members`)에 반영. 비활성
+      에이전트로 잡 제출 시 400 거부, 이미 큐에 있던 잡은 실행 유지
+- [x] 설정 파일 없음/손상 시 전체 활성으로 폴백 — 기존 환경 무변경 보장
+- [x] 테스트 30개 추가 (총 208개)
+- [x] Council 모드가 masterplan 브랜치 분기 이후 merge된 것을 뒤늦게 발견 →
+      `origin/master` 재병합으로 누락 해소, 마스터플랜 진단 정정
+- [x] `docs/masterplan.md`를 `docs/plan.md`의 V3 섹션으로 통합, 기존 "V3 후보"는
+      V4로 이름 변경(멀티턴·병렬은 V3 Phase 3/4로 편입돼 중복 제거)
+- [x] **V3 Phase 0(신뢰·첫인상) 완료** — `CONTRIBUTING.md` 교체(다른 프로젝트
+      문서였던 확정 버그 수정), `.github/workflows/ci.yml`(Python 3.11/3.12
+      pytest), 이슈·PR 템플릿, README 영문 전환 + 스크린샷 4장 + CI·라이선스
+      배지, 기존 한국어 내용은 `README.ko.md`로 보존
+- [ ] GitHub 저장소 description/topics/homepage — API 도구 없음, 수동 설정 필요
+- [ ] 데모 GIF — 정적 스크린샷만 있음
+
 ## 완료 (V2.2 — 세션 파편화 해소, 2026-07)
 
 `-p` 비대화형 호출 특성상 세션을 이어갈 때마다 노트가 파편화되던 문제 해소.
@@ -77,9 +107,52 @@
 
 ## 진행/예정
 
+### V3 Phase 0 — 신뢰·첫인상 (거의 완료)
+- [ ] 데모 GIF (스크린샷은 완료)
+- [ ] GitHub 메타(description·topics·homepage) — 저장소 Settings에서 수동 설정 필요
+
+### V3 Phase 2 — clone→첫 성공 마찰 제거 (대부분 완료)
+- [x] `bootstrap.sh` — uv/venv 감지 + deps + aos.env 시드 + 포트 확인 + 브라우저
+      오픈, macOS·Linux 공용
+- [x] `/api/health` + `aos doctor` (`app/health.py`, `app/__main__.py`) — 서버·CLI·
+      설정 진단, `python -m app doctor` / JSON
+- [x] 패키징 — pyproject `[build-system]`(hatchling) + `[project.scripts]` `aos`,
+      `python -m app`/`aos`/`aos doctor` 지원
+- [x] Linux 지원 — config가 홈 이하로 이미 동작(iCloud 자동 우회), systemd 유닛
+      템플릿 `deploy/agentic-os.service` 추가
+- [x] UI i18n(영문 기본 + 한국어) — `app/i18n.py`(한국어 원문=키, 영어 매핑),
+      쿠키/Accept-Language 기반 언어 결정 + 사이드바 토글(`/lang/{code}`),
+      템플릿 `t` 필터(pass_context로 상수 폴딩 방지) + JS `window.I18N`/`t()`,
+      route_auto 이유·시간 포맷·CLI 메타데이터까지 번역. 테스트 224개
+
+### V3 Phase 3 — 차별 기능 가시화 (대부분 완료)
+- [x] 라우팅 투명성 — `jobs.route_reason` 컬럼, 작업 상세 "🔀 자동 라우팅" 표시,
+      작업 큐 `자동` 태그+툴팁
+- [x] 사용량 패널 강화 — 에이전트별 "최근 24시간 N회 실행"(usage_log 기반)
+- [x] Provider 플러그인 계약 문서 — `docs/PROVIDERS.md`
+- [x] Council 결과 가독성 — 마크다운 렌더링으로 협의 출력 구조화(전용 탭은 보류)
+- [ ] 병렬 실행 — "동시 1개" 설계 원칙과 충돌, 안전 격리 검증 후 후속
+
+### V3 Phase 1~4 — 나머지 (docs/plan.md 참고, 다음 순서)
+- [x] 마크다운 렌더링(job/note 출력) — marked.js + highlight.js vendored,
+      코드 복사 버튼, 라이트/다크 테마 (`static/render.js`, `static/marked.min.js`,
+      `static/highlight.min.js`, `static/hljs-theme.css`). 프롬프트는 원문 유지,
+      출력·노트 본문만 렌더
+- [x] 키보드 단축키(⌘/Ctrl+Enter 전송, 컴포저·노트 재개 폼)
+- [x] 다크모드 명시 토글 — 사이드바 버튼, `data-theme` + localStorage,
+      FOUC 방지 인라인 init, hljs 코드 테마도 스코프 대응
+- [x] 실패 작업 에러 배너 — CLI 없음/미인증/타임아웃/취소 원인 해석 + `/setup` 링크
+- [ ] `bootstrap.sh`, 범용 `/api/health`, 플랫폼 독립화(Linux/systemd), 패키징, i18n
+- [ ] 라우팅 이유 기록, 사용량 대시보드 강화, provider 플러그인 문서화
+- [ ] Council 모드 결과 레이아웃 UI화(제안 카드 → 비평 → 종합 탭)
+- [ ] 병렬 작업 실행 (현재 동시 1개)
+- [x] 노트 스레드 → 채팅 버블 뷰(가짜 멀티턴) — `memory.parse_thread`가 본문을
+      사용자/에이전트 턴으로 파싱, `note.html`이 좌우 말풍선으로 렌더(마크다운·
+      코드 하이라이트), 아래 "이어서 진행" 입력으로 연속 대화. 비스레드 노트는
+      전체 본문 렌더로 폴백
+
+### V4 — 확장 기능 후보
 - [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")
 - [ ] antigravity/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
-- [ ] 멀티턴 채팅 UI
-- [ ] 병렬 작업 실행 (현재 동시 1개)
 - [ ] 벡터/임베딩 기반 메모리 검색
 - [ ] 토큰·비용 추적

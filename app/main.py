@@ -3,6 +3,8 @@ import json
 import os
 import re
 from contextlib import asynccontextmanager
+
+import jinja2
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
@@ -18,13 +20,43 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import (
-    codexbar, config, council, db, github_cli, memory, models, settings, setup,
-    workspace, worker,
+    codexbar, config, council, db, github_cli, health, i18n, memory, models,
+    settings, setup, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
 BASE = Path(__file__).resolve().parent.parent
-templates = Jinja2Templates(directory=str(BASE / "templates"))
+
+
+def _lang_context(request):
+    """렌더 직전(같은 스레드)에 요청 언어를 정한다: 쿠키 > Accept-Language > 영어.
+    contextvar를 렌더 스레드에서 직접 설정해 `t` 필터·`lang` 글로벌이 일관되게
+    같은 값을 본다 (async 미들웨어→스레드풀 전파의 불확실성 회피)."""
+    i18n.set_lang(i18n.resolve_lang(
+        cookie=request.cookies.get("aos-lang"),
+        accept_language=request.headers.get("accept-language"),
+    ))
+    return {}
+
+
+templates = Jinja2Templates(directory=str(BASE / "templates"),
+                            context_processors=[_lang_context])
+
+
+# UI 국제화: 템플릿에서 `{{ '한국어' | t }}`로 번역, `{{ lang() }}`로 현재 언어,
+# `{{ i18n_map() }}`로 JS에 넘길 번역 카탈로그를 얻는다.
+# 주의: Jinja는 상수에 적용된 필터(`'자동' | t`)를 컴파일 타임에 상수로
+# 접어버려(constant folding) 최초 컴파일 시점의 언어가 고정된다. pass_context로
+# 표시하면 런타임 컨텍스트가 필요해 컴파일 타임에 접을 수 없으므로 매 렌더마다
+# 실제로 호출된다(요청 언어가 반영됨).
+@jinja2.pass_context
+def _t_filter(_ctx, text):
+    return i18n.t(text)
+
+
+templates.env.filters["t"] = _t_filter
+templates.env.globals["lang"] = i18n.get_lang
+templates.env.globals["i18n_map"] = lambda: i18n.EN
 
 
 def asset_version():
@@ -83,6 +115,27 @@ app.mount("/static", NoCacheStaticFiles(directory=str(BASE / "static")), name="s
 
 
 @app.middleware("http")
+async def set_request_language(request, call_next):
+    """요청마다 UI 언어를 정한다: 쿠키(aos-lang) > Accept-Language > 영어."""
+    i18n.set_lang(i18n.resolve_lang(
+        cookie=request.cookies.get("aos-lang"),
+        accept_language=request.headers.get("accept-language"),
+    ))
+    return await call_next(request)
+
+
+@app.get("/lang/{code}")
+def set_language(code: str, request: Request):
+    """언어 전환 — 쿠키에 저장하고 이전 페이지로 돌아간다(JS 없이 동작)."""
+    code = code if code in i18n.LANGS else i18n.DEFAULT_LANG
+    back = request.headers.get("referer") or "/"
+    resp = RedirectResponse(back, status_code=303)
+    resp.set_cookie("aos-lang", code, max_age=60 * 60 * 24 * 365,
+                    samesite="lax")
+    return resp
+
+
+@app.middleware("http")
 async def block_cross_origin_posts(request, call_next):
     if request.method == "POST":
         origin = request.headers.get("origin")
@@ -108,12 +161,13 @@ def _remaining_str(until, now):
     if until.tzinfo is None:
         until = until.replace(tzinfo=timezone.utc)
     secs = (until - now).total_seconds()
+    en = i18n.get_lang() == "en"
     if secs <= 0:
-        return "곧"
+        return "soon" if en else "곧"
     hours, mins = int(secs // 3600), int(secs % 3600 // 60)
     if hours:
-        return f"{hours}시간 {mins}분"
-    return f"{max(mins, 1)}분"
+        return f"{hours}h {mins}m" if en else f"{hours}시간 {mins}분"
+    return f"{max(mins, 1)}m" if en else f"{max(mins, 1)}분"
 
 
 def usage_state(now=None):
@@ -154,21 +208,22 @@ def usage_state(now=None):
 
 
 def _ago_str(iso, now):
+    en = i18n.get_lang() == "en"
     if not iso:
-        return "갱신 대기"
+        return "Awaiting update" if en else "갱신 대기"
     dt = None
     try:
         dt = datetime.fromisoformat(iso)
     except ValueError:
-        return "갱신 대기"
+        return "Awaiting update" if en else "갱신 대기"
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     secs = int((now - dt).total_seconds())
     if secs < 60:
-        return "방금"
+        return "just now" if en else "방금"
     if secs < 3600:
-        return f"{secs // 60}분 전"
-    return f"{secs // 3600}시간 전"
+        return f"{secs // 60}m ago" if en else f"{secs // 60}분 전"
+    return f"{secs // 3600}h ago" if en else f"{secs // 3600}시간 전"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -198,6 +253,12 @@ def setup_page(request: Request):
          "council_members": config.COUNCIL_MEMBERS,
          "council_min": config.COUNCIL_MIN_MEMBERS},
     )
+
+
+@app.get("/api/health")
+def api_health():
+    """서버·CLI·설정 진단. `aos doctor`도 이 정보를 사용한다."""
+    return health.collect()
 
 
 @app.get("/api/setup/status")
@@ -251,9 +312,12 @@ async def create_job(
 ):
     conn = db.get_conn()
     enabled = settings.enabled_providers()
+    route_reason = None
     if provider == "auto":
-        provider, _ = route_auto(prompt, usage_state=usage_state()["usage"],
-                                 enabled=enabled)
+        # 자동 라우팅으로 정해진 provider와 그 이유를 함께 기록해 둔다
+        # (작업 히스토리에서 "왜 이 에이전트로 갔는지" 확인용).
+        provider, route_reason = route_auto(
+            prompt, usage_state=usage_state()["usage"], enabled=enabled)
     if provider == COUNCIL:
         # 협의 모드: 가용 에이전트가 최소 인원 이상인지 미리 확인.
         # 세션 재개·모델·작업 위치는 지원하지 않는다 (매 호출 stateless,
@@ -303,7 +367,8 @@ async def create_job(
                   session_id=session_id.strip() or None,
                   model=model or None,
                   workdir=workdir or None,
-                  note_path=str(Path(origin_note).resolve()) if origin_note else None)
+                  note_path=str(Path(origin_note).resolve()) if origin_note else None,
+                  route_reason=route_reason)
     return RedirectResponse("/", status_code=303)
 
 
@@ -331,7 +396,8 @@ def note_view(request: Request, path: str):
     return templates.TemplateResponse(
         request, "note.html",
         {"note": note, "can_resume": can_resume,
-         "provider_models": pm, "agents": agents},
+         "provider_models": pm, "agents": agents,
+         "turns": memory.parse_thread(note["body"])},
     )
 
 
@@ -524,9 +590,12 @@ def api_github_branches(repo: str):
 
 @app.get("/partials/usage", response_class=HTMLResponse)
 def partial_usage(request: Request):
-    return templates.TemplateResponse(
-        request, "partials/usage.html", usage_state()
-    )
+    ctx = usage_state()
+    # 최근 24시간 에이전트별 실행 횟수(활동 추세) — usage_log 기반
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(
+        timespec="seconds")
+    ctx["recent"] = db.usage_counts(db.get_conn(), since)
+    return templates.TemplateResponse(request, "partials/usage.html", ctx)
 
 
 def _render_memory(request, q=""):

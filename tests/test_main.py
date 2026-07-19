@@ -46,6 +46,20 @@ def test_create_job_auto_routes_complex_by_quota(tmp_env):
     assert db.list_jobs(conn)[0]["provider"] == "claude"
 
 
+def test_auto_route_records_reason(tmp_env):
+    """자동 라우팅 시 이유가 잡에 기록되고, 수동 선택 시 비어 있다."""
+    from app import config, db
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={"prompt": "안녕", "provider": "auto"},
+                    follow_redirects=False)
+        client.post("/jobs", data={"prompt": "안녕", "provider": "claude"},
+                    follow_redirects=False)
+    jobs = db.list_jobs(db.get_conn(config.DB_PATH))
+    manual, auto = jobs[0], jobs[1]        # id DESC → 최신(수동)이 먼저
+    assert auto["route_reason"] and "Hermes" in auto["route_reason"]
+    assert manual["route_reason"] is None
+
+
 def test_create_job_with_session_continues(tmp_env):
     from app import config, db
     with _client(tmp_env) as client:

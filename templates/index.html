@@ -1,10 +1,12 @@
 <!doctype html>
-<html lang="ko">
+<html lang="{{ lang() }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>/* 저장된 테마를 페인트 전에 적용 (FOUC 방지) */(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 <script src="/static/htmx.min.js"></script>
 </head>
 <body class="with-sidebar">
@@ -21,7 +23,7 @@
   </defs>
 </svg>
 
-<button id="nav-toggle" aria-label="사이드바 열기/닫기">
+<button id="nav-toggle" aria-label="{{ '사이드바 열기/닫기' | t }}">
   <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
     <path d="M2 4h12M2 8h12M2 12h12"/>
   </svg>
@@ -34,17 +36,26 @@
   </div>
   <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
   <section class="side-usage" id="usage" hx-get="/partials/usage" hx-trigger="load, every 15s"></section>
-  <a class="side-settings" href="/setup" title="에이전트 활성화·설치 상태 재설정">⚙︎ 에이전트 설정</a>
+  <div class="side-foot">
+    <a class="side-settings" href="/setup" title="{{ '에이전트 활성화·설치 상태 재설정' | t }}">{{ '⚙︎ 에이전트 설정' | t }}</a>
+    <div class="side-foot-btns">
+      <a class="lang-toggle" href="/lang/{{ 'ko' if lang() == 'en' else 'en' }}" title="{{ '언어 전환 (한국어/English)' | t }}">{{ '한국어' if lang() == 'en' else 'EN' }}</a>
+      <button type="button" class="theme-toggle" id="theme-toggle" aria-label="{{ '라이트/다크 테마 전환' | t }}" title="{{ '테마 전환' | t }}">
+        <svg class="ico-sun" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="3.2"/><path d="M8 1v1.6M8 13.4V15M15 8h-1.6M2.6 8H1M12.9 3.1l-1.1 1.1M4.2 11.8l-1.1 1.1M12.9 12.9l-1.1-1.1M4.2 4.2 3.1 3.1"/></svg>
+        <svg class="ico-moon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7z"/></svg>
+      </button>
+    </div>
+  </div>
 </aside>
 
 <main>
 <div class="hero">
   <svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><use href="#spark-mark"/></svg>
-  <h1>무엇을 도와드릴까요?</h1>
+  <h1>{{ '무엇을 도와드릴까요?' | t }}</h1>
 </div>
 
 <form class="composer" id="composer" method="post" action="/jobs" enctype="multipart/form-data">
-  <textarea name="prompt" id="prompt" rows="3" required placeholder="작업을 설명해 주세요… 파일을 끌어다 놓을 수도 있어요"></textarea>
+  <textarea name="prompt" id="prompt" rows="3" required placeholder="{{ '작업을 설명해 주세요… 파일을 끌어다 놓을 수도 있어요' | t }}"></textarea>
   <div class="file-chips" id="file-chips"></div>
   <div class="auto-hint" id="auto-hint" hidden></div>
 
@@ -53,19 +64,19 @@
 
   <div class="composer-bar">
     <!-- 첨부·도구 메뉴 (+) -->
-    <button type="button" class="cbar-btn" id="tools-btn" aria-label="첨부·도구" aria-haspopup="true">
+    <button type="button" class="cbar-btn" id="tools-btn" aria-label="{{ '첨부·도구' | t }}" aria-haspopup="true">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
     </button>
 
     <!-- 에이전트 선택 칩 -->
     <button type="button" class="cbar-chip" id="agent-btn" aria-haspopup="true">
-      <span class="chip-agent" id="agent-label">자동</span>
+      <span class="chip-agent" id="agent-label">{{ '자동' | t }}</span>
       <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
     </button>
 
     <!-- 모델 선택 칩 (에이전트가 자동이 아니고 모델이 여러 개일 때만 표시) -->
     <button type="button" class="cbar-chip" id="model-btn" aria-haspopup="true" hidden>
-      <span class="chip-agent" id="model-label">모델</span>
+      <span class="chip-agent" id="model-label">{{ '모델' | t }}</span>
       <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
     </button>
 
@@ -74,7 +85,7 @@
 
     <span class="spacer"></span>
 
-    <button type="submit" class="send" aria-label="전송">
+    <button type="submit" class="send" aria-label="{{ '전송' | t }}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
       </svg>
@@ -83,22 +94,22 @@
 
   <!-- 도구 팝업: 파일·메모리·타임아웃 (폼 안이라 그대로 제출된다) -->
   <div class="cbar-popup tools-popup" id="tools-popup" hidden>
-    <label class="tools-row" title="사진·파일 첨부">
+    <label class="tools-row" title="{{ '사진·파일 첨부' | t }}">
       <input type="file" name="files" id="file-input" multiple>
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M13.2 7.2 8.4 12a3.4 3.4 0 0 1-4.8-4.8l4.8-4.8a2.3 2.3 0 0 1 3.2 3.2L6.8 10.4a1.1 1.1 0 0 1-1.6-1.6l4.4-4.4"/>
       </svg>
-      <span>파일 첨부…</span>
+      <span>{{ '파일 첨부…' | t }}</span>
     </label>
     <label class="tools-row">
       <input type="checkbox" name="attach_memory" value="true">
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 3 4.5v4c0 3 2.2 4.6 5 5.5 2.8-.9 5-2.5 5-5.5v-4z"/></svg>
-      <span>메모리 첨부</span>
+      <span>{{ '메모리 첨부' | t }}</span>
     </label>
     <label class="tools-row tools-timeout">
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="5"/><path d="M8 6.5V9l1.6 1M6 1.8h4"/></svg>
-      <span>타임아웃</span>
-      <input type="number" name="timeout_min" min="1" placeholder="자동"> 분
+      <span>{{ '타임아웃' | t }}</span>
+      <input type="number" name="timeout_min" min="1" placeholder="{{ '자동' | t }}"> {{ '분' | t }}
     </label>
   </div>
 
@@ -119,10 +130,10 @@
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ws-modal-title">
     <div class="modal-head">
       <div class="modal-tabs">
-        <button type="button" class="modal-tab active" data-tab="folder">📁 폴더 선택</button>
-        <button type="button" class="modal-tab" data-tab="github">⑂ GitHub 리포</button>
+        <button type="button" class="modal-tab active" data-tab="folder">{{ '📁 폴더 선택' | t }}</button>
+        <button type="button" class="modal-tab" data-tab="github">{{ '⑂ GitHub 리포' | t }}</button>
       </div>
-      <button type="button" class="modal-close" id="ws-modal-close" aria-label="닫기">✕</button>
+      <button type="button" class="modal-close" id="ws-modal-close" aria-label="{{ '닫기' | t }}">✕</button>
     </div>
     <div class="modal-body" id="ws-modal-body"></div>
     <div class="modal-foot" id="ws-modal-foot"></div>

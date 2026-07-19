@@ -180,21 +180,32 @@ def route_auto(prompt, usage_state=None, enabled=None):
     (app.codexbar.normalize / 캐시가 제공)
     enabled: 활성 에이전트 목록 — 주면 그 안에서만 라우팅한다(None=전체).
     """
+    from app import i18n
+    en = i18n.get_lang() == "en"
     hermes_ok = enabled is None or "hermes" in enabled
     if not is_complex(prompt) and hermes_ok:
-        return "hermes", "단순 작업이라 로컬 Hermes로 처리해 클라우드 사용량을 아낍니다"
+        return "hermes", (
+            "Simple task → local Hermes to save cloud quota" if en
+            else "단순 작업이라 로컬 Hermes로 처리해 클라우드 사용량을 아낍니다")
     ranked = rank_cloud(usage_state, enabled)
     if not ranked:
         if hermes_ok:
-            return "hermes", "클라우드 에이전트가 모두 소진되어 Hermes로 처리합니다"
+            return "hermes", (
+                "All cloud agents exhausted → Hermes" if en
+                else "클라우드 에이전트가 모두 소진되어 Hermes로 처리합니다")
         # 활성 클라우드가 모두 소진됐고 hermes도 비활성 → 활성 첫 에이전트로 시도
         fallback = enabled[0] if enabled else "hermes"
-        return fallback, f"모든 활성 에이전트가 소진되어 {fallback}로 시도합니다"
+        return fallback, (
+            f"All enabled agents exhausted → trying {fallback}" if en
+            else f"모든 활성 에이전트가 소진되어 {fallback}로 시도합니다")
     best, remaining = ranked[0]
     if not is_complex(prompt):
-        reason = f"Hermes 비활성 → {best}로 처리합니다"
+        reason = (f"Hermes disabled → {best}" if en
+                  else f"Hermes 비활성 → {best}로 처리합니다")
     elif remaining is None:
-        reason = f"복잡한 작업 → {best} (사용량 정보 없음, 우선순위로 선택)"
+        reason = (f"Complex task → {best} (no usage data, picked by priority)" if en
+                  else f"복잡한 작업 → {best} (사용량 정보 없음, 우선순위로 선택)")
     else:
-        reason = f"복잡한 작업 → 잔여 사용량이 가장 많은 {best} ({remaining}% 남음)"
+        reason = (f"Complex task → {best}, most quota left ({remaining}% left)" if en
+                  else f"복잡한 작업 → 잔여 사용량이 가장 많은 {best} ({remaining}% 남음)")
     return best, reason

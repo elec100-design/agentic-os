@@ -215,6 +215,34 @@ def test_append_note_missing_or_unmanaged(tmp_env):
         memory.append_note("/etc/hosts", "p", "claude", "o")
 
 
+# --- 채팅 스레드 파싱 (가짜 멀티턴) ---
+
+def test_parse_thread_single_and_multi_turn(tmp_env):
+    path = memory.save_note("첫 질문", "claude", "첫 답변", session_id="s1")
+    memory.append_note(path, "이어서 질문", "claude", "두번째 답변", session_id="s2")
+    note = memory.read_note(path)
+    turns = memory.parse_thread(note["body"])
+    assert [(t["role"], t["turn"]) for t in turns] == [
+        ("user", 1), ("assistant", 1), ("user", 2), ("assistant", 2)]
+    assert turns[0]["content"] == "첫 질문"
+    assert turns[1]["content"] == "첫 답변"
+    assert turns[3]["content"] == "두번째 답변"
+
+
+def test_parse_thread_non_thread_body_returns_empty():
+    # 예상 형식이 아니면 [] → 호출측이 전체 본문 렌더로 폴백
+    assert memory.parse_thread("그냥 자유 텍스트\n\n# 제목") == []
+    assert memory.parse_thread("") == []
+
+
+def test_parse_thread_keeps_nested_headings_in_result():
+    # 협의(council) 결과처럼 결과 안에 ## 헤딩이 있어도 결과 버블에 포함
+    body = ("## 프롬프트\n\n질문\n\n## 결과\n\n답\n\n## 협의 과정\n\n세부")
+    turns = memory.parse_thread(body)
+    assert len(turns) == 2
+    assert "## 협의 과정" in turns[1]["content"]
+
+
 # --- 작업 위치 자동 그룹핑 ---
 
 def test_save_note_auto_groups_by_workspace(tmp_env, tmp_path):

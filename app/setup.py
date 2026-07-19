@@ -58,8 +58,11 @@ OPTIONAL_TOOLS = {
 }
 
 
-def detect(which=shutil.which):
-    """provider·보조 도구별 설치 상태. which는 테스트에서 주입 가능."""
+def detect(which=None):
+    """provider·보조 도구별 설치 상태. which는 테스트에서 주입 가능
+    (기본은 호출 시점의 shutil.which — 몽키패치가 반영되도록)."""
+    if which is None:
+        which = shutil.which
     providers = {}
     for name, meta in CLI_META.items():
         path = which(meta["binary"])

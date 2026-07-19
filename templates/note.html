@@ -1,26 +1,33 @@
 <!doctype html>
-<html lang="ko">
+<html lang="{{ lang() }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ note['name'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 </head>
 <body>
 <main class="page">
-<a class="back-link" href="/">← 대시보드</a>
+<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
 <h1 class="job-title">
   {{ note['name'] }}
   {% if note['provider'] %}<span class="job-meta provider-name">{{ note['provider'] }}</span>{% endif %}
 </h1>
 
-<h2 class="section-label">노트</h2>
-<pre>{{ note['body'] }}</pre>
+<h2 class="section-label">{{ '대화' | t }}</h2>
+{% if turns %}
+<div class="chat-thread" id="chat-thread"></div>
+{% else %}
+<div class="md-body" id="note-body"></div>
+{% endif %}
 
 {% if can_resume %}
-<h2 class="section-label">이 세션 이어서 진행</h2>
+<h2 class="section-label">{{ '이 세션 이어서 진행' | t }}</h2>
 <form class="composer" id="resume-form" method="post" action="/jobs" enctype="multipart/form-data">
-  <textarea name="prompt" rows="3" required placeholder="이어서 무엇을 할까요?"></textarea>
+  <textarea name="prompt" rows="3" required placeholder="{{ '이어서 무엇을 할까요?' | t }}"></textarea>
   <div class="resume-chips" id="resume-chips"></div>
   <input type="hidden" name="session_id" value="{{ note['session_id'] }}">
   <input type="hidden" name="resume_provider" value="{{ note['provider'] }}">
@@ -32,23 +39,23 @@
 
   <div class="composer-bar">
     <!-- 첨부·도구 메뉴 (+) : 메인뷰 컴포저와 동일 -->
-    <button type="button" class="cbar-btn" id="resume-tools-btn" aria-label="첨부·도구" aria-haspopup="true">
+    <button type="button" class="cbar-btn" id="resume-tools-btn" aria-label="{{ '첨부·도구' | t }}" aria-haspopup="true">
       <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
     </button>
 
-    <label class="resume-opt">에이전트
+    <label class="resume-opt">{{ '에이전트' | t }}
       <select class="ws-select" name="provider" id="resume-agent">
         {% for a in agents %}
         <option value="{{ a }}"{% if a == note['provider'] %} selected{% endif %}>{{ a|capitalize }}</option>
         {% endfor %}
       </select>
     </label>
-    <label class="resume-opt">모델
+    <label class="resume-opt">{{ '모델' | t }}
       <select class="ws-select" name="model" id="resume-model"></select>
     </label>
 
     <span class="spacer"></span>
-    <button type="submit" class="send" aria-label="전송">
+    <button type="submit" class="send" aria-label="{{ '전송' | t }}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
       </svg>
@@ -57,22 +64,22 @@
 
   <!-- 도구 팝업: 파일·메모리·타임아웃 (폼 안이라 그대로 제출된다) -->
   <div class="cbar-popup tools-popup" id="resume-tools-popup" hidden>
-    <label class="tools-row" title="사진·파일 첨부">
+    <label class="tools-row" title="{{ '사진·파일 첨부' | t }}">
       <input type="file" name="files" id="resume-files" multiple>
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M13.2 7.2 8.4 12a3.4 3.4 0 0 1-4.8-4.8l4.8-4.8a2.3 2.3 0 0 1 3.2 3.2L6.8 10.4a1.1 1.1 0 0 1-1.6-1.6l4.4-4.4"/>
       </svg>
-      <span>파일 첨부…</span>
+      <span>{{ '파일 첨부…' | t }}</span>
     </label>
     <label class="tools-row">
       <input type="checkbox" name="attach_memory" value="true">
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 3 4.5v4c0 3 2.2 4.6 5 5.5 2.8-.9 5-2.5 5-5.5v-4z"/></svg>
-      <span>메모리 첨부</span>
+      <span>{{ '메모리 첨부' | t }}</span>
     </label>
     <label class="tools-row tools-timeout">
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="5"/><path d="M8 6.5V9l1.6 1M6 1.8h4"/></svg>
-      <span>타임아웃</span>
-      <input type="number" name="timeout_min" min="1" placeholder="자동"> 분
+      <span>{{ '타임아웃' | t }}</span>
+      <input type="number" name="timeout_min" min="1" placeholder="{{ '자동' | t }}"> {{ '분' | t }}
     </label>
   </div>
 </form>
@@ -98,12 +105,14 @@ function fillModels() {
     const d = list.find((m) => m.default) || list[0];
     target = d ? (d.model || "") : "";
   }
+  const EN = window.LANG === "en";
+  const defLabel = EN ? " (default)" : " (기본값)";
   modelSel.innerHTML = "";
   for (const m of list) {
     const id = m.model || "";
     const o = document.createElement("option");
     o.value = id;
-    o.textContent = m.label + (m.default && !m.label.includes("기본값") ? " (기본값)" : "");
+    o.textContent = m.label + (m.default && !m.label.includes(defLabel.trim()) ? defLabel : "");
     o.selected = id === target;
     modelSel.appendChild(o);
   }
@@ -111,16 +120,33 @@ function fillModels() {
 }
 
 function fillHint() {
+  const EN = window.LANG === "en";
   const same = agentSel.value === NOTE.provider;
-  const wd = NOTE.workdir ? ` · 작업 위치 ${NOTE.workdir}` : "";
-  hint.textContent = same
-    ? `${NOTE.provider} 세션 ${NOTE.session_id.slice(0, 12)}… 에서 이어집니다${wd}`
-    : `${agentSel.value}로 전환 — 이 노트를 컨텍스트로 같은 위치에서 이어갑니다${wd}`;
+  const wd = NOTE.workdir
+    ? (EN ? ` · workspace ${NOTE.workdir}` : ` · 작업 위치 ${NOTE.workdir}`) : "";
+  const sid = NOTE.session_id.slice(0, 12);
+  if (same) {
+    hint.textContent = EN
+      ? `Resuming ${NOTE.provider} session ${sid}…${wd}`
+      : `${NOTE.provider} 세션 ${sid}… 에서 이어집니다${wd}`;
+  } else {
+    hint.textContent = EN
+      ? `Switching to ${agentSel.value} — continues here with this note as context${wd}`
+      : `${agentSel.value}로 전환 — 이 노트를 컨텍스트로 같은 위치에서 이어갑니다${wd}`;
+  }
 }
 
 agentSel.addEventListener("change", () => { fillModels(); fillHint(); });
 fillModels();
 fillHint();
+
+// ⌘/Ctrl+Enter 전송
+document.querySelector("#resume-form textarea")?.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    e.target.form?.requestSubmit();
+  }
+});
 
 // --- 도구(+) 팝업: 메인뷰와 동일한 열기/닫기·위치 계산 ---
 const toolsBtn = document.getElementById("resume-tools-btn");
@@ -159,15 +185,15 @@ document.getElementById("resume-files").addEventListener("change", (e) => {
 });
 </script>
 {% else %}
-<h2 class="section-label">이 노트를 참고해 새 작업</h2>
+<h2 class="section-label">{{ '이 노트를 참고해 새 작업' | t }}</h2>
 <form class="composer" method="post" action="/jobs">
-  <textarea name="prompt" rows="3" required placeholder="이 노트를 컨텍스트로 무엇을 할까요?"></textarea>
+  <textarea name="prompt" rows="3" required placeholder="{{ '이 노트를 컨텍스트로 무엇을 할까요?' | t }}"></textarea>
   <input type="hidden" name="provider" value="auto">
   <input type="hidden" name="context_note" value="{{ note['path'] }}">
   <div class="composer-bar">
-    <span class="resume-note">노트 내용이 프롬프트 앞에 첨부됩니다</span>
+    <span class="resume-note">{{ '노트 내용이 프롬프트 앞에 첨부됩니다' | t }}</span>
     <span class="spacer"></span>
-    <button type="submit" class="send" aria-label="전송">
+    <button type="submit" class="send" aria-label="{{ '전송' | t }}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
       </svg>
@@ -176,5 +202,35 @@ document.getElementById("resume-files").addEventListener("change", (e) => {
 </form>
 {% endif %}
 </main>
+<!-- 노트 본문 마크다운 렌더 (resume 여부와 무관하게 항상 실행) -->
+<script src="/static/marked.min.js?v={{ asset_v() }}"></script>
+<script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
+<script src="/static/render.js?v={{ asset_v() }}"></script>
+<script>
+{% if turns %}
+// 노트 스레드를 채팅 말풍선으로 렌더 (가짜 멀티턴)
+const TURNS = {{ turns | tojson }};
+const AGENT = {{ (note['provider'] or 'agent') | tojson }};
+const thread = document.getElementById("chat-thread");
+const EN = window.LANG === "en";
+for (const turn of TURNS) {
+  const row = document.createElement("div");
+  row.className = "chat-turn " + turn.role;
+  const role = document.createElement("div");
+  role.className = "chat-role";
+  const who = turn.role === "user" ? t("나") : AGENT;
+  const nth = turn.turn > 1 ? (EN ? " · #" + turn.turn : " · " + turn.turn + "차") : "";
+  role.textContent = who + nth;
+  const bubble = document.createElement("div");
+  bubble.className = "chat-bubble md-body";
+  row.appendChild(role);
+  row.appendChild(bubble);
+  thread.appendChild(row);
+  renderMarkdown(bubble, turn.content);
+}
+{% else %}
+renderMarkdown(document.getElementById("note-body"), {{ note['body'] | tojson }});
+{% endif %}
+</script>
 </body>
 </html>

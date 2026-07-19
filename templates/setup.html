@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agentic OS — 시작하기</title>
+<title>Agentic OS — {{ '시작하기' | t }}</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 </head>
 <body class="setup-body">
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -26,20 +28,20 @@
 </header>
 
 <main class="setup-main">
-  <ol class="setup-steps" id="setup-steps" aria-label="셋업 진행 단계">
-    <li class="step" data-step="1"><span class="step-dot">1</span><span class="step-name">환영</span></li>
-    <li class="step" data-step="2"><span class="step-dot">2</span><span class="step-name">에이전트</span></li>
-    <li class="step" data-step="3"><span class="step-dot">3</span><span class="step-name">로그인</span></li>
-    <li class="step" data-step="4"><span class="step-dot">4</span><span class="step-name">완료</span></li>
+  <ol class="setup-steps" id="setup-steps" aria-label="{{ '셋업 진행 단계' | t }}">
+    <li class="step" data-step="1"><span class="step-dot">1</span><span class="step-name">{{ '환영' | t }}</span></li>
+    <li class="step" data-step="2"><span class="step-dot">2</span><span class="step-name">{{ '에이전트' | t }}</span></li>
+    <li class="step" data-step="3"><span class="step-dot">3</span><span class="step-name">{{ '로그인' | t }}</span></li>
+    <li class="step" data-step="4"><span class="step-dot">4</span><span class="step-name">{{ '완료' | t }}</span></li>
   </ol>
 
   <section class="setup-card" id="setup-body" aria-live="polite"></section>
 
   <footer class="setup-foot">
-    <button type="button" class="btn-ghost" id="setup-back" hidden>이전</button>
+    <button type="button" class="btn-ghost" id="setup-back" hidden>{{ '이전' | t }}</button>
     <span class="setup-foot-spacer"></span>
-    <button type="button" class="setup-skip" id="setup-skip" hidden>건너뛰기</button>
-    <button type="button" class="btn-primary" id="setup-next">시작하기</button>
+    <button type="button" class="setup-skip" id="setup-skip" hidden>{{ '건너뛰기' | t }}</button>
+    <button type="button" class="btn-primary" id="setup-next">{{ '시작하기' | t }}</button>
   </footer>
   <p class="setup-error" id="setup-error" hidden></p>
 </main>
