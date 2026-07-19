@@ -9,6 +9,22 @@ Mac Mini에서 Claude / Antigravity / SuperGrok / Hermes 유료 구독 CLI를 �
 가장 여유 있는 에이전트로 자동 배분한다. 결과는 Obsidian 지식베이스에 축적되고,
 외부(아이폰·맥북)에서도 Tailscale로 안전하게 접근한다.
 
+V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitHub에서 받아 편하게
+쓸 수 있는 범용 로컬 웹앱**으로 넓히는 것이 목표다. 한 줄 포지션:
+
+> *One local dashboard for all your paid AI CLIs — routes by real remaining quota,
+> queues work, resumes after rate limits, and files results into notes.*
+
+**전략: Claude/Grok UI와 정면 승부하지 않는다.** Claude Desktop·Grok은 단일 제공자
+채팅 제품이고, Agentic OS는 **여러 구독 CLI를 실측 사용량으로 묶는 로컬
+오케스트레이터**다. UI 개선의 성공 기준은 "Claude처럼 예쁘다"가 아니라
+**작업을 던지고 → 누가 도는지 보이고 → 결과가 읽히고 → 이어가기 쉽다**이다.
+
+**배포 모델: 로컬 셀프호스트 유지.** `127.0.0.1` 바인딩 + Tailscale 외부 접속이라는
+현재 보안 모델을 그대로 공개한다. 호스팅 SaaS(인증·멀티테넌시)는 아키텍처 전면
+재설계가 필요하므로 **비목표**로 명시한다. 데스크톱 앱(Tauri) 패키징은 채택이 늘고
+코드서명 여력이 생긴 뒤 재검토하는 장기 옵션.
+
 ## 단계별 계획
 
 ### V1 — 기반 (완료)
@@ -41,11 +57,151 @@ Mac Mini에서 Claude / Antigravity / SuperGrok / Hermes 유료 구독 CLI를 �
 - 모델 목록을 CLI에서 동적으로 수집(하드코딩 제거)
 - 메모리 사이드바를 **접이식 폴더 UI**로 개편 — 그룹 기본 접힘, 클릭 시 롤링 펼침, 펼침 상태 localStorage 유지
 
-### V3 — 후보 (예정)
+### V2.3 — Council(협의) 모드 (완료, PR #10)
+- 여러 에이전트가 제안 → 상호 비평 → 종합하는 3단계 협의 오케스트레이션 (`app/council.py`)
+- `asyncio.gather`로 CLI들을 내부 병렬 실행 (세션 충돌 없음 — 각 호출 stateless)
+- 서버 재시작 시 협의 잡이 무한 재시도되던 버그 수정
+
+### V3 — 공개 배포 (진행 중)
+
+4개 CLI(claude / antigravity / grok / hermes) 협의(Council) 세션의 제안·비평을
+실제 코드 검증과 대조해 세운 로드맵. Phase 0~4로 진행하며, 완료 이력은
+[task.md](task.md) 참고.
+
+#### 현재 상태 진단
+
+**이미 강한 점 (차별 모트)**
+- 실측 사용량 라우팅 (CodexBar 연동, `app/codexbar.py`) + auto 코칭 힌트
+- API 키 없음 — 워커가 API 키 환경변수를 제거하고 구독 CLI만 spawn (`app/worker.py`)
+- 작업 큐 + rate limit 감지·자동 재개 (`provider.detect_rate_limit` → `resume_at` 재클레임)
+- 스레드당 노트 1개 + N차 append + 워크스페이스 자동 그룹핑 (`app/memory.py`)
+- Council(협의) 모드 — 제안→비평→종합 3단계, 내부 병렬 (`app/council.py`)
+- **첫 실행 셋업 위저드(`/setup`) + 활성 에이전트 필터링** — CLI 설치 감지,
+  선택한 에이전트만 UI·라우팅·협의에 반영 (`app/settings.py`, `app/setup.py`)
+- 빌드 도구 없는 경량 스택 (FastAPI + Jinja2 + HTMX + vanilla JS)
+- 테스트 200개 이상, MIT 라이선스
+
+**검증된 갭**
+
+| # | 항목 | 근거 | 상태 |
+|---|---|---|---|
+| G1 | `CONTRIBUTING.md`가 다른 프로젝트 문서 ("Awesome Design MD") | 파일 1행 | 미착수 — **확정 버그** |
+| G2 | CI·이슈/PR 템플릿 없음 | `.github/` 디렉토리 자체 부재 | 미착수 |
+| G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | 미착수 |
+| G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | 미착수 — "투박함" 체감 1순위 |
+| G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | 미착수 |
+| G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | 미착수 |
+| G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | 미착수 |
+| G8 | 패키지 설치 불가 | pyproject에 `[build-system]`/`[project.scripts]` 없음 | 미착수 |
+| G9 | 미설치 CLI가 UI에서 그대로 선택 가능 → 작업 실패 | `models.py` `shutil.which` | ✅ **완료** — `/setup` 위저드가 설치 감지 후 활성 필터링 (`app/settings.py`) |
+| G10 | 헬스/진단 엔드포인트 없음 | `/health` 류 라우트 부재 | 부분 완료 — `/api/setup/status`가 CLI·보조도구 감지 제공, 범용 `/api/health`는 미착수 |
+| G11 | 멀티턴 채팅·병렬 실행 미구현 | Phase 3·4 후보 | 미착수 |
+| G12 | Council 모드 결과가 평문 `<pre>`로만 표시 | `app/council.py`는 완성, UI 레이아웃만 부족 | 미착수 |
+
+#### 로드맵
+
+**Phase 0 — 신뢰·첫인상 (미착수, 채택 ROI 최고 — 다음 순서)**
+
+코드 기능보다 **"받기 전 설득"**이 먼저다. 전부 저비용·고효과.
+
+- [ ] **CONTRIBUTING.md 교체** (G1): 개발 환경 셋업, 테스트 실행, provider 추가 가이드 포함
+- [ ] **`.github/` 생성** (G2):
+  - `workflows/ci.yml` — push/PR 시 pytest (Python 3.11/3.12), README에 배지
+  - Issue 템플릿 (bug: OS / CLI 버전 / 셋업 상태 첨부), PR 템플릿
+- [ ] **README 개편** (G3):
+  - `README.md`를 영문 기본으로 전환, 한국어는 `README.ko.md`로 분리
+  - 스크린샷 3–5장 (대시보드·셋업 위저드·사용량 패널·작업 스트리밍) + 15–30초 데모 GIF
+  - 최상단 "30초 가치 제안" 블록 + **"Claude Code 하나만 있어도 시작 가능"** 명시
+- [ ] **GitHub 메타**: description / topics(`ai`, `claude-code`, `multi-agent`, `fastapi`,
+      `local-first`, `usage-routing`) / homepage 설정
+- [ ] Security 섹션 유지·강조 (localhost 바인딩 + Tailscale — 이미 좋음)
+
+**검증:** 처음 보는 사람이 README 스크롤 없이 "구독 CLI 여러 개 + 사용량 라우팅"을
+이해하는가.
+
+**Phase 1 — UX 완성도 ("부족하다" 체감 해소)**
+
+| 항목 | 내용 | 상태 |
+|---|---|---|
+| **미설치 CLI 감지** (G9) | 기동 시 `shutil.which` 스캔 → UI 반영, `route_auto`는 활성 provider만 대상 | ✅ **완료** — `/setup` 위저드 + `app/settings.py` |
+| **마크다운 렌더** (G4) | job/note 출력에 marked.js + highlight.js **vendored** 적용 (빌드 무관 원칙 유지), 코드 블록 복사 버튼 | 미착수 |
+| **키보드/테마** | ⌘/Ctrl+Enter 전송, 다크모드 명시 토글(현재 `prefers-color-scheme`만) | 미착수 |
+| **작업 상태 카드** | 큐에서 running 시 provider/model/경과시간 미니 프리뷰 | 미착수 |
+| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | 미착수 |
+| **에러 UX** | CLI 미설치/미인증/TCC 실패를 친화적 배너로 — 조용한 실패 제거 | 미착수 |
+
+**의도적으로 미룸:** React 전환, 디자인 시스템 전면 교체, 모바일 네이티브 앱.
+HTMX + vanilla 스택은 이 제품 규모에 맞다.
+
+**Phase 2 — "clone → 첫 성공" 마찰 제거**
+
+- [x] **CLI 설치·보조도구 감지 API** — `/api/setup/status`(`app/setup.py`)가
+      claude/agy/grok/hermes 설치 여부 + codexbar/gh/rg 감지 (재확인 버튼으로 재조회)
+- [ ] **`bootstrap.sh`**: uv 확인 + venv + deps + `aos.env` 시드 + 포트 확인 + 브라우저
+      오픈까지 한 번에 (기존 `install.sh`=launchd 등록과 역할 분리)
+- [ ] **범용 `/api/health`**: Python/venv, 포트, TCC 안내까지 포함한 진단 엔드포인트
+      (`/api/setup/status`는 CLI 감지만 담당 — 서버 자체 헬스체크는 별도 필요)
+- [ ] **플랫폼 독립화** (G7):
+  - `is_browse_allowed`를 일반 폴더 탐색으로 확장, iCloud/CloudStorage는 macOS 선택 기능으로 분리
+  - Linux 수동 실행 smoke test + systemd 유닛 템플릿 (launchd와 병행)
+- [ ] **패키징** (G8): pyproject에 `[build-system]` + `[project.scripts]` `aos` 엔트리포인트
+      → `pipx install agentic-os` 경로 검토 (PATH·워커 연동 검증 후)
+- [ ] **UI i18n**: 영문 기본 + 한국어 (템플릿 `lang="ko"` 하드코딩 해소)
+
+**성공 지표:** 문서만 보고 Time-to-first-job ≤ 15분 (Claude CLI 있는 Mac 기준).
+
+**Phase 3 — 차별 기능 가시화**
+
+기능은 있어도 UI에 안 보이면 없는 것과 같다.
+
+- [ ] **라우팅 투명성**: auto 라우팅 이유 한 줄("남은 사용량 claude 62% > grok 31%")을
+      잡 히스토리에 고정 기록 (현 실시간 힌트를 영속화)
+- [ ] **사용량 대시보드 강화**: 리셋 카운트다운, 오늘 잡 수, 에이전트별 소진 추세
+- [ ] **Provider 플러그인 계약 문서화**: `build_command` / `parse_output` /
+      `detect_rate_limit` — `providers.py`의 기존 클래스 구조가 이미 이 형태이므로
+      문서화 + 하드코딩된 `PROVIDERS` dict를 등록 기반으로 완화 → 외부 기여자가
+      Codex/Aider/Cursor 등 추가 가능 (생태계 씨앗)
+- [ ] **Council 모드 결과 레이아웃 UI화** (G12): 백엔드는 완성됨. raw 텍스트 dump 대신
+      **제안 카드 → 비평 → 최종 종합 탭** 레이아웃으로 `job.html`/`note.html` 렌더링 개선
+- [ ] **병렬 실행** (G6): `worker.py` 싱글톤 → **provider 단위** 동시성
+      (같은 CLI 세션 충돌만 방지하면 서로 다른 CLI는 병렬 안전)
+
+**Phase 4 — 멀티턴 채팅 (체감 최대·비용도 최대)**
+
+- **가짜 멀티턴 우선 (권장)**: 백엔드는 기존 노트 append(`memory.py` `append_note`,
+  `## 프롬프트/결과 (N차)`) + 세션 resume 그대로, **프론트만 채팅 버블 뷰**로 렌더.
+  구조 변경 없이 Claude 스타일 대화 체감을 얻는 가성비 최고 경로
+- **진짜 대화 상태(메시지 테이블)**는 antigravity/grok의 resume 동작 검증 이후
+  재평가 — 현재 agy/grok은 `-c`(최신 이어가기)만 지원해 완전한 멀티턴 정합성이
+  깨질 수 있음
+
+#### 하지 말 것 (과투자 방지)
+
+1. **Tauri/Electron/React 전면 재작성** — 빌드 없는 경량 스택이라는 강점 파괴,
+   코드서명 비용·구독 CLI OAuth 연동 리스크. 채택이 검증된 뒤 장기 옵션으로만
+2. **Docker를 주 설치 경로로** — 호스트 CLI의 GUI/OAuth 로그인·TCC·파일시스템과
+   충돌. 로컬 프로세스 모델이 이 제품의 정답
+3. **완전한 멀티턴 올인** — CLI별 `-p`/resume 동작 불일치가 해소되기 전에는 가짜
+   멀티턴으로 체감만 먼저
+4. **Claude 스킨 복제** — "미완성 Claude"로 오해되고 오케스트레이터 모트가 사라짐
+5. **초기 코드서명·원클릭 인스톨러 필수화** — OSS 초기에는 bootstrap + 문서가 우선
+
+#### 성공 지표
+
+| 지표 | 목표 |
+|---|---|
+| Time-to-first-job (문서만 보고, Claude CLI 있는 Mac) | ≤ 15분 |
+| README 스크롤 없이 가치 이해 | 지인 3명 테스트 통과 |
+| CI | 메인 브랜치 상시 green |
+| 외부 이슈/스타 등 피드백 | Phase 0 완료 후 4주 내 ≥ 1건 |
+| "투박하다" 피드백 중 렌더·흐름 비율 | 마크다운 + 인라인 스트림 후 감소 |
+
+### V4 — 확장 기능 후보 (예정)
+
+멀티턴 채팅 UI·병렬 작업 실행은 V3 Phase 3·4로 이미 편입됐다. 아래는 그 외 후보.
+
 - **Antigravity 사용량 실측**: CodexBar 또는 별도 연동 (현재 "정보 없음")
 - **세션 재개 실측 보정**: antigravity/grok의 `--resume`, 모델 id 실제 검증
-- **멀티턴 채팅 UI**: 단발 디스패치 → 대화형
-- **병렬 작업 실행**: 현재 동시 1개 → 에이전트별 병렬
 - **벡터 검색**: 메모리 임베딩 기반 의미 검색
 - **Dreaming 자기개선 엔진**: 유휴 시 과거 작업 회고·요약
 - **토큰/비용 추적**: 작업별 토큰·비용 집계

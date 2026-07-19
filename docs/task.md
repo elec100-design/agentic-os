@@ -2,6 +2,28 @@
 
 완료/진행/예정 작업 추적. 로드맵은 [plan.md](plan.md) 참고.
 
+## 완료 (V3 — 공개 배포 착수, 2026-07)
+
+4개 CLI(claude/antigravity/grok/hermes) 협의(Council) 세션의 개선 제안을 코드
+검증과 대조해 [docs/plan.md](plan.md)의 V3 로드맵(Phase 0~4)으로 세움. 이후 Phase 1의
+G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
+
+- [x] **공개 배포 마스터플랜 작성** — 이후 `docs/plan.md`의 V3 섹션으로 통합
+      (별도 `docs/masterplan.md`는 통합 후 제거)
+- [x] **첫 실행 셋업 위저드(`/setup`)** — 환영 → 에이전트 선택(설치 감지) → CLI별
+      OAuth 로그인 안내 → 완료의 4단계. 첫 실행 시 `/`가 자동 안내, 사이드바
+      ⚙︎ 링크로 재설정 가능 (`templates/setup.html`, `static/setup.js`)
+- [x] **CLI·보조도구 설치 감지** — `shutil.which` 기반, CLI를 실행하지 않아
+      로그인 프롬프트·사용량 소모 없음 (`app/setup.py`, `/api/setup/status`)
+- [x] **활성 에이전트 필터링(`app/settings.py`, `data/settings.json`)** — 선택한
+      에이전트만 사용량 사이드바·에이전트 칩·`/note`·자동 라우팅
+      (`route_auto`/`rank_cloud`)·협의 모드(`select_members`)에 반영. 비활성
+      에이전트로 잡 제출 시 400 거부, 이미 큐에 있던 잡은 실행 유지
+- [x] 설정 파일 없음/손상 시 전체 활성으로 폴백 — 기존 환경 무변경 보장
+- [x] 테스트 30개 추가 (총 208개)
+- [x] Council 모드가 masterplan 브랜치 분기 이후 merge된 것을 뒤늦게 발견 →
+      `origin/master` 재병합으로 누락 해소, 마스터플랜 진단 정정
+
 ## 완료 (V2.2 — 세션 파편화 해소, 2026-07)
 
 `-p` 비대화형 호출 특성상 세션을 이어갈 때마다 노트가 파편화되던 문제 해소.
@@ -77,9 +99,22 @@
 
 ## 진행/예정
 
+### V3 Phase 0 — 신뢰·첫인상 (다음 순서, 미착수)
+- [ ] CONTRIBUTING.md 교체 (현재 다른 프로젝트 문서가 들어있는 확정 버그)
+- [ ] `.github/workflows/ci.yml` — pytest CI + README 배지
+- [ ] Issue/PR 템플릿
+- [ ] README 영문 전환 + 스크린샷/GIF + GitHub 메타(description·topics)
+
+### V3 Phase 1~4 — 나머지 (docs/plan.md 참고)
+- [ ] 마크다운 렌더링(job/note 출력), 키보드 단축키, 다크모드 토글
+- [ ] `bootstrap.sh`, 범용 `/api/health`, 플랫폼 독립화(Linux/systemd), 패키징, i18n
+- [ ] 라우팅 이유 기록, 사용량 대시보드 강화, provider 플러그인 문서화
+- [ ] Council 모드 결과 레이아웃 UI화(제안 카드 → 비평 → 종합 탭)
+- [ ] 병렬 작업 실행 (현재 동시 1개)
+- [ ] 노트 스레드 → 채팅 버블 뷰(가짜 멀티턴)
+
+### V4 — 확장 기능 후보
 - [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")
 - [ ] antigravity/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
-- [ ] 멀티턴 채팅 UI
-- [ ] 병렬 작업 실행 (현재 동시 1개)
 - [ ] 벡터/임베딩 기반 메모리 검색
 - [ ] 토큰·비용 추적

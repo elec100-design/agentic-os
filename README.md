@@ -212,6 +212,9 @@ uv run --with pytest --with pytest-asyncio --with fastapi --with jinja2 \
 
 ## 알려진 한계 / 로드맵
 
-- 에이전트 목록은 현재 4종을 고정 노출합니다. 설치 안 된 CLI를 고르면 그 작업만 실패합니다(설치된 CLI 자동 감지는 예정).
+- 첫 실행 시 `/setup`에서 보유한 CLI를 선택하면, 이후 사용량 사이드바·에이전트
+  선택·자동 라우팅·협의 모드는 선택한 에이전트만 대상으로 합니다. 나중에
+  사이드바의 ⚙︎ 에이전트 설정에서 언제든 바꿀 수 있습니다.
 - macOS 외 환경은 미검증(launchd·iCloud 탐색은 macOS 전용).
-- Antigravity 사용량 실측 연동, 멀티턴 채팅 UI, 병렬 실행, 토큰·비용 추적 등은 [plan.md](docs/plan.md) 참고.
+- Antigravity 사용량 실측 연동, 멀티턴 채팅 UI, 병렬 실행, 토큰·비용 추적 등
+  공개 배포 로드맵은 [plan.md](docs/plan.md)의 V3~V4 참고.
