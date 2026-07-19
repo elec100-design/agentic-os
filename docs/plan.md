@@ -128,10 +128,10 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 |---|---|---|
 | **미설치 CLI 감지** (G9) | 기동 시 `shutil.which` 스캔 → UI 반영, `route_auto`는 활성 provider만 대상 | ✅ **완료** — `/setup` 위저드 + `app/settings.py` |
 | **마크다운 렌더** (G4) | job/note 출력에 marked.js + highlight.js **vendored** 적용 (빌드 무관 원칙 유지), 코드 블록 복사 버튼 | ✅ **완료** — `static/render.js`, 라이트/다크 hljs 테마, `.md-body` 스타일 |
-| **키보드/테마** | ⌘/Ctrl+Enter 전송, 다크모드 명시 토글(현재 `prefers-color-scheme`만) | 미착수 |
-| **작업 상태 카드** | 큐에서 running 시 provider/model/경과시간 미니 프리뷰 | 미착수 |
-| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | 미착수 |
-| **에러 UX** | CLI 미설치/미인증/TCC 실패를 친화적 배너로 — 조용한 실패 제거 | 미착수 |
+| **키보드/테마** | ⌘/Ctrl+Enter 전송, 다크모드 명시 토글(현재 `prefers-color-scheme`만) | ✅ **완료** — 컴포저·재개 폼 ⌘Enter, 사이드바 테마 토글(`data-theme` + localStorage, FOUC 방지 인라인 init) |
+| **작업 상태 카드** | 큐에서 running 시 provider/model/경과시간 미니 프리뷰 | ✅ **완료(기존)** — 작업 큐에 provider/model 표시 + running 배지 펄스 애니메이션 |
+| **에러 UX** | CLI 미설치/미인증/TCC 실패를 친화적 배너로 — 조용한 실패 제거 | ✅ **완료** — job 상세에 실패 원인 해석 배너(CLI 없음/미인증/타임아웃/취소) + `/setup` 링크 |
+| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | 미착수 (선택 — 현 SSE로도 동작) |
 
 **의도적으로 미룸:** React 전환, 디자인 시스템 전면 교체, 모바일 네이티브 앱.
 HTMX + vanilla 스택은 이 제품 규모에 맞다.

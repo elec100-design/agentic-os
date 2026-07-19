@@ -6,6 +6,7 @@
 <title>{{ note['name'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
 <link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <main class="page">
@@ -122,6 +123,14 @@ function fillHint() {
 agentSel.addEventListener("change", () => { fillModels(); fillHint(); });
 fillModels();
 fillHint();
+
+// ⌘/Ctrl+Enter 전송
+document.querySelector("#resume-form textarea")?.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    e.target.form?.requestSubmit();
+  }
+});
 
 // --- 도구(+) 팝업: 메인뷰와 동일한 열기/닫기·위치 계산 ---
 const toolsBtn = document.getElementById("resume-tools-btn");

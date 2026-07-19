@@ -6,6 +6,7 @@
 <title>작업 #{{ job['id'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
 <link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 </head>
 <body>
 <main class="page">
@@ -19,7 +20,27 @@
 {% if job['workdir'] %}<p class="job-meta">📁 작업 위치: <code>{{ job['workdir'] }}</code></p>{% endif %}
 <h2 class="section-label">프롬프트</h2>
 <pre class="prompt-block">{{ job['prompt'] }}</pre>
-{% if job['error'] %}<p class="error">⚠️ {{ job['error'] }}</p>{% endif %}
+{% if job['error'] %}
+{% set e = job['error']|lower %}
+<div class="err-banner">
+  <p class="err-headline">
+  {% if 'no such file' in e or 'not found' in e or 'errno 2' in e %}
+    ⚠️ <b>CLI를 찾을 수 없습니다.</b> <code>{{ job['provider'] }}</code> 에이전트의 CLI가 설치되어 PATH에 있는지 확인하세요. <a href="/setup">셋업에서 확인 →</a>
+  {% elif 'timeout' == e or 'timeout' in e %}
+    ⚠️ <b>시간 초과.</b> 작업이 제한 시간 안에 끝나지 않았습니다. 컴포저의 ＋ 메뉴에서 타임아웃을 늘려 다시 시도해 보세요.
+  {% elif 'unauthorized' in e or '401' in e or 'not authenticated' in e or 'please login' in e or 'log in' in e %}
+    ⚠️ <b>인증이 필요합니다.</b> 터미널에서 <code>{{ job['provider'] }}</code> CLI 로그인을 완료한 뒤 다시 시도하세요. <a href="/setup">로그인 안내 →</a>
+  {% elif e == 'cancelled' %}
+    ⓘ 취소된 작업입니다.
+  {% elif 'rate' in e and 'limit' in e %}
+    ⏳ <b>사용 제한.</b> 제한이 풀리면 자동으로 재개됩니다.
+  {% else %}
+    ⚠️ <b>작업이 실패했습니다.</b>
+  {% endif %}
+  </p>
+  <pre class="err-raw">{{ job['error'] }}</pre>
+</div>
+{% endif %}
 <h2 class="section-label">출력</h2>
 <div class="md-body" id="out"></div>
 </main>

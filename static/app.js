@@ -5,6 +5,28 @@ document.getElementById("nav-toggle")?.addEventListener("click", () => {
   document.body.classList.toggle("nav-open");
 });
 
+// ---- 테마 토글 (라이트/다크, localStorage 유지) -------------------------
+// 저장값이 없으면 OS 설정(prefers-color-scheme)을 따르고, 한 번 누르면
+// 명시값(data-theme)으로 고정된다. head의 인라인 스크립트가 페인트 전에
+// data-theme를 적용해 깜빡임(FOUC)을 막는다.
+const THEME_KEY = "aos-theme";
+const themeToggle = document.getElementById("theme-toggle");
+function effectiveTheme() {
+  const explicit = document.documentElement.getAttribute("data-theme");
+  if (explicit) return explicit;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+function syncThemeLabel() {
+  if (themeToggle) themeToggle.dataset.theme = effectiveTheme();
+}
+themeToggle?.addEventListener("click", () => {
+  const next = effectiveTheme() === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem(THEME_KEY, next); } catch (_) { /* 무시 */ }
+  syncThemeLabel();
+});
+syncThemeLabel();
+
 // ---- 사용량 패널 접기/펼치기 (기본 접힘, 상태는 localStorage 유지) --------
 const usageSection = document.getElementById("usage");
 const USAGE_KEY = "aos-usage-open";
@@ -26,6 +48,15 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
   if (e.target && e.target.id === "usage") applyUsageState();
 });
 applyUsageState();
+
+// ---- ⌘/Ctrl+Enter 전송 --------------------------------------------------
+// 컴포저 textarea에서 ⌘Enter(맥)·Ctrl+Enter로 폼 제출 (채팅 UX 표준)
+document.getElementById("prompt")?.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    e.target.form?.requestSubmit();
+  }
+});
 
 // ---- 파일 첨부 칩 + 드래그 앤 드롭 -------------------------------------
 const composer = document.getElementById("composer");

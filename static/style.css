@@ -20,8 +20,11 @@
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+/* 다크 팔레트. 아래 두 규칙에서 동일하게 재사용한다:
+   1) OS가 다크이고 사용자가 라이트를 명시(data-theme=light)하지 않은 경우
+   2) 사용자가 명시적으로 다크(data-theme=dark)를 선택한 경우 */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #262624;
     --surface: #30302E;
     --surface-2: #3A3937;
@@ -37,6 +40,22 @@
     --warn-bg: #3B3527;
     --err-bg: #422E2B;
   }
+}
+:root[data-theme="dark"] {
+  --bg: #262624;
+  --surface: #30302E;
+  --surface-2: #3A3937;
+  --border: #454440;
+  --text: #F0EEE6;
+  --muted: #A29F97;
+  --accent: #D97757;
+  --accent-hover: #E08A6D;
+  --accent-soft: #453329;
+  --ok: #8FB08F;
+  --warn: #D2A458;
+  --err: #E08579;
+  --warn-bg: #3B3527;
+  --err-bg: #422E2B;
 }
 
 * { box-sizing: border-box; }
@@ -1047,15 +1066,39 @@ h2.section-label {
 }
 
 /* ---- 첫 실행 셋업 위저드 (/setup) ---- */
-.side-settings {
-  display: block;
+.side-foot {
   margin-top: auto;
-  padding: 0.55rem 0.2rem 0.1rem;
+  padding-top: 0.55rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.side-settings {
   color: var(--muted);
   font-size: 0.78rem;
   text-decoration: none;
 }
 .side-settings:hover { color: var(--accent); }
+.theme-toggle {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.theme-toggle:hover { color: var(--accent); border-color: var(--accent); }
+/* 현재 유효 테마에 따라 아이콘 하나만 노출 (dark면 해=라이트로 전환) */
+.theme-toggle .ico-sun { display: none; }
+.theme-toggle .ico-moon { display: block; }
+.theme-toggle[data-theme="dark"] .ico-sun { display: block; }
+.theme-toggle[data-theme="dark"] .ico-moon { display: none; }
 
 .setup-body {
   min-height: 100vh;
@@ -1420,3 +1463,30 @@ h2.section-label {
 }
 .md-body th { background: var(--surface-2); font-weight: 600; }
 .md-body img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+
+/* ---- 실패 작업 에러 배너 (job 상세) ---- */
+.err-banner {
+  background: var(--err-bg);
+  border: 1px solid var(--err);
+  border-radius: 0.7rem;
+  padding: 0.8rem 1rem;
+  margin: 0.6rem 0 0.4rem;
+}
+.err-headline { margin: 0; color: var(--err); font-size: 0.9rem; }
+.err-headline a { color: var(--err); font-weight: 600; white-space: nowrap; }
+.err-headline code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--surface);
+  border-radius: 0.3rem;
+  padding: 0.05em 0.35em;
+}
+.err-raw {
+  margin: 0.6rem 0 0;
+  font-size: 0.76rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: none;
+  max-height: 12rem;
+  overflow-y: auto;
+}
