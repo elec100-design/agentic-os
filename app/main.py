@@ -335,6 +335,10 @@ async def create_job(
         raise HTTPException(
             status_code=400,
             detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+    # agy는 헤드리스 세션 재개가 불가능해 이어가기를 지원하지 않는다 → 넘어온
+    # session_id를 무시하고 항상 새 대화로 처리(오염 방지, UI 우회 제출 방어).
+    if provider == "antigravity":
+        session_id = ""
     if not models.is_valid_model(provider, model):
         model = ""
     # 등록된 작업 위치만 cwd로 허용 (임의 경로 실행 방지)
@@ -386,9 +390,10 @@ def note_view(request: Request, path: str):
     note = memory.read_note(path)
     if note is None:
         raise HTTPException(status_code=404)
+    # hermes(로컬·무상태)·antigravity(헤드리스 세션 재개 불가)는 이어가기 미지원.
     can_resume = bool(
         note["session_id"] and note["provider"] in PROVIDERS
-        and note["provider"] != "hermes"
+        and note["provider"] not in ("hermes", "antigravity")
     )
     pm = models.get_provider_models()
     order = settings.enabled_providers()

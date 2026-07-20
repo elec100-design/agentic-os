@@ -84,12 +84,13 @@ def test_claude_no_limit_on_normal_error():
 
 # --- Antigravity (agy) ---
 
-def test_antigravity_build_and_resume():
+def test_antigravity_never_resumes():
     p = AntigravityProvider()
+    # agy는 헤드리스 세션 재개가 불가능 → 이어가기 미지원. session_id를 줘도
+    # 무시하고 항상 단발 실행(-c 안 붙음).
     assert p.build_command("hi") == ["agy", "-p", "hi"]
-    resumed = p.build_command("hi", session_id="latest")
-    assert resumed[:2] == ["agy", "-p"]
-    assert "-c" in resumed
+    assert p.build_command("hi", session_id="latest") == ["agy", "-p", "hi"]
+    assert "-c" not in p.build_command("hi", session_id="whatever")
 
 
 def test_antigravity_rate_limit():
@@ -98,8 +99,9 @@ def test_antigravity_rate_limit():
     assert p.detect_rate_limit("fine", 1, now=NOW) is None
 
 
-def test_antigravity_parse_records_session():
-    assert AntigravityProvider().parse_output("out", "", 0).session_id == "latest"
+def test_antigravity_parse_leaves_no_session():
+    # 세션 ID를 남기지 않아 이어가기 대상으로 표시되지 않는다.
+    assert AntigravityProvider().parse_output("out", "", 0).session_id is None
 
 
 # --- Grok ---

@@ -70,15 +70,18 @@ class AntigravityProvider:
     _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit", re.I)
 
     def build_command(self, prompt, session_id=None, model=None):
+        # agy는 헤드리스(-p)로 세션 ID를 얻거나 지정할 방법이 없다(JSON 출력·
+        # 자가 발급 옵션 부재, -p 출력에 conversation ID 미포함). `-c`(전역 최신
+        # 대화 이어가기)는 다른 대화가 끼면 오염되므로 이어가기를 지원하지 않는다
+        # → 항상 단발 실행. session_id를 받아도 무시한다.
         cmd = ["agy", "-p", prompt]
         if model:
             cmd += ["--model", model]
-        if session_id:
-            cmd += ["-c"]  # 최근 대화 이어가기
         return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
-        return ParseResult(text=stdout or stderr, session_id="latest")
+        # 세션 ID를 남기지 않는다 → 이어가기 대상으로 표시되지 않는다.
+        return ParseResult(text=stdout or stderr, session_id=None)
 
     def detect_rate_limit(self, output, exit_code, now=None):
         if exit_code == 0 or not self._limit_re.search(output):

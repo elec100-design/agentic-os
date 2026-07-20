@@ -191,11 +191,13 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
   `-c`(최신 이어가기)의 오염(다른 대화가 끼면 엉뚱한 세션으로 이어짐)을 원천
   차단하도록 `GrokProvider`를 UUID 자가 발급 방식으로 교체. provider 직렬화
   덕에 build_command→parse_output 간 UUID 핸드오프가 동시성 안전
-- [ ] **agy 진짜 세션 재개**는 보류 — agy도 `--conversation <ID>`로 ID 재개는
-  지원하나, UUID 자가 발급 옵션이 없고 `-p` 헤드리스 출력에 conversation ID가
-  실리는지(JSON 출력 모드 유무) 미확인. `agy -p` 출력 형식 확인 후 결정. 그 전엔
-  `-c`(최신 이어가기) 유지 — agy의 `--continue`는 cwd 무관 전역 최신이라 오염
-  가능성이 가장 큼(주의)
+- [x] **agy 이어가기 비활성** (결정) — 검증 결과 agy는 헤드리스 세션 재개가
+  불가능: `--session-id` 자가 발급 옵션 없음, `agy -p` 출력에 conversation ID
+  미포함(`agy -p "..."` → 답변 텍스트만), JSON 출력·`sessions` 목록 서브커맨드
+  없음. `-c`(cwd 무관 전역 최신)는 오염 위험이 가장 커 유지하지 않기로 결정.
+  → agy는 단발 실행만: `build_command`가 session_id 무시(-c 제거), `parse_output`
+  이 session_id=None(이어가기 대상 미표시), 노트 뷰 `can_resume`에서 제외,
+  `create_job`이 agy의 session_id를 드롭(UI 우회 제출 방어)
 
 #### 하지 말 것 (과투자 방지)
 
