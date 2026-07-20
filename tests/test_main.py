@@ -221,6 +221,34 @@ def test_resume_switching_agent_drops_session_and_attaches_note(tmp_env):
     assert "원래 질문" in job["prompt"]
 
 
+def test_antigravity_note_hides_resume(tmp_env):
+    """agy는 헤드리스 세션 재개 불가 → 노트 뷰에 이어가기 폼을 띄우지 않는다."""
+    from app import memory
+    # 과거 데이터로 session_id가 남아있어도 재개 UI는 뜨면 안 된다.
+    path = memory.save_note("질문", "antigravity", "답변", session_id="latest")
+    with _client(tmp_env) as client:
+        r = client.get("/note", params={"path": str(path)})
+    assert r.status_code == 200
+    assert 'name="resume_provider"' not in r.text
+
+
+def test_antigravity_job_drops_session_id(tmp_env):
+    """agy로 session_id를 우회 제출해도 서버가 무시하고 새 대화로 처리한다."""
+    from app import config, db, memory
+    path = memory.save_note("원래", "antigravity", "답변", session_id="latest")
+    with _client(tmp_env) as client:
+        client.post("/jobs", data={
+            "prompt": "이어서",
+            "provider": "antigravity",
+            "session_id": "latest",
+            "resume_provider": "antigravity",
+            "origin_note": str(path),
+        }, follow_redirects=False)
+    job = db.list_jobs(db.get_conn(config.DB_PATH))[0]
+    assert job["provider"] == "antigravity"
+    assert job["session_id"] is None
+
+
 def test_create_job_with_valid_model(tmp_env):
     from app import config, db
     # 폴백 목록의 패밀리 별칭(opus) — CLI가 항상 최신 full id로 해석

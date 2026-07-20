@@ -89,8 +89,8 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | G2 | CI·이슈/PR 템플릿 없음 | `.github/` 디렉토리 자체 부재 | ✅ **완료** — `ci.yml`(3.11/3.12) + 이슈·PR 템플릿 |
 | G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | ✅ **완료** — 영문 기본 README + 스크린샷 4장, 한국어는 `README.ko.md` |
 | G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | ✅ **완료** — marked.js + highlight.js vendored, 코드 복사 버튼 |
-| G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | 미착수 |
-| G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | 미착수 |
+| G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | ✅ **완료** — `app/stream_hub.py` 인메모리 신호 허브. 워커가 DB append 직후 구독자를 깨워 즉시 재조회(프로세스 내 fast-path), 신호 없으면 1초 폴링으로 자연 폴백. DB는 여전히 내용의 단일 출처(복원·다중 워커 안전). 지연 최대 1초 → 실측 ~0ms |
+| G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | ✅ **완료** — provider별 직렬 · 서로 다른 provider 병렬(전역 상한 `MAX_CONCURRENT_JOBS`) · 협의 배타 실행. `current` 싱글톤 → `running_procs` 잡별 레지스트리로 교체(취소 정확성). 단일 디스패처가 유일 클레임 주체 + `claim_next_job` 원자성(SELECT~UPDATE 무 await)으로 이중 클레임 없음. 실측 0.6s×2 → 0.66s(병렬) |
 | G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | 미착수 |
 | G8 | 패키지 설치 불가 | pyproject에 `[build-system]`/`[project.scripts]` 없음 | 미착수 |
 | G9 | 미설치 CLI가 UI에서 그대로 선택 가능 → 작업 실패 | `models.py` `shutil.which` | ✅ **완료** — `/setup` 위저드가 설치 감지 후 활성 필터링 (`app/settings.py`) |
@@ -131,7 +131,7 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | **키보드/테마** | ⌘/Ctrl+Enter 전송, 다크모드 명시 토글(현재 `prefers-color-scheme`만) | ✅ **완료** — 컴포저·재개 폼 ⌘Enter, 사이드바 테마 토글(`data-theme` + localStorage, FOUC 방지 인라인 init) |
 | **작업 상태 카드** | 큐에서 running 시 provider/model/경과시간 미니 프리뷰 | ✅ **완료(기존)** — 작업 큐에 provider/model 표시 + running 배지 펄스 애니메이션 |
 | **에러 UX** | CLI 미설치/미인증/TCC 실패를 친화적 배너로 — 조용한 실패 제거 | ✅ **완료** — job 상세에 실패 원인 해석 배너(CLI 없음/미인증/타임아웃/취소) + `/setup` 링크 |
-| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | 미착수 (선택 — 현 SSE로도 동작) |
+| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | ✅ **완료** — `stream_hub` 인메모리 신호로 stdout→SSE 직통(1초 폴링 폴백 유지, 설계 원칙 무손상) |
 
 **의도적으로 미룸:** React 전환, 디자인 시스템 전면 교체, 모바일 네이티브 앱.
 HTMX + vanilla 스택은 이 제품 규모에 맞다.
@@ -186,9 +186,18 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
   `note.html`이 좌우 말풍선(마크다운·코드 하이라이트 포함)으로 표시. 바로 아래
   "이어서 진행" 입력창이 이어져 연속 대화처럼 읽힌다. 스레드 형식이 아니면
   기존 전체 본문 렌더로 폴백
-- [ ] **진짜 대화 상태(메시지 테이블)**는 antigravity/grok의 resume 동작 검증 이후
-  재평가 — 현재 agy/grok은 `-c`(최신 이어가기)만 지원해 완전한 멀티턴 정합성이
-  깨질 수 있음 (후속)
+- [x] **grok 진짜 세션 재개** — CLI 검증 결과 grok은 `--session-id <uuid>`(새
+  대화에 우리가 UUID 부여) + `--resume <uuid>`(그 세션만 정확히 재개)를 지원.
+  `-c`(최신 이어가기)의 오염(다른 대화가 끼면 엉뚱한 세션으로 이어짐)을 원천
+  차단하도록 `GrokProvider`를 UUID 자가 발급 방식으로 교체. provider 직렬화
+  덕에 build_command→parse_output 간 UUID 핸드오프가 동시성 안전
+- [x] **agy 이어가기 비활성** (결정) — 검증 결과 agy는 헤드리스 세션 재개가
+  불가능: `--session-id` 자가 발급 옵션 없음, `agy -p` 출력에 conversation ID
+  미포함(`agy -p "..."` → 답변 텍스트만), JSON 출력·`sessions` 목록 서브커맨드
+  없음. `-c`(cwd 무관 전역 최신)는 오염 위험이 가장 커 유지하지 않기로 결정.
+  → agy는 단발 실행만: `build_command`가 session_id 무시(-c 제거), `parse_output`
+  이 session_id=None(이어가기 대상 미표시), 노트 뷰 `can_resume`에서 제외,
+  `create_job`이 agy의 session_id를 드롭(UI 우회 제출 방어)
 
 #### 하지 말 것 (과투자 방지)
 

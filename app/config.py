@@ -377,6 +377,12 @@ JOB_TIMEOUT_SEC = 30 * 60
 DEFAULT_RESUME_DELAY_MIN = 60
 MAX_ATTEMPTS = 10
 WORKER_POLL_SEC = 5
+# 워커 전역 동시 실행 상한. 같은 provider(CLI)는 항상 직렬(사용량 레이스 방지),
+# 서로 다른 provider끼리만 병렬로 돈다. 협의(council) 잡은 배타적으로 실행된다.
+MAX_CONCURRENT_JOBS = int(os.environ.get("AOS_MAX_CONCURRENT_JOBS", "4"))
+# SSE 출력 스트림 폴백 폴링 주기(초). 워커가 같은 프로세스면 stream_hub 신호로
+# 즉시 깨어나므로 이 값은 워커가 별도 프로세스로 분리됐을 때의 상한 지연이다.
+STREAM_POLL_SEC = 1.0
 
 # 협의(Council) 모드 — 여러 에이전트가 제안·비평하고 한 에이전트가 종합한다.
 #   AOS_COUNCIL_MEMBERS    : 참여 에이전트 목록(콤마 구분, 기본 4개 전체)
