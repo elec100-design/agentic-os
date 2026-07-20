@@ -50,7 +50,7 @@ Agentic OS/
 |---|---|---|
 | Claude | `claude -p <prompt> --output-format json` | `claude -p --resume <session_id> <continue-prompt>` |
 | Gemini | `gemini -p <prompt>` | `gemini -p --resume latest <continue-prompt>` |
-| SuperGrok | `grok -p <prompt>` (single-turn, stdout 출력 후 종료) | `grok -c -p <continue-prompt>` (최근 세션 이어서) |
+| SuperGrok | `grok --session-id <uuid> -p <prompt>` (새 대화에 UUID 부여) | `grok --resume <uuid> -p <continue-prompt>` (그 세션만 정확히 재개) |
 | Hermes | `hermes -z <prompt>` | `hermes --resume <session> -z <continue-prompt>` |
 
 제한 감지 패턴(구현 시 실제 출력으로 보정):

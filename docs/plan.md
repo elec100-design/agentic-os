@@ -186,9 +186,16 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
   `note.html`이 좌우 말풍선(마크다운·코드 하이라이트 포함)으로 표시. 바로 아래
   "이어서 진행" 입력창이 이어져 연속 대화처럼 읽힌다. 스레드 형식이 아니면
   기존 전체 본문 렌더로 폴백
-- [ ] **진짜 대화 상태(메시지 테이블)**는 antigravity/grok의 resume 동작 검증 이후
-  재평가 — 현재 agy/grok은 `-c`(최신 이어가기)만 지원해 완전한 멀티턴 정합성이
-  깨질 수 있음 (후속)
+- [x] **grok 진짜 세션 재개** — CLI 검증 결과 grok은 `--session-id <uuid>`(새
+  대화에 우리가 UUID 부여) + `--resume <uuid>`(그 세션만 정확히 재개)를 지원.
+  `-c`(최신 이어가기)의 오염(다른 대화가 끼면 엉뚱한 세션으로 이어짐)을 원천
+  차단하도록 `GrokProvider`를 UUID 자가 발급 방식으로 교체. provider 직렬화
+  덕에 build_command→parse_output 간 UUID 핸드오프가 동시성 안전
+- [ ] **agy 진짜 세션 재개**는 보류 — agy도 `--conversation <ID>`로 ID 재개는
+  지원하나, UUID 자가 발급 옵션이 없고 `-p` 헤드리스 출력에 conversation ID가
+  실리는지(JSON 출력 모드 유무) 미확인. `agy -p` 출력 형식 확인 후 결정. 그 전엔
+  `-c`(최신 이어가기) 유지 — agy의 `--continue`는 cwd 무관 전역 최신이라 오염
+  가능성이 가장 큼(주의)
 
 #### 하지 말 것 (과투자 방지)
 

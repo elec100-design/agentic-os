@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from app.providers import (
@@ -103,12 +104,37 @@ def test_antigravity_parse_records_session():
 
 # --- Grok ---
 
-def test_grok_build_and_resume():
+def test_grok_build_mints_session_id_for_new_conversation():
     p = GrokProvider()
-    assert p.build_command("hi") == ["grok", "-p", "hi"]
-    resumed = p.build_command("hi", session_id="latest")
-    assert resumed[:2] == ["grok", "-c"]
-    assert "hi" in resumed
+    cmd = p.build_command("hi")
+    # 새 대화 → 우리가 UUID를 발급해 --session-id로 지정하고, parse_output이
+    # 그 UUID를 세션 ID로 돌려준다(다음 턴에 --resume 대상).
+    assert cmd[0] == "grok"
+    assert "--session-id" in cmd
+    minted = cmd[cmd.index("--session-id") + 1]
+    uuid.UUID(minted)  # 유효한 UUID여야 함
+    assert cmd[-2:] == ["-p", "hi"]
+    assert p.parse_output("out", "", 0).session_id == minted
+
+
+def test_grok_resume_targets_exact_session_id():
+    p = GrokProvider()
+    resumed = p.build_command("hi", session_id="abc-123")
+    # 재개 → 저장해둔 그 ID로 정확히 재개(--resume), 새 UUID 발급 안 함.
+    assert "--resume" in resumed
+    assert resumed[resumed.index("--resume") + 1] == "abc-123"
+    assert "--session-id" not in resumed
+    assert p.parse_output("out", "", 0).session_id == "abc-123"
+
+
+def _minted_id(cmd):
+    return cmd[cmd.index("--session-id") + 1]
+
+
+def test_grok_new_session_ids_are_unique():
+    p = GrokProvider()
+    # 새 대화마다 서로 다른 UUID가 발급돼야 한다(세션 혼선 방지).
+    assert _minted_id(p.build_command("x")) != _minted_id(p.build_command("y"))
 
 
 def test_grok_rate_limit():
@@ -150,7 +176,10 @@ def test_antigravity_build_with_model():
 
 def test_grok_build_with_model():
     cmd = GrokProvider().build_command("hi", model="grok-4.5")
-    assert cmd == ["grok", "--model", "grok-4.5", "-p", "hi"]
+    # 새 대화라 --session-id <uuid>가 앞에 붙는다. 모델·프롬프트 배선만 검증.
+    assert cmd[0] == "grok"
+    assert cmd[cmd.index("--model") + 1] == "grok-4.5"
+    assert cmd[-2:] == ["-p", "hi"]
 
 
 def test_no_model_omits_flag():

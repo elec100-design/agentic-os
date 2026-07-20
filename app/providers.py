@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -86,20 +87,36 @@ class AntigravityProvider:
 
 
 class GrokProvider:
+    # grok은 세션 ID 기반 재개를 지원한다:
+    #   --session-id <uuid>  새 대화에 우리가 정한 UUID를 부여
+    #   --resume <uuid>      그 UUID로 정확히 그 대화만 재개
+    # → 우리가 UUID를 발급·통제하므로 "가장 최근 대화 이어가기"(-c)의 오염
+    #   (다른 대화가 끼면 엉뚱한 세션으로 이어짐)을 원천 차단한다.
     name = "grok"
     _limit_re = re.compile(r"rate.?limit|\b429\b|too many requests", re.I)
+
+    def __init__(self):
+        # 방금 발급/재개한 세션 ID를 parse_output으로 넘기기 위한 임시 보관.
+        # grok은 provider 직렬화(같은 CLI 동시 실행 금지)로 자기 자신과 절대
+        # 겹치지 않으므로, build_command→parse_output 사이 이 값은 안전하다.
+        self._pending_session = None
 
     def build_command(self, prompt, session_id=None, model=None):
         cmd = ["grok"]
         if session_id:
-            cmd += ["-c"]
+            cmd += ["--resume", session_id]  # 그 세션을 정확히 재개
+            self._pending_session = session_id
+        else:
+            new_id = str(uuid.uuid4())       # 새 대화 — 우리가 UUID 부여
+            cmd += ["--session-id", new_id]
+            self._pending_session = new_id
         if model:
             cmd += ["--model", model]
         cmd += ["-p", prompt]
         return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
-        return ParseResult(text=stdout or stderr, session_id="latest")
+        return ParseResult(text=stdout or stderr, session_id=self._pending_session)
 
     def detect_rate_limit(self, output, exit_code, now=None):
         if exit_code == 0 or not self._limit_re.search(output):
