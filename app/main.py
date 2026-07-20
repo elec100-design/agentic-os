@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import (
     codexbar, config, council, db, github_cli, health, i18n, memory, models,
-    settings, setup, workspace, worker,
+    settings, setup, stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -427,20 +427,32 @@ async def stream_job(job_id: int):
         raise HTTPException(status_code=404)
 
     async def gen():
+        # 첫 DB 조회 '전'에 구독을 시작한다 → 구독과 조회 사이에 도착한 출력도
+        # 신호로 큐에 남아 다음 대기에서 즉시 회수된다(유실 없음).
+        q = stream_hub.subscribe(job_id)
         sent = 0
-        while True:
-            conn = db.get_conn()
-            job = db.get_job(conn, job_id)
-            if job is None:
-                break
-            out = job["output"]
-            if len(out) > sent:
-                yield f"data: {json.dumps(out[sent:])}\n\n"
-                sent = len(out)
-            if job["status"] in ("done", "failed"):
-                yield f"event: status\ndata: {job['status']}\n\n"
-                break
-            await asyncio.sleep(1)
+        try:
+            while True:
+                conn = db.get_conn()
+                job = db.get_job(conn, job_id)
+                if job is None:
+                    break
+                out = job["output"]
+                if len(out) > sent:
+                    yield f"data: {json.dumps(out[sent:])}\n\n"
+                    sent = len(out)
+                if job["status"] in ("done", "failed"):
+                    yield f"event: status\ndata: {job['status']}\n\n"
+                    break
+                # 워커가 같은 프로세스면 신호로 즉시 깨어나 DB를 다시 읽는다.
+                # 신호가 없으면(워커 프로세스 분리) 타임아웃마다 폴링하는 기존
+                # 동작으로 자연 폴백한다.
+                try:
+                    await asyncio.wait_for(q.get(), timeout=config.STREAM_POLL_SEC)
+                except asyncio.TimeoutError:
+                    pass
+        finally:
+            stream_hub.unsubscribe(job_id, q)
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 

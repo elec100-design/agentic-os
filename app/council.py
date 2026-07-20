@@ -11,7 +11,7 @@ import asyncio
 import string
 from datetime import datetime, timezone
 
-from app import codexbar, config, db, memory
+from app import codexbar, config, db, memory, stream_hub
 from app.providers import PROVIDERS, rank_cloud
 
 # 실행 중인 협의 잡의 서브프로세스 목록 (job_id → [proc...]) — 취소용
@@ -204,6 +204,7 @@ async def run_council(conn, job, providers=None, save=True, usage_state=None):
 
     def emit(text):
         db.append_output(conn, job_id, text)
+        stream_hub.publish(job_id)
 
     # 방어적 초기화: 이 잡의 output에 이전 시도 잔여물이 남아있지 않도록 한다
     # (정상 경로에서는 항상 비어있다 — recover_running이 council 잡을 재큐잉하지

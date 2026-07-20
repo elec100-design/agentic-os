@@ -2,7 +2,7 @@ import asyncio
 import os
 from datetime import datetime, timezone
 
-from app import config, db, memory, workspace
+from app import config, db, memory, stream_hub, workspace
 from app.providers import CONTINUE_PROMPT, PROVIDERS
 
 # 실행 중인 작업 취소를 위해 main.py가 참조하는 공유 상태
@@ -82,6 +82,9 @@ async def run_job(conn, job, providers=None, save=True):
     def on_stdout(text):
         stdout_parts.append(text)
         db.append_output(conn, job["id"], text)
+        # 구독 중인 SSE 스트림을 즉시 깨운다(프로세스 내 fast-path). DB 기록
+        # '뒤에' 신호하므로, 깨어난 구독자는 방금 쓴 내용을 반드시 본다.
+        stream_hub.publish(job["id"])
 
     try:
         await asyncio.wait_for(
@@ -179,3 +182,7 @@ async def worker_loop(stop_event=None, providers=None, save=True, poll_sec=None)
         except Exception as e:  # 큐는 어떤 작업이 터져도 살아있어야 한다
             db.update_job(conn, job["id"], status="failed",
                           error=f"worker error: {e!r}", finished_at=db.now_iso())
+        finally:
+            # 종료 상태(done/failed/rate_limited)를 구독자에게 즉시 알린다.
+            # run_job의 모든 조기 반환 경로를 한 곳에서 커버한다.
+            stream_hub.publish(job["id"])

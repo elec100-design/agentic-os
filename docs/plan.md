@@ -89,7 +89,7 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | G2 | CI·이슈/PR 템플릿 없음 | `.github/` 디렉토리 자체 부재 | ✅ **완료** — `ci.yml`(3.11/3.12) + 이슈·PR 템플릿 |
 | G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | ✅ **완료** — 영문 기본 README + 스크린샷 4장, 한국어는 `README.ko.md` |
 | G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | ✅ **완료** — marked.js + highlight.js vendored, 코드 복사 버튼 |
-| G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | 미착수 |
+| G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | ✅ **완료** — `app/stream_hub.py` 인메모리 신호 허브. 워커가 DB append 직후 구독자를 깨워 즉시 재조회(프로세스 내 fast-path), 신호 없으면 1초 폴링으로 자연 폴백. DB는 여전히 내용의 단일 출처(복원·다중 워커 안전). 지연 최대 1초 → 실측 ~0ms |
 | G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | 미착수 |
 | G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | 미착수 |
 | G8 | 패키지 설치 불가 | pyproject에 `[build-system]`/`[project.scripts]` 없음 | 미착수 |
@@ -131,7 +131,7 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | **키보드/테마** | ⌘/Ctrl+Enter 전송, 다크모드 명시 토글(현재 `prefers-color-scheme`만) | ✅ **완료** — 컴포저·재개 폼 ⌘Enter, 사이드바 테마 토글(`data-theme` + localStorage, FOUC 방지 인라인 init) |
 | **작업 상태 카드** | 큐에서 running 시 provider/model/경과시간 미니 프리뷰 | ✅ **완료(기존)** — 작업 큐에 provider/model 표시 + running 배지 펄스 애니메이션 |
 | **에러 UX** | CLI 미설치/미인증/TCC 실패를 친화적 배너로 — 조용한 실패 제거 | ✅ **완료** — job 상세에 실패 원인 해석 배너(CLI 없음/미인증/타임아웃/취소) + `/setup` 링크 |
-| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | 미착수 (선택 — 현 SSE로도 동작) |
+| **인라인 스트리밍 UX** | 전송 후 페이지 이동 최소화; stdout→SSE 직통 검토(G5, 현 1초 DB 폴링 대체) | ✅ **완료** — `stream_hub` 인메모리 신호로 stdout→SSE 직통(1초 폴링 폴백 유지, 설계 원칙 무손상) |
 
 **의도적으로 미룸:** React 전환, 디자인 시스템 전면 교체, 모바일 네이티브 앱.
 HTMX + vanilla 스택은 이 제품 규모에 맞다.
