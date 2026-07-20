@@ -126,12 +126,26 @@ def append_output(conn, job_id, text):
     conn.commit()
 
 
-def claim_next_job(conn):
+def claim_next_job(conn, exclude_providers=None):
+    """실행 가능한 가장 오래된 잡을 원자적으로 'running'으로 표시하고 반환한다.
+
+    exclude_providers를 주면 그 provider의 잡은 건너뛴다 — 워커가 이미 실행
+    중인 provider(같은 CLI 직렬화)나 배타 실행 중인 협의 잡을 제외하는 데 쓴다.
+    SELECT~UPDATE 사이에 await가 없어 단일 이벤트 루프에서 원자적이다.
+    """
     now = now_iso()
+    params = [now]
+    exclude_sql = ""
+    excl = list(exclude_providers or ())
+    if excl:
+        placeholders = ", ".join("?" for _ in excl)
+        exclude_sql = f" AND provider NOT IN ({placeholders})"
+        params.extend(excl)
     row = conn.execute(
-        "SELECT * FROM jobs WHERE status = 'queued' "
-        "OR (status = 'rate_limited' AND resume_at <= ?) ORDER BY id LIMIT 1",
-        (now,),
+        "SELECT * FROM jobs WHERE (status = 'queued' "
+        "OR (status = 'rate_limited' AND resume_at <= ?))" + exclude_sql +
+        " ORDER BY id LIMIT 1",
+        params,
     ).fetchone()
     if row is None:
         return None

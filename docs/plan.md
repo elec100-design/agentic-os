@@ -90,7 +90,7 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | G3 | README 스크린샷 0장, 한국어 중심 | 영문은 상단 태그라인뿐 | ✅ **완료** — 영문 기본 README + 스크린샷 4장, 한국어는 `README.ko.md` |
 | G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | ✅ **완료** — marked.js + highlight.js vendored, 코드 복사 버튼 |
 | G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | ✅ **완료** — `app/stream_hub.py` 인메모리 신호 허브. 워커가 DB append 직후 구독자를 깨워 즉시 재조회(프로세스 내 fast-path), 신호 없으면 1초 폴링으로 자연 폴백. DB는 여전히 내용의 단일 출처(복원·다중 워커 안전). 지연 최대 1초 → 실측 ~0ms |
-| G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | 미착수 |
+| G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | ✅ **완료** — provider별 직렬 · 서로 다른 provider 병렬(전역 상한 `MAX_CONCURRENT_JOBS`) · 협의 배타 실행. `current` 싱글톤 → `running_procs` 잡별 레지스트리로 교체(취소 정확성). 단일 디스패처가 유일 클레임 주체 + `claim_next_job` 원자성(SELECT~UPDATE 무 await)으로 이중 클레임 없음. 실측 0.6s×2 → 0.66s(병렬) |
 | G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | 미착수 |
 | G8 | 패키지 설치 불가 | pyproject에 `[build-system]`/`[project.scripts]` 없음 | 미착수 |
 | G9 | 미설치 CLI가 UI에서 그대로 선택 가능 → 작업 실패 | `models.py` `shutil.which` | ✅ **완료** — `/setup` 위저드가 설치 감지 후 활성 필터링 (`app/settings.py`) |
