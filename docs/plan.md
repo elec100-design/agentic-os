@@ -237,3 +237,4 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
 - 빌드 도구 없는 프론트엔드 (Jinja2 + HTMX + vanilla JS)
 - 앱은 `127.0.0.1` 바인딩 유지, 외부 접속은 Tailscale serve가 프록시
 - 파괴적/외부 노출 동작은 명시적 확인 후 실행
+
