@@ -402,3 +402,15 @@ COUNCIL_STAGE_TIMEOUT_SEC = int(
     os.environ.get("AOS_COUNCIL_STAGE_TIMEOUT_SEC", "600"))
 COUNCIL_MIN_MEMBERS = 2          # 이 인원 미만이면 협의 불가
 COUNCIL_ANSWER_MAX_CHARS = 8000  # 비평·종합 프롬프트에 넣는 답변당 최대 길이
+
+# 비전 보드(오케스트레이션) — 메인 에이전트가 목표를 태스크로 분해하고,
+# 오케스트레이터 루프가 의존성이 풀린 태스크를 잡으로 디스패치한다.
+ARTIFACTS_DIR = DATA_DIR / "artifacts"   # 미디어 산출물 저장 위치
+ORCH_POLL_SEC = float(os.environ.get("AOS_ORCH_POLL_SEC", "3"))
+ORCH_MAX_TASKS = int(os.environ.get("AOS_ORCH_MAX_TASKS", "10"))
+ORCH_MAX_INFLIGHT = int(os.environ.get("AOS_ORCH_MAX_INFLIGHT", "3"))
+ORCH_UPSTREAM_CLIP_CHARS = 6000  # 하류 프롬프트에 넣는 상류 출력당 최대 길이
+MEDIA_TIMEOUT_SEC = int(os.environ.get("AOS_MEDIA_TIMEOUT_SEC", "300"))
+# API 폴백용 미디어 모델 (모델명이 자주 바뀌므로 env로 교체 가능하게)
+MEDIA_TTS_MODEL = os.environ.get("AOS_MEDIA_TTS_MODEL",
+                                 "gemini-2.5-flash-preview-tts")

@@ -26,6 +26,7 @@ def tmp_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "WORKSPACES_PATH", tmp_path / "workspaces.json")
     monkeypatch.setattr(config, "SETTINGS_PATH", tmp_path / "settings.json")
     monkeypatch.setattr(config, "WORKSPACES_DIR", tmp_path / "workspaces")
+    monkeypatch.setattr(config, "ARTIFACTS_DIR", tmp_path / "artifacts")
     monkeypatch.setattr(config, "VAULT_PATH", tmp_path / "vault")
     monkeypatch.setattr(config, "MEMORY_DIR", tmp_path / "vault" / "Agentic OS")
     return tmp_path

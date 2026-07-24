@@ -34,6 +34,7 @@
     <svg class="spark" viewBox="0 0 24 24" aria-hidden="true"><use href="#spark-mark"/></svg>
     <a class="wordmark" href="/">Agentic OS</a>
   </div>
+  <a class="side-nav-link" href="/board">🗂 {{ '비전 보드' | t }}</a>
   <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
   <section class="side-usage" id="usage" hx-get="/partials/usage" hx-trigger="load, every 15s"></section>
   <div class="side-foot">

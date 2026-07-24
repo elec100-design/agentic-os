@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ project['title'] or ('프로젝트' | t) ~ ' #' ~ project['id'] }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+<script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<main class="page page-wide">
+<a class="back-link" href="/board">{{ '← 비전 보드' | t }}</a>
+<h1 class="job-title">
+  {{ project['title'] or project['goal'][:60] }}
+  <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
+        onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
+    <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
+  </form>
+</h1>
+<p class="project-goal-full">{{ project['goal'] }}</p>
+{% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
+
+<!-- 상태 배너 + DAG 그래프 (2초마다 갱신 — 노드 상태가 실시간 반영된다) -->
+<div id="board" hx-get="/partials/board/{{ project['id'] }}" hx-trigger="load, every 2s"></div>
+
+<!-- 노드 클릭 시 태스크 상세 -->
+<div id="task-detail"></div>
+</main>
+
+<script src="/static/marked.min.js?v={{ asset_v() }}"></script>
+<script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
+<script src="/static/render.js?v={{ asset_v() }}"></script>
+<script>
+// 선택 상태는 JS 변수로 유지 — 2초 폴링이 SVG를 갈아끼워도 복원된다.
+let selTask = null, selStatus = null;
+
+async function selectTask(id) {
+  selTask = id;
+  const r = await fetch(`/partials/task/${id}`);
+  if (!r.ok) return;
+  const panel = document.getElementById("task-detail");
+  panel.innerHTML = await r.text();
+  const src = panel.querySelector(".task-src");
+  if (src) renderMarkdown(panel.querySelector(".task-out"), src.textContent);
+  const node = document.querySelector(`.graph-node[data-task="${id}"]`);
+  selStatus = node ? node.dataset.status : null;
+  highlightSel();
+}
+
+function highlightSel() {
+  document.querySelectorAll(".graph-node").forEach(n =>
+    n.classList.toggle("selected", n.dataset.task == selTask));
+}
+
+document.body.addEventListener("htmx:afterSwap", (e) => {
+  if (e.target.id !== "board") return;
+  highlightSel();
+  // 선택된 태스크의 상태가 바뀐 순간에만 상세를 다시 불러온다
+  // (매번 갈아끼우면 미디어 재생이 끊기므로)
+  if (selTask !== null) {
+    const node = document.querySelector(`.graph-node[data-task="${selTask}"]`);
+    if (node && node.dataset.status !== selStatus) selectTask(selTask);
+  }
+});
+</script>
+</body>
+</html>

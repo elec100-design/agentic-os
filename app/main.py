@@ -21,7 +21,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import (
     codexbar, config, council, db, github_cli, health, i18n, memory, models,
-    settings, setup, stream_hub, workspace, worker,
+    orchestrator, settings, setup, stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -94,6 +94,7 @@ async def lifespan(app):
         # 그룹 없는 기존 노트를 작업 위치 기준으로 소급 자동 그룹핑 (멱등)
         memory.backfill_auto_groups(db.list_note_workdirs(db.get_conn()))
         tasks.append(asyncio.create_task(worker.worker_loop(stop)))
+        tasks.append(asyncio.create_task(orchestrator.orchestrator_loop(stop)))
         tasks.append(asyncio.create_task(codexbar.refresh_loop(stop)))
         tasks.append(asyncio.create_task(models.refresh_loop(stop)))
     yield
@@ -677,3 +678,149 @@ def note_delete(request: Request, path: str = Form(...)):
     # 노트에 연결된 작업도 함께 삭제 → 작업큐에서 사라진다
     db.delete_jobs_by_note(db.get_conn(), resolved)
     return _render_memory(request)
+
+
+# --- 비전 보드 (프로젝트 오케스트레이션) ---
+
+def _project_or_404(conn, project_id):
+    project = db.get_project(conn, project_id)
+    if project is None:
+        raise HTTPException(status_code=404)
+    return project
+
+
+def _project_progress(conn, projects):
+    """프로젝트 목록에 완료/전체 태스크 수를 붙인다."""
+    rows = []
+    for p in projects:
+        tasks = db.list_tasks(conn, p["id"])
+        rows.append({**dict(p), "total": len(tasks),
+                     "done": sum(1 for t in tasks if t["status"] == "done")})
+    return rows
+
+
+@app.get("/board", response_class=HTMLResponse)
+def board_page(request: Request):
+    conn = db.get_conn()
+    return templates.TemplateResponse(
+        request, "board.html",
+        {"projects": _project_progress(conn, db.list_projects(conn))})
+
+
+@app.post("/projects")
+def create_project(goal: str = Form(...), workdir: str = Form("")):
+    conn = db.get_conn()
+    if not workspace.valid_path(workdir):
+        workdir = ""
+    project_id = orchestrator.start_project(
+        conn, goal.strip(), workdir=workdir or None,
+        enabled=settings.enabled_providers())
+    return RedirectResponse(f"/projects/{project_id}", status_code=303)
+
+
+@app.get("/projects/{project_id}", response_class=HTMLResponse)
+def project_page(request: Request, project_id: int):
+    conn = db.get_conn()
+    project = _project_or_404(conn, project_id)
+    return templates.TemplateResponse(
+        request, "project.html", {"project": project})
+
+
+@app.get("/partials/projects", response_class=HTMLResponse)
+def partial_projects(request: Request):
+    conn = db.get_conn()
+    return templates.TemplateResponse(
+        request, "partials/projects.html",
+        {"projects": _project_progress(conn, db.list_projects(conn))})
+
+
+@app.get("/partials/board/{project_id}", response_class=HTMLResponse)
+def partial_board(request: Request, project_id: int):
+    conn = db.get_conn()
+    project = _project_or_404(conn, project_id)
+    tasks = db.list_tasks(conn, project_id)
+    return templates.TemplateResponse(
+        request, "partials/board.html",
+        {"project": project, "tasks": tasks,
+         "graph": orchestrator.layout_graph(tasks)})
+
+
+@app.get("/partials/task/{task_id}", response_class=HTMLResponse)
+def partial_task(request: Request, task_id: int):
+    conn = db.get_conn()
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404)
+    artifact_name = (Path(task["artifact_path"]).name
+                     if task["artifact_path"] else None)
+    return templates.TemplateResponse(
+        request, "partials/task_detail.html",
+        {"task": task, "artifact_name": artifact_name})
+
+
+def _project_action(project_id, fn):
+    conn = db.get_conn()
+    _project_or_404(conn, project_id)
+    try:
+        fn(conn, project_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return RedirectResponse(f"/projects/{project_id}", status_code=303)
+
+
+@app.post("/projects/{project_id}/approve")
+def approve_project(project_id: int):
+    return _project_action(project_id, orchestrator.approve)
+
+
+@app.post("/projects/{project_id}/replan")
+def replan_project(project_id: int):
+    return _project_action(project_id, orchestrator.replan)
+
+
+@app.post("/projects/{project_id}/retry-plan")
+def retry_plan_project(project_id: int):
+    return _project_action(project_id, orchestrator.retry_plan)
+
+
+@app.post("/projects/{project_id}/cancel")
+def cancel_project_endpoint(project_id: int):
+    return _project_action(project_id, orchestrator.cancel_project)
+
+
+@app.post("/projects/{project_id}/delete")
+def delete_project_endpoint(project_id: int):
+    conn = db.get_conn()
+    _project_or_404(conn, project_id)
+    orchestrator.cancel_project(conn, project_id)
+    db.delete_project(conn, project_id)
+    # 미디어 산출물 폴더도 함께 정리
+    artifacts = config.ARTIFACTS_DIR / str(project_id)
+    if artifacts.is_dir():
+        import shutil
+        shutil.rmtree(artifacts, ignore_errors=True)
+    return RedirectResponse("/board", status_code=303)
+
+
+@app.post("/tasks/{task_id}/retry")
+def retry_task_endpoint(task_id: int):
+    conn = db.get_conn()
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404)
+    try:
+        orchestrator.retry_task(conn, task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return RedirectResponse(f"/projects/{task['project_id']}", status_code=303)
+
+
+@app.get("/artifacts/{project_id}/{filename}")
+def serve_artifact(project_id: int, filename: str):
+    """미디어 산출물 서빙 — ARTIFACTS_DIR 밖 경로 접근을 차단한다."""
+    from fastapi.responses import FileResponse
+    base = config.ARTIFACTS_DIR.resolve()
+    target = (base / str(project_id) / filename).resolve()
+    if not target.is_relative_to(base) or not target.is_file():
+        raise HTTPException(status_code=404)
+    return FileResponse(target)

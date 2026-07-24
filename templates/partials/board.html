@@ -1,0 +1,82 @@
+{% set ICON = {'text': '📝', 'image': '🖼️', 'video': '🎬', 'audio': '🎵'} %}
+{% set TSTATUS = {'pending': '대기', 'queued': '대기열', 'running': '실행 중',
+                  'done': '완료', 'failed': '실패'} %}
+{% set done_n = tasks | selectattr('status', 'equalto', 'done') | list | length %}
+
+{% if project['status'] == 'planning' %}
+<div class="board-banner banner-info">
+  <span class="spinner"></span>
+  {{ '메인 에이전트가 계획을 세우는 중입니다…' | t }}
+  <span class="banner-meta">{{ project['planner'] }}</span>
+  <form method="post" action="/projects/{{ project['id'] }}/cancel" class="inline-form">
+    <button class="btn-ghost">{{ '취소' | t }}</button>
+  </form>
+</div>
+{% elif project['status'] == 'plan_failed' %}
+<div class="board-banner banner-err">
+  ⚠️ {{ project['error'] or ('계획 수립에 실패했습니다' | t) }}
+  <form method="post" action="/projects/{{ project['id'] }}/retry-plan" class="inline-form">
+    <button class="btn-primary">{{ '계획 재시도' | t }}</button>
+  </form>
+</div>
+{% elif project['status'] == 'plan_ready' %}
+<div class="board-banner banner-approve">
+  <b>{{ '계획이 준비되었습니다.' | t }}</b> {{ '그래프를 검토한 뒤 승인하면 자동으로 실행됩니다.' | t }}
+  <form method="post" action="/projects/{{ project['id'] }}/approve" class="inline-form">
+    <button class="btn-primary">{{ '✓ 승인하고 실행' | t }}</button>
+  </form>
+  <form method="post" action="/projects/{{ project['id'] }}/replan" class="inline-form">
+    <button class="btn-ghost">{{ '재계획' | t }}</button>
+  </form>
+  <form method="post" action="/projects/{{ project['id'] }}/cancel" class="inline-form">
+    <button class="btn-ghost">{{ '취소' | t }}</button>
+  </form>
+</div>
+{% elif project['status'] == 'running' %}
+<div class="board-banner banner-info">
+  <span class="spinner"></span>
+  {{ '실행 중' | t }} — {{ '완료' | t }} {{ done_n }}/{{ tasks | length }}
+  <form method="post" action="/projects/{{ project['id'] }}/cancel" class="inline-form">
+    <button class="btn-ghost">{{ '취소' | t }}</button>
+  </form>
+</div>
+{% elif project['status'] == 'paused' %}
+<div class="board-banner banner-err">
+  ⚠️ {{ project['error'] or ('일시정지됨' | t) }} —
+  {{ '실패한 태스크를 클릭해 재시도하거나, 재계획하세요.' | t }}
+  <form method="post" action="/projects/{{ project['id'] }}/replan" class="inline-form">
+    <button class="btn-ghost">{{ '재계획' | t }}</button>
+  </form>
+  <form method="post" action="/projects/{{ project['id'] }}/cancel" class="inline-form">
+    <button class="btn-ghost">{{ '취소' | t }}</button>
+  </form>
+</div>
+{% elif project['status'] == 'done' %}
+<div class="board-banner banner-done">✅ {{ '프로젝트가 완료되었습니다.' | t }}</div>
+{% elif project['status'] == 'cancelled' %}
+<div class="board-banner banner-muted">{{ '취소된 프로젝트입니다.' | t }}</div>
+{% endif %}
+
+{% if tasks %}
+<div class="graph-canvas">
+<svg width="{{ graph['width'] }}" height="{{ graph['height'] }}"
+     viewBox="0 0 {{ graph['width'] }} {{ graph['height'] }}" class="graph-svg">
+  {% for e in graph['edges'] %}
+  <path class="graph-edge{% if e['done'] %} done{% endif %}" d="{{ e['path'] }}"/>
+  {% endfor %}
+  {% for n in graph['nodes'] %}
+  <g class="graph-node st-{{ n['status'] }}" data-task="{{ n['id'] }}" data-status="{{ n['status'] }}"
+     transform="translate({{ n['x'] }}, {{ n['y'] }})" onclick="selectTask({{ n['id'] }})">
+    <rect class="node-box" width="{{ n['w'] }}" height="{{ n['h'] }}" rx="10"/>
+    <text class="node-title" x="12" y="24">{{ ICON[n['task_type']] }} {{ n['title'][:18] }}{% if n['title'] | length > 18 %}…{% endif %}</text>
+    <text class="node-meta" x="12" y="48">{{ n['provider'] }}</text>
+    <text class="node-status" x="{{ n['w'] - 12 }}" y="48" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
+    {% if n['artifact_path'] and n['task_type'] == 'image' %}
+    <image href="/artifacts/{{ project['id'] }}/{{ n['artifact_path'].split('/')[-1] }}"
+           x="{{ n['w'] - 40 }}" y="8" width="28" height="28" preserveAspectRatio="xMidYMid slice"/>
+    {% endif %}
+  </g>
+  {% endfor %}
+</svg>
+</div>
+{% endif %}

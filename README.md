@@ -61,6 +61,12 @@ subscription account and read/write files in permitted folders.
   MoA / OpenRouter Fusion style). Pick "Council" from the agent chip.
   Exhausted/failed agents are dropped automatically; tune participants,
   aggregator, and rounds via `AOS_COUNCIL_*`
+- **Vision board** — give a project goal at `/board` and a main orchestrator
+  agent decomposes it into a dependency-ordered task DAG. Review the plan on
+  an n8n-style workflow graph, approve, and sub-agents (claude/agy/grok/
+  hermes) run it to completion — including image generation via the agy/grok
+  CLIs and video via grok, with artifacts previewed right on the graph.
+  Failures pause the project for one-click retry or replanning
 - **Job queue** — SQLite-backed sequential queue, live output via SSE,
   cancel/delete
 - **Auto-resume** — detects rate limits, waits until `resume_at`, then

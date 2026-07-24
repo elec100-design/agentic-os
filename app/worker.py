@@ -48,6 +48,10 @@ async def run_job(conn, job, providers=None, save=True):
         from app import council
         await council.run_council(conn, job, providers=providers, save=save)
         return
+    if job["provider"] == "media":
+        from app import media
+        await media.run_media_job(conn, job)
+        return
     provider = providers[job["provider"]]
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
     # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.

@@ -30,6 +30,36 @@ CREATE TABLE IF NOT EXISTS usage_log (
   outcome TEXT NOT NULL,
   job_id INTEGER
 );
+CREATE TABLE IF NOT EXISTS projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  goal TEXT NOT NULL,
+  title TEXT,
+  status TEXT NOT NULL DEFAULT 'planning',
+  plan_job_id INTEGER,
+  planner TEXT,
+  workdir TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL,
+  seq INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  task_type TEXT NOT NULL DEFAULT 'text',
+  provider TEXT NOT NULL,
+  depends_on TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  job_id INTEGER,
+  output TEXT NOT NULL DEFAULT '',
+  artifact_path TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT
+);
 """
 
 
@@ -169,6 +199,108 @@ def recover_running(conn):
     )
     conn.execute(
         "UPDATE jobs SET status = 'queued' WHERE status = 'running'")
+    conn.commit()
+
+
+# --- 비전 보드: 프로젝트(목표)와 태스크(분해된 작업 단위) ---
+# 태스크는 실행 시점에 jobs 행으로 디스패치된다(task.job_id 링크). 프로젝트/
+# 태스크 테이블은 오케스트레이터의 북키핑 전용이고 실행은 전부 worker가 한다.
+
+def create_project(conn, goal, workdir=None):
+    cur = conn.execute(
+        "INSERT INTO projects (goal, workdir, created_at) VALUES (?, ?, ?)",
+        (goal, workdir, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_project(conn, project_id):
+    return conn.execute(
+        "SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+
+def list_projects(conn, limit=50):
+    return conn.execute(
+        "SELECT * FROM projects ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def active_projects(conn):
+    """오케스트레이터 루프가 전진시켜야 하는 프로젝트들."""
+    return conn.execute(
+        "SELECT * FROM projects WHERE status IN ('planning', 'running')"
+    ).fetchall()
+
+
+def update_project(conn, project_id, **fields):
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE projects SET {cols} WHERE id = ?",
+                 (*fields.values(), project_id))
+    conn.commit()
+
+
+def delete_project(conn, project_id):
+    """프로젝트와 소속 태스크, 태스크가 만든 잡(계획 잡 포함)까지 삭제."""
+    project = get_project(conn, project_id)
+    if project is None:
+        return
+    job_ids = [r["job_id"] for r in conn.execute(
+        "SELECT job_id FROM tasks WHERE project_id = ? AND job_id IS NOT NULL",
+        (project_id,))]
+    if project["plan_job_id"]:
+        job_ids.append(project["plan_job_id"])
+    for jid in job_ids:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (jid,))
+    conn.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    conn.commit()
+
+
+def create_task(conn, project_id, seq, title, description, task_type,
+                provider, depends_on=""):
+    cur = conn.execute(
+        "INSERT INTO tasks (project_id, seq, title, description, task_type, "
+        "provider, depends_on, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (project_id, seq, title, description, task_type, provider, depends_on,
+         now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_task(conn, task_id):
+    return conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+
+
+def task_by_job(conn, job_id):
+    """잡을 만든 태스크 (미디어 잡이 산출물 경로를 정할 때 사용)."""
+    return conn.execute(
+        "SELECT * FROM tasks WHERE job_id = ?", (job_id,)).fetchone()
+
+
+def list_tasks(conn, project_id):
+    return conn.execute(
+        "SELECT * FROM tasks WHERE project_id = ? ORDER BY seq", (project_id,)
+    ).fetchall()
+
+
+def update_task(conn, task_id, **fields):
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE tasks SET {cols} WHERE id = ?",
+                 (*fields.values(), task_id))
+    conn.commit()
+
+
+def delete_tasks(conn, project_id, statuses=None):
+    """프로젝트의 태스크 삭제 (statuses를 주면 그 상태만 — 재계획용)."""
+    if statuses:
+        placeholders = ", ".join("?" for _ in statuses)
+        conn.execute(
+            f"DELETE FROM tasks WHERE project_id = ? AND status IN ({placeholders})",
+            (project_id, *statuses))
+    else:
+        conn.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
     conn.commit()
 
 

@@ -94,3 +94,21 @@ spawn하므로(`app/worker.py` `_clean_env`), 실제 호출 없이 argv·파싱�
 - **stateless 호출** — 각 실행은 독립적. 세션 재개는 CLI가 지원할 때만.
 - **빌드 도구 없음** — 프론트엔드는 손대지 않아도 새 provider가 칩·라우팅에
   자동 반영된다(`/setup`에서 활성화 시).
+
+## 부록: 미디어 생성 능력 스파이크 (2026-07-25, vision board Phase 0)
+
+CLI 구독 로그인만으로 헤드리스 미디어 생성이 가능한지 실측한 결과.
+
+| 능력 | agy (Antigravity) | grok | 비고 |
+|---|---|---|---|
+| 이미지 | ✅ `generate_image` (실측: 1024×1024 PNG 생성 확인) | ✅ `image_gen`, `image_edit` (실측: PNG 생성 확인) | 둘 다 CLI 경로 사용 가능 |
+| 비디오 | ❌ 없음 | 🔶 `image_to_video`, `reference_to_video` (도구 존재 확인, 실생성은 미검증) | grok CLI 경로 |
+| 오디오/음성 | ❌ 없음 | ❌ 없음 | API 폴백 필요 (`GEMINI_API_KEY` TTS) |
+
+실측 시 주의점:
+- `agy`는 `--dangerously-skip-permissions` 필요, 산출물을 자기 스크래치 디렉토리
+  (`~/.gemini/antigravity-cli/scratch/`)에 저장할 수 있음 → 프롬프트로 절대 경로를
+  마지막 줄에 출력하게 하고, 그 경로에서 artifacts 디렉토리로 복사한다.
+- `grok`은 `--always-approve` 필요, 요청한 cwd에 저장함(동일하게 경로 출력을 계약으로).
+- 모델 목록(`agy models`/`grok models`)에는 미디어 모델이 노출되지 않는다 —
+  미디어는 에이전트의 내부 도구를 통해서만 접근 가능.

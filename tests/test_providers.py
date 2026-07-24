@@ -20,6 +20,8 @@ def test_claude_build_new():
     cmd = ClaudeProvider().build_command("안녕")
     assert cmd == [
         "claude", "-p", "--output-format", "json",
+        # 사용자 전역 훅이 result를 덮어쓰지 않도록 훅 비활성
+        "--settings", '{"disableAllHooks": true}',
         "--allowedTools", "WebSearch", "WebFetch",
         "--", "안녕",
     ]
