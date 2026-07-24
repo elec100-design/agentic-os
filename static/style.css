@@ -1567,3 +1567,183 @@ h2.section-label {
   white-space: nowrap;
 }
 .lang-toggle:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ─── 비전 보드 (프로젝트 오케스트레이션) ─────────────────────────── */
+
+.side-nav-link {
+  display: block;
+  margin: 0 1rem 0.4rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 8px;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.88rem;
+}
+.side-nav-link:hover { background: var(--surface); color: var(--accent); }
+
+.page-wide { max-width: 1100px; }
+.board-hero { text-align: center; margin: 1rem 0 1.4rem; }
+.board-hero h1 { font-family: var(--font-display); font-weight: 500; }
+.board-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.3rem; }
+.inline-form { display: inline; }
+
+/* 프로젝트 목록 카드 */
+.project-list { display: flex; flex-direction: column; gap: 0.7rem; }
+.project-card {
+  display: block;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.12s ease;
+}
+.project-card:hover { border-color: var(--accent); }
+.project-card-head { display: flex; align-items: center; gap: 0.6rem; }
+.project-title { font-size: 0.95rem; }
+.project-goal { color: var(--muted); font-size: 0.83rem; margin: 0.3rem 0 0.45rem; }
+.project-goal-full { color: var(--muted); font-size: 0.9rem; margin: 0.2rem 0 0.8rem; }
+.project-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.project-progress { display: inline-flex; align-items: center; gap: 0.45rem; }
+.progress-track {
+  width: 90px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+  display: inline-block;
+}
+.progress-fill { display: block; height: 100%; background: var(--ok); }
+.project-date { margin-left: auto; }
+
+/* 프로젝트 상태 배지 */
+.badge-proj-planning { background: var(--warn-bg); color: var(--warn); }
+.badge-proj-plan_ready { background: var(--accent-soft); color: var(--accent); }
+.badge-proj-running { background: var(--warn-bg); color: var(--warn); }
+.badge-proj-running::before { animation: pulse 1.4s ease-in-out infinite; }
+.badge-proj-paused { background: var(--err-bg); color: var(--err); }
+.badge-proj-done { background: var(--surface-2); color: var(--ok); }
+.badge-proj-plan_failed, .badge-proj-failed { background: var(--err-bg); color: var(--err); }
+.badge-proj-cancelled { background: var(--surface-2); color: var(--muted); }
+/* 태스크 배지 (기존 badge-* 재사용 + 추가 상태) */
+.badge-pending, .badge-queued { background: var(--surface-2); color: var(--muted); }
+
+/* 상태 배너 */
+.board-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 0.88rem;
+  margin-bottom: 1rem;
+}
+.banner-approve { border-color: var(--accent); background: var(--accent-soft); }
+.banner-err { border-color: var(--err); background: var(--err-bg); }
+.banner-done { border-color: var(--ok); }
+.banner-muted { color: var(--muted); }
+.banner-meta { color: var(--muted); font-size: 0.78rem; }
+.board-banner .inline-form { margin-left: 0.2rem; }
+.board-banner .inline-form:first-of-type { margin-left: auto; }
+
+.btn-primary {
+  padding: 0.3rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* DAG 그래프 (n8n식) — SVG는 서버가 렌더, 색은 CSS 변수로 테마 대응 */
+.graph-canvas {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle, var(--border) 1px, transparent 1px) 0 0 / 22px 22px,
+    var(--bg);
+  margin-bottom: 1rem;
+}
+.graph-edge {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 2;
+}
+.graph-edge.done { stroke: var(--ok); }
+.graph-node { cursor: pointer; }
+.graph-node .node-box {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1.5;
+  transition: stroke 0.12s ease;
+}
+.graph-node:hover .node-box { stroke: var(--accent); }
+.graph-node.selected .node-box { stroke: var(--accent); stroke-width: 2.5; }
+.graph-node.st-running .node-box {
+  stroke: var(--warn);
+  stroke-width: 2;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.graph-node.st-done .node-box { stroke: var(--ok); }
+.graph-node.st-failed .node-box { stroke: var(--err); stroke-width: 2; }
+.node-title { fill: var(--text); font-size: 0.8rem; font-weight: 600; }
+.node-meta { fill: var(--muted); font-size: 0.72rem; }
+.node-status { fill: var(--muted); font-size: 0.72rem; }
+.graph-node.st-running .node-status { fill: var(--warn); }
+.graph-node.st-done .node-status { fill: var(--ok); }
+.graph-node.st-failed .node-status { fill: var(--err); }
+@media (prefers-reduced-motion: reduce) {
+  .graph-node.st-running .node-box, .spinner { animation: none; }
+}
+
+/* 태스크 상세 패널 */
+.task-panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 0.9rem 1.1rem;
+}
+.task-panel-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+}
+.task-panel-head .spacer { flex: 1; }
+.task-panel-head a.btn-ghost { text-decoration: none; }
+.task-desc { color: var(--muted); font-size: 0.86rem; white-space: pre-wrap; }
+.task-artifact { margin: 0.7rem 0; }
+.task-artifact img, .task-artifact video {
+  max-width: 100%;
+  max-height: 420px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.task-artifact audio { width: 100%; }
+.task-out { margin-top: 0.6rem; }

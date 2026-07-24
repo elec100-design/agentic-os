@@ -151,7 +151,25 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
       코드 하이라이트), 아래 "이어서 진행" 입력으로 연속 대화. 비스레드 노트는
       전체 본문 렌더로 폴백
 
-### V4 — 확장 기능 후보
+### V4 — 비전 보드 (2026-07-25)
+- [x] 미디어 능력 스파이크 — agy·grok 이미지 생성 실측 확인, grok 비디오 도구
+      확인, 오디오는 API 폴백 필요 (docs/PROVIDERS.md 부록)
+- [x] `projects`/`tasks` 테이블 + 헬퍼 (`db.py`) — 태스크는 기존 jobs로 실행
+- [x] `app/orchestrator.py` — 계획(JSON 계약, 파싱 실패 자동 1회 재시도) →
+      승인 → `_advance` 멱등 실행 루프(의존성 게이트, inflight 상한, 실패
+      일시정지, 재시도·재계획·취소), `layout_graph` 위상 배치
+- [x] `app/media.py` — 가상 provider `media`: 이미지 agy→grok CLI 폴백,
+      비디오 grok CLI, 오디오 Gemini TTS API(옵트인 키, 인프로세스 전용),
+      산출물 경로 계약(출력 마지막 줄)
+- [x] UI — `/board` 목록·컴포저, `/projects/{id}` n8n식 DAG(서버 렌더 SVG +
+      HTMX 2s 폴링), 노드 클릭 태스크 상세 패널, 미디어 썸네일·플레이어,
+      승인/재계획/재시도/취소, 다크모드
+- [x] 테스트 46건 (orchestrator 32 · media 7 · board routes 7) + E2E
+      (mock provider로 계획→승인→의존성 실행→완료)
+- [x] 실전 검증 — 실제 프로젝트(grok 계획 + claude 글 + agy 이미지 + claude
+      검수)가 보드 위에서 자동 완주
+
+### V5 — 확장 기능 후보
 - [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")
 - [ ] antigravity/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
 - [ ] 벡터/임베딩 기반 메모리 검색

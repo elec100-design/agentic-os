@@ -261,4 +261,45 @@ EN = {
         "Real usage display (auto-routing by claude/grok remaining quota)",
     "GitHub 리포를 작업 위치로 연동": "Use a GitHub repo as a workspace",
     "노트(메모리) 전문 검색": "Full-text search over notes (memory)",
+
+    # --- 비전 보드 ---
+    "비전 보드": "Vision board",
+    "← 비전 보드": "← Vision board",
+    "목표를 주면 메인 에이전트가 태스크로 분해하고, 승인 후 하위 에이전트들이 끝까지 완성합니다.":
+        "Give a goal — the main agent breaks it into tasks, and after approval "
+        "sub-agents carry it to completion.",
+    "프로젝트 목표를 설명해 주세요… 예: 신제품 소개 랜딩페이지 문구와 히어로 이미지를 만들어줘":
+        "Describe your project goal… e.g. write landing-page copy and a hero image "
+        "for our new product",
+    "프로젝트 시작": "Start project",
+    "프로젝트": "Projects",
+    "아직 프로젝트가 없습니다. 위에서 첫 목표를 보내 보세요.":
+        "No projects yet. Send your first goal above.",
+    "완료": "Done",
+    "계획 중": "Planning",
+    "계획 실패": "Plan failed",
+    "승인 대기": "Awaiting approval",
+    "실행 중": "Running",
+    "일시정지": "Paused",
+    "실패": "Failed",
+    "취소됨": "Cancelled",
+    "대기": "Pending",
+    "대기열": "Queued",
+    "메인 에이전트가 계획을 세우는 중입니다…": "The main agent is drafting a plan…",
+    "계획이 준비되었습니다.": "The plan is ready.",
+    "그래프를 검토한 뒤 승인하면 자동으로 실행됩니다.":
+        "Review the graph and approve to run automatically.",
+    "✓ 승인하고 실행": "✓ Approve & run",
+    "재계획": "Replan",
+    "계획 재시도": "Retry planning",
+    "계획 수립에 실패했습니다": "Failed to draft a plan",
+    "일시정지됨": "Paused",
+    "실패한 태스크를 클릭해 재시도하거나, 재계획하세요.":
+        "Click the failed task to retry, or replan.",
+    "프로젝트가 완료되었습니다.": "Project completed.",
+    "취소된 프로젝트입니다.": "This project was cancelled.",
+    "재시도": "Retry",
+    "실행 로그 →": "Run log →",
+    "프로젝트와 모든 태스크·산출물을 삭제할까요?":
+        "Delete this project with all tasks and artifacts?",
 }

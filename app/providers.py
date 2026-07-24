@@ -36,7 +36,10 @@ class ClaudeProvider:
         # 전부 도구 이름으로 삼킨다. 프롬프트가 거기 끼면
         # "Input must be provided ... when using --print" 로 실패한다.
         # 도구를 먼저 두고 `--` 로 옵션 파싱을 끝낸 뒤 프롬프트를 넣는다.
-        cmd = ["claude", "-p", "--output-format", "json"]
+        # 사용자 전역 훅(예: 세션 종료 시 위키 캡처)이 돌면 JSON result가
+        # 실제 답 대신 훅 응답으로 덮인다(2026-07-25 실측) → 훅 전체 비활성.
+        cmd = ["claude", "-p", "--output-format", "json",
+               "--settings", '{"disableAllHooks": true}']
         if model:
             cmd += ["--model", model]
         if session_id:
@@ -148,6 +151,10 @@ PROVIDERS = {
 # 협의(Council) 모드 — 실제 CLI가 아니라 app.council 오케스트레이터가 처리하는
 # 가상 프로바이더 값. PROVIDERS에는 넣지 않는다(3메서드 인터페이스 미구현).
 COUNCIL = "council"
+
+# 미디어 생성 — app.media가 처리하는 가상 프로바이더 값(비전 보드 태스크 전용).
+# 잡의 model 컬럼에 미디어 종류(image|video|audio)를 실어 전달한다.
+MEDIA = "media"
 
 # 복잡한 작업 판별 키워드 — 매칭되거나 프롬프트가 길면 복잡한 작업으로 간주
 _COMPLEX_KW = [

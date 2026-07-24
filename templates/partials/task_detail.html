@@ -1,0 +1,43 @@
+{% set ICON = {'text': '📝', 'image': '🖼️', 'video': '🎬', 'audio': '🎵'} %}
+{% set TSTATUS = {'pending': '대기', 'queued': '대기열', 'running': '실행 중',
+                  'done': '완료', 'failed': '실패'} %}
+<div class="task-panel">
+  <div class="task-panel-head">
+    <b>{{ ICON[task['task_type']] }} [{{ task['seq'] }}] {{ task['title'] }}</b>
+    <span class="badge badge-{{ task['status'] }}">{{ TSTATUS[task['status']] | t }}</span>
+    <span class="provider-name">{{ task['provider'] }}</span>
+    <span class="spacer"></span>
+    {% if task['status'] == 'failed' %}
+    <form method="post" action="/tasks/{{ task['id'] }}/retry" class="inline-form">
+      <button class="btn-primary">{{ '재시도' | t }}</button>
+    </form>
+    {% endif %}
+    {% if task['job_id'] %}
+    <a class="btn-ghost" href="/jobs/{{ task['job_id'] }}">{{ '실행 로그 →' | t }}</a>
+    {% endif %}
+  </div>
+
+  <p class="task-desc">{{ task['description'] }}</p>
+
+  {% if task['error'] %}
+  <pre class="err-raw">{{ task['error'] }}</pre>
+  {% endif %}
+
+  {% if task['artifact_path'] and task['status'] == 'done' %}
+  {% set url = '/artifacts/' ~ task['project_id'] ~ '/' ~ artifact_name %}
+  <div class="task-artifact">
+    {% if task['task_type'] == 'image' %}
+    <a href="{{ url }}" target="_blank"><img src="{{ url }}" alt="{{ task['title'] }}"></a>
+    {% elif task['task_type'] == 'video' %}
+    <video src="{{ url }}" controls></video>
+    {% elif task['task_type'] == 'audio' %}
+    <audio src="{{ url }}" controls></audio>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if task['output'] and task['task_type'] == 'text' %}
+  <pre class="task-src" hidden>{{ task['output'] }}</pre>
+  <div class="md-body task-out"></div>
+  {% endif %}
+</div>

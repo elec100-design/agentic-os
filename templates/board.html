@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ '비전 보드' | t }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+<script src="/static/htmx.min.js"></script>
+</head>
+<body>
+<main class="page">
+<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
+<div class="hero board-hero">
+  <h1>{{ '비전 보드' | t }}</h1>
+  <p class="board-sub">{{ '목표를 주면 메인 에이전트가 태스크로 분해하고, 승인 후 하위 에이전트들이 끝까지 완성합니다.' | t }}</p>
+</div>
+
+<form class="composer" method="post" action="/projects">
+  <textarea name="goal" rows="3" required placeholder="{{ '프로젝트 목표를 설명해 주세요… 예: 신제품 소개 랜딩페이지 문구와 히어로 이미지를 만들어줘' | t }}"></textarea>
+  <div class="composer-bar">
+    <span class="spacer"></span>
+    <button type="submit" class="send" aria-label="{{ '프로젝트 시작' | t }}">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+      </svg>
+    </button>
+  </div>
+</form>
+
+<section class="panel" id="projects" hx-get="/partials/projects" hx-trigger="load, every 5s"></section>
+</main>
+</body>
+</html>
