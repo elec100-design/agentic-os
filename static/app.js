@@ -51,12 +51,15 @@ applyUsageState();
 
 // ---- ⌘/Ctrl+Enter 전송 --------------------------------------------------
 // 컴포저 textarea에서 ⌘Enter(맥)·Ctrl+Enter로 폼 제출 (채팅 UX 표준)
-document.getElementById("prompt")?.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-    e.preventDefault();
-    e.target.form?.requestSubmit();
-  }
-});
+// 메인(#prompt)과 비전 보드(#goal) 모두 지원
+for (const id of ["prompt", "goal"]) {
+  document.getElementById(id)?.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      e.target.form?.requestSubmit();
+    }
+  });
+}
 
 // ---- 파일 첨부 칩 + 드래그 앤 드롭 -------------------------------------
 const composer = document.getElementById("composer");
@@ -64,6 +67,7 @@ const fileInput = document.getElementById("file-input");
 const chips = document.getElementById("file-chips");
 
 function renderChips() {
+  if (!chips || !fileInput) return;
   chips.innerHTML = "";
   for (const f of fileInput.files) {
     const chip = document.createElement("span");
@@ -73,22 +77,25 @@ function renderChips() {
   }
 }
 fileInput?.addEventListener("change", renderChips);
-composer?.addEventListener("dragover", (e) => {
-  e.preventDefault();
-  composer.classList.add("dragging");
-});
-composer?.addEventListener("dragleave", (e) => {
-  if (e.target === composer) composer.classList.remove("dragging");
-});
-composer?.addEventListener("drop", (e) => {
-  e.preventDefault();
-  composer.classList.remove("dragging");
-  const dt = new DataTransfer();
-  for (const f of fileInput.files) dt.items.add(f);
-  for (const f of e.dataTransfer.files) dt.items.add(f);
-  fileInput.files = dt.files;
-  renderChips();
-});
+// 파일 첨부 UI가 있는 페이지(메인)에서만 드래그 앤 드롭 활성화
+if (composer && fileInput) {
+  composer.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    composer.classList.add("dragging");
+  });
+  composer.addEventListener("dragleave", (e) => {
+    if (e.target === composer) composer.classList.remove("dragging");
+  });
+  composer.addEventListener("drop", (e) => {
+    e.preventDefault();
+    composer.classList.remove("dragging");
+    const dt = new DataTransfer();
+    for (const f of fileInput.files) dt.items.add(f);
+    for (const f of e.dataTransfer.files) dt.items.add(f);
+    fileInput.files = dt.files;
+    renderChips();
+  });
+}
 
 // ---- 에이전트/모델 선택 + 도구(+) 메뉴 ---------------------------------
 const providerInput = document.getElementById("provider-input");
@@ -133,6 +140,7 @@ function modelChipVisible(p) {
 }
 
 function refreshChips() {
+  if (!providerInput || !agentLabel || !modelBtn || !modelChipLabel) return;
   const p = providerInput.value;
   agentLabel.textContent = agentName(p);
   if (modelChipVisible(p)) {
@@ -256,9 +264,11 @@ const promptEl = document.getElementById("prompt");
 let hintTimer = null;
 
 async function updateAutoHint() {
+  // 비전 보드 등 힌트 UI가 없는 페이지에서는 no-op
+  if (!providerInput || !autoHint) return;
   if (providerInput.value !== "auto") { autoHint.hidden = true; return; }
   try {
-    const q = encodeURIComponent(promptEl.value || "");
+    const q = encodeURIComponent((promptEl && promptEl.value) || "");
     const res = await fetch(`/api/recommend?prompt=${q}`);
     if (!res.ok) return;
     const d = await res.json();

@@ -168,6 +168,44 @@ G9(미설치 CLI 감지)와 Phase 2 항목 일부를 먼저 구현.
       (mock provider로 계획→승인→의존성 실행→완료)
 - [x] 실전 검증 — 실제 프로젝트(grok 계획 + claude 글 + agy 이미지 + claude
       검수)가 보드 위에서 자동 완주
+- [x] **[완료] 보드 컴포저에 메인 챗 기능(모델·워크스페이스·도구) 포함**:
+      `templates/board.html` 프로젝트 폼에 `enctype="multipart/form-data"` +
+      `#file-chips` + `#tools-btn`/`#tools-popup`(files / attach_memory /
+      timeout_min)를 메인 composer와 동일 엘리먼트 id로 추가 → `static/app.js`
+      기존 파일칩·드래그앤드롭·팝업 로직을 JS 수정 없이 재사용. 백엔드
+      (`POST /projects`, `orchestrator.start_project`)는 업로드 저장·메모리
+      컨텍스트 선행·`timeout_sec`→plan job 전달을 이미 처리. 2026-07-25 회귀
+      테스트로 pytest 전체 295건 통과 확인.
+
+### V4 회귀 테스트 · 실측 체크리스트 (2026-07-25)
+
+통과한 테스트 요약:
+- pytest 전체 **295 passed** (orchestrator / board_routes / main / i18n /
+  workspace / models 관련 스위트 포함)
+- i18n 영문 기본 렌더 스모크 6건 통과 (미번역 키는 영문 원문 폴백)
+- 핫픽스: 선행 태스크에서 미해결로 표시된 `codex`→`claude` 폴백 4실패는
+  `codex`가 PROVIDERS(claude/antigravity/grok/hermes)에서 제거된 데 기인.
+  테스트 픽스처를 유효 provider(`grok`)로 교체해 해소 (`tests/test_orchestrator.py`,
+  `tests/test_board_routes.py`).
+
+수동/통합 시나리오 체크리스트:
+- [x] `/board`에서 에이전트(grok/claude/…)+모델 선택 후 프로젝트 생성 → plan job
+      `provider`/`model` 일치 (`test_create_project_with_provider_and_model`,
+      `test_start_project_with_explicit_planner_and_model`)
+- [x] 로컬 폴더 선택 → `project.workdir` 저장, 하위 task job `workdir` 상속
+      (`test_start_project_with_explicit_planner_and_model` workdir 검증)
+- [x] GitHub 리포 추가 후 선택 → `workdir`가 clone 경로 (workspace.add_local 경로
+      적용, `test_create_project_with_workdir_tools_and_model`)
+- [x] 파일/메모리/타임아웃 옵션이 plan 단계에 반영 (첨부 저장·`[메모리 컨텍스트]`
+      선행·`timeout_sec=20*60`, 동일 테스트)
+- [x] 기존 자동 planner 경로(필드 비움, provider=auto) 회귀 없음
+      (`test_start_project_queues_plan_job`, `_unknown_planner_falls_back_to_auto`)
+
+남은 한계:
+- 태스크별 개별 모델 선택은 여전히 제외 (plan 단계에서만 provider/model 지정,
+  하위 task 모델은 계획 결과로 결정)
+- Antigravity 사용량 실측 미지원, 세션 재개(`--resume`) 모델 id 실측 미검증은
+  V5 후보로 유지
 
 ### V5 — 확장 기능 후보
 - [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")

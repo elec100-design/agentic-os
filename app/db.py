@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS projects (
   status TEXT NOT NULL DEFAULT 'planning',
   plan_job_id INTEGER,
   planner TEXT,
+  planner_model TEXT,
   workdir TEXT,
   error TEXT,
   created_at TEXT NOT NULL,
@@ -84,6 +85,9 @@ def _migrate(conn):
     for col in ("model", "note_path", "workdir", "route_reason"):
         if col not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+    project_cols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)")}
+    if "planner_model" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN planner_model TEXT")
     conn.commit()
 
 
@@ -206,10 +210,11 @@ def recover_running(conn):
 # 태스크는 실행 시점에 jobs 행으로 디스패치된다(task.job_id 링크). 프로젝트/
 # 태스크 테이블은 오케스트레이터의 북키핑 전용이고 실행은 전부 worker가 한다.
 
-def create_project(conn, goal, workdir=None):
+def create_project(conn, goal, workdir=None, planner_model=None):
     cur = conn.execute(
-        "INSERT INTO projects (goal, workdir, created_at) VALUES (?, ?, ?)",
-        (goal, workdir, now_iso()),
+        "INSERT INTO projects (goal, workdir, planner_model, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (goal, workdir, planner_model, now_iso()),
     )
     conn.commit()
     return cur.lastrowid
