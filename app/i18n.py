@@ -302,4 +302,40 @@ EN = {
     "실행 로그 →": "Run log →",
     "프로젝트와 모든 태스크·산출물을 삭제할까요?":
         "Delete this project with all tasks and artifacts?",
+    # --- 워크플로 다이어그램 편집기 ---
+    "노드를 끌어 배치하고, 포트를 이어 연결하세요.":
+        "Drag nodes to arrange them, and drag port to port to connect.",
+    "실행 중에는 그래프를 편집할 수 없습니다.":
+        "The graph can't be edited while the project is running.",
+    "태스크": "Task",
+    "자동 정렬": "Tidy up",
+    "화면 맞춤": "Fit to screen",
+    "확대": "Zoom in",
+    "축소": "Zoom out",
+    "제목": "Title",
+    "설명": "Description",
+    "종류": "Type",
+    "에이전트": "Agent",
+    "태스크 제목": "Task title",
+    "구체적 작업 지시 (비우면 제목을 씁니다)":
+        "Specific instructions (defaults to the title if left empty)",
+    "추가": "Add",
+    "편집": "Edit",
+    "저장": "Save",
+    "선행 태스크": "Depends on",
+    "연결 저장": "Save connections",
+    "이 태스크를 삭제할까요? 연결도 함께 끊어집니다.":
+        "Delete this task? Its connections will be removed too.",
+    "이 연결을 끊을까요?": "Remove this connection?",
+    "서버에 연결하지 못했습니다": "Couldn't reach the server",
+    # 편집 API가 400으로 돌려주는 검증 메시지 (캔버스가 그대로 띄운다).
+    # 태스크 수·순환 목록처럼 값이 끼는 메시지는 원문(한국어)으로 폴백된다.
+    "이미 실행된 태스크는 편집할 수 없습니다": "Tasks that already ran can't be edited",
+    "계획 검토 또는 일시정지 상태에서만 그래프를 편집할 수 있습니다":
+        "The graph can only be edited while awaiting approval or paused",
+    "프로젝트를 찾을 수 없습니다": "Project not found",
+    "태스크를 찾을 수 없습니다": "Task not found",
+    "제목과 설명은 비울 수 없습니다": "Title and description can't be empty",
+    "제목은 비울 수 없습니다": "Title can't be empty",
+    "자기 자신에 의존할 수 없습니다": "A task can't depend on itself",
 }

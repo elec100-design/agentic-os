@@ -102,3 +102,29 @@ def test_usage_counts_and_limit_status(tmp_env):
     status = db.limit_status(conn)
     assert status["claude"] == future
     assert "antigravity" not in status
+
+
+def test_migrate_adds_node_position_columns(tmp_env):
+    """다이어그램 편집기 이전에 만들어진 DB에도 pos_x/pos_y가 붙는다."""
+    import sqlite3
+    path = tmp_env / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("""CREATE TABLE tasks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL,
+      seq INTEGER NOT NULL, title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '', task_type TEXT NOT NULL DEFAULT 'text',
+      provider TEXT NOT NULL, depends_on TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending', job_id INTEGER,
+      output TEXT NOT NULL DEFAULT '', artifact_path TEXT, error TEXT,
+      created_at TEXT NOT NULL, started_at TEXT, finished_at TEXT)""")
+    old.execute("INSERT INTO tasks (project_id, seq, title, provider, created_at) "
+                "VALUES (1, 1, '옛 태스크', 'claude', '2026-01-01T00:00:00+00:00')")
+    old.commit()
+    old.close()
+
+    conn = db.get_conn(path)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(tasks)")}
+    assert {"pos_x", "pos_y"} <= cols
+    row = conn.execute("SELECT * FROM tasks").fetchone()
+    assert row["title"] == "옛 태스크"      # 기존 데이터는 그대로
+    assert row["pos_x"] is None

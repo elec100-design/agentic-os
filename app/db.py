@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   output TEXT NOT NULL DEFAULT '',
   artifact_path TEXT,
   error TEXT,
+  pos_x REAL,
+  pos_y REAL,
   created_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT
@@ -88,6 +90,11 @@ def _migrate(conn):
     project_cols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)")}
     if "planner_model" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN planner_model TEXT")
+    # 다이어그램 편집기가 저장하는 노드 좌표 (NULL이면 자동 배치)
+    task_cols = {r["name"] for r in conn.execute("PRAGMA table_info(tasks)")}
+    for col in ("pos_x", "pos_y"):
+        if col not in task_cols:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} REAL")
     conn.commit()
 
 
@@ -295,6 +302,20 @@ def update_task(conn, task_id, **fields):
     conn.execute(f"UPDATE tasks SET {cols} WHERE id = ?",
                  (*fields.values(), task_id))
     conn.commit()
+
+
+def delete_task(conn, task_id):
+    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.commit()
+
+
+def next_task_seq(conn, project_id):
+    """새 노드에 줄 seq = 현재 최대 seq + 1. 삭제로 비는 번호가 생겨도 상관없다 —
+    seq는 순서가 아니라 depends_on이 가리키는 식별자로만 쓰인다."""
+    row = conn.execute(
+        "SELECT MAX(seq) AS m FROM tasks WHERE project_id = ?", (project_id,)
+    ).fetchone()
+    return (row["m"] or 0) + 1
 
 
 def delete_tasks(conn, project_id, statuses=None):

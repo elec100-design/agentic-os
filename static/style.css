@@ -1679,9 +1679,29 @@ h2.section-label {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* DAG 그래프 (n8n식) — SVG는 서버가 렌더, 색은 CSS 변수로 테마 대응 */
+/* DAG 그래프 (n8n식) — SVG는 서버가 렌더, 팬/줌·드래그는 board-editor.js.
+   캔버스는 고정 높이 뷰포트다: 스크롤이 아니라 viewBox를 움직여 이동한다. */
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+.graph-toolbar .spacer { flex: 1; }
+.graph-hint { color: var(--muted); font-size: 0.78rem; }
+.graph-flash {
+  padding: 0.2rem 0.55rem;
+  border-radius: 6px;
+  background: var(--err-bg);
+  color: var(--err);
+  font-size: 0.78rem;
+}
 .graph-canvas {
-  overflow-x: auto;
+  height: 62vh;
+  min-height: 320px;
+  max-height: 640px;
+  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
   background:
@@ -1689,13 +1709,37 @@ h2.section-label {
     var(--bg);
   margin-bottom: 1rem;
 }
+/* 브라우저 기본 팬/줌을 끄고 포인터 이벤트로 직접 처리한다 */
+.graph-svg { display: block; touch-action: none; }
 .graph-edge {
   fill: none;
   stroke: var(--border);
   stroke-width: 2;
 }
 .graph-edge.done { stroke: var(--ok); }
+/* 연결 드래그 중의 고무줄 */
+.graph-edge.linking { display: none; stroke: var(--accent); stroke-dasharray: 5 4; }
+.graph-edge.linking.active { display: inline; }
+/* 얇은 곡선은 손가락으로 못 맞춘다 — 투명한 굵은 선을 히트 영역으로 겹쳐 둔다 */
+.graph-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  cursor: pointer;
+}
+.graph-edge-g:hover .graph-edge { stroke: var(--err); }
+.node-port {
+  fill: var(--surface);
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.node-port.port-out { cursor: crosshair; }
+.graph-node:hover .node-port, .graph-node.selected .node-port { opacity: 1; }
+.node-port:hover { fill: var(--accent); stroke: var(--accent); }
 .graph-node { cursor: pointer; }
+.graph-node[data-editable="1"] { cursor: grab; }
 .graph-node .node-box {
   fill: var(--surface);
   stroke: var(--border);
@@ -1720,6 +1764,51 @@ h2.section-label {
 @media (prefers-reduced-motion: reduce) {
   .graph-node.st-running .node-box, .spinner { animation: none; }
 }
+
+/* 노드 팔레트 (＋ 태스크) + 태스크 편집 폼 — 같은 행 레이아웃을 공유한다.
+   주의: display를 주면 브라우저 기본 [hidden] 규칙을 이겨 버리므로 직접 되살린다. */
+.node-palette[hidden], .task-edit[hidden] { display: none; }
+.node-palette, .task-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  margin-bottom: 1rem;
+}
+.pal-row { display: flex; flex-direction: column; gap: 0.25rem; }
+.pal-row > span { color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.pal-row input, .pal-row textarea, .pal-row select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.86rem;
+}
+.pal-row textarea { resize: vertical; }
+.pal-foot { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+/* 선행 태스크 체크박스 — 캔버스에서 선을 긋기 어려울 때의 대안 경로 */
+.task-deps { margin-top: 0.8rem; }
+.deps-head { color: var(--muted); font-size: 0.76rem; font-weight: 600; margin-bottom: 0.4rem; }
+.deps-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
+.dep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.dep-chip:has(input:checked) { border-color: var(--accent); color: var(--accent); }
 
 /* 태스크 상세 패널 */
 .task-panel {
@@ -1747,3 +1836,35 @@ h2.section-label {
 }
 .task-artifact audio { width: 100%; }
 .task-out { margin-top: 0.6rem; }
+
+/* 모바일 — 서버가 세로 흐름(tb)으로 재배치하고, 여기서는 캔버스를 화면에 맞추고
+   터치 타깃을 키운다. 상세 패널은 캔버스를 가리지 않도록 하단 시트로 띄운다. */
+@media (max-width: 700px) {
+  .graph-canvas { height: 56vh; min-height: 260px; }
+  .graph-toolbar { gap: 0.3rem; }
+  .graph-hint { flex-basis: 100%; }
+  .graph-toolbar .btn-ghost {
+    min-height: 44px;
+    min-width: 44px;
+    padding-left: 0.7rem;
+    padding-right: 0.7rem;
+  }
+  #task-detail .task-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    max-height: 72vh;
+    overflow-y: auto;
+    border-radius: 14px 14px 0 0;
+    border-bottom: none;
+    box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+    padding-bottom: calc(0.9rem + env(safe-area-inset-bottom));
+  }
+  .deps-list { max-height: 30vh; overflow-y: auto; }
+}
+/* 터치 기기엔 hover가 없다 — 연결 포트를 항상 보이게 한다 */
+@media (hover: none) {
+  .node-port { opacity: 0.85; }
+}

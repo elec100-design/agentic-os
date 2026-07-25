@@ -67,6 +67,12 @@ subscription account and read/write files in permitted folders.
   hermes) run it to completion — including image generation via the agy/grok
   CLIs and video via grok, with artifacts previewed right on the graph.
   Failures pause the project for one-click retry or replanning
+- **Workflow diagram editor** — the generated DAG is an editable n8n-style
+  canvas: drag nodes to place them, drag port to port to wire dependencies,
+  click a connection to remove it, and add tasks from a palette of agents and
+  task types. Pick a node to edit or delete its fields. Cycles and unknown
+  agents are rejected server-side. On narrow screens the graph re-flows
+  top-to-bottom with pinch-zoom, pan, and fit-to-screen
 - **Job queue** — SQLite-backed sequential queue, live output via SSE,
   cancel/delete
 - **Auto-resume** — detects rate limits, waits until `resume_at`, then

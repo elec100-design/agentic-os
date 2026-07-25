@@ -1,12 +1,22 @@
 {% set ICON = {'text': '📝', 'image': '🖼️', 'video': '🎬', 'audio': '🎵'} %}
 {% set TSTATUS = {'pending': '대기', 'queued': '대기열', 'running': '실행 중',
                   'done': '완료', 'failed': '실패'} %}
-<div class="task-panel">
+<div class="task-panel" data-task="{{ task['id'] }}">
   <div class="task-panel-head">
     <b>{{ ICON[task['task_type']] }} [{{ task['seq'] }}] {{ task['title'] }}</b>
     <span class="badge badge-{{ task['status'] }}">{{ TSTATUS[task['status']] | t }}</span>
     <span class="provider-name">{{ task['provider'] }}</span>
     <span class="spacer"></span>
+    {% if editable %}
+    <button type="button" class="btn-ghost" data-task-edit>{{ '편집' | t }}</button>
+    <button type="button" class="btn-ghost btn-del"
+            hx-post="/tasks/{{ task['id'] }}/delete"
+            hx-target="#board" hx-swap="innerHTML"
+            hx-vals='js:{o: boardOrientation()}'
+            hx-confirm="{{ '이 태스크를 삭제할까요? 연결도 함께 끊어집니다.' | t }}">
+      {{ '삭제' | t }}
+    </button>
+    {% endif %}
     {% if task['status'] == 'failed' %}
     <form method="post" action="/tasks/{{ task['id'] }}/retry" class="inline-form">
       <button class="btn-primary">{{ '재시도' | t }}</button>
@@ -18,6 +28,63 @@
   </div>
 
   <p class="task-desc">{{ task['description'] }}</p>
+
+  {% if editable %}
+  {# 편집 폼 — '편집' 버튼이 토글한다. 저장하면 보드 조각이 통째로 갱신된다. #}
+  <form class="task-edit" hidden hx-post="/tasks/{{ task['id'] }}/edit"
+        hx-target="#board" hx-swap="innerHTML"
+        hx-vals='js:{o: boardOrientation()}'>
+    <label class="pal-row">
+      <span>{{ '제목' | t }}</span>
+      <input name="title" required value="{{ task['title'] }}">
+    </label>
+    <label class="pal-row">
+      <span>{{ '설명' | t }}</span>
+      <textarea name="description" rows="4" required>{{ task['description'] }}</textarea>
+    </label>
+    <label class="pal-row">
+      <span>{{ '종류' | t }}</span>
+      <select name="task_type">
+        {% for tt in task_types %}
+        <option value="{{ tt }}"{% if tt == task['task_type'] %} selected{% endif %}>{{ ICON[tt] }} {{ tt }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="pal-row">
+      <span>{{ '에이전트' | t }}</span>
+      {# 미디어 태스크의 에이전트 선택은 무시된다 — media.py가 CLI를 고른다 #}
+      <select name="agent">
+        <option value="auto"{% if task['provider'] not in agent_order %} selected{% endif %}>{{ '자동' | t }}</option>
+        {% for a in agent_order %}
+        <option value="{{ a }}"{% if a == task['provider'] %} selected{% endif %}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="pal-foot">
+      <button type="button" class="btn-ghost" data-task-edit-cancel>{{ '취소' | t }}</button>
+      <button class="btn-primary">{{ '저장' | t }}</button>
+    </div>
+  </form>
+
+  {# 선행 태스크 — 캔버스의 연결선과 같은 데이터. 터치로 선을 긋기 어려울 때의 대안. #}
+  {% if siblings %}
+  <form class="task-deps" hx-post="/tasks/{{ task['id'] }}/deps"
+        hx-target="#board" hx-swap="innerHTML"
+        hx-vals='js:{o: boardOrientation()}'>
+    <div class="deps-head">{{ '선행 태스크' | t }}</div>
+    <div class="deps-list">
+      {% for s in siblings %}
+      <label class="dep-chip">
+        <input type="checkbox" name="deps" value="{{ s['seq'] }}"
+               {% if s['seq'] in deps %}checked{% endif %}>
+        <span>[{{ s['seq'] }}] {{ s['title'][:24] }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <button class="btn-ghost">{{ '연결 저장' | t }}</button>
+  </form>
+  {% endif %}
+  {% endif %}
 
   {% if task['error'] %}
   <pre class="err-raw">{{ task['error'] }}</pre>

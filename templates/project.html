@@ -23,48 +23,18 @@
 <p class="project-goal-full">{{ project['goal'] }}</p>
 {% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
 
-<!-- 상태 배너 + DAG 그래프 (2초마다 갱신 — 노드 상태가 실시간 반영된다) -->
-<div id="board" hx-get="/partials/board/{{ project['id'] }}" hx-trigger="load, every 2s"></div>
+<!-- 상태 배너 + DAG 그래프. 2초 폴링으로 노드 상태가 실시간 반영된다.
+     o=lr|tb — 뷰포트 폭에 따라 서버가 가로/세로 흐름으로 배치한다(모바일 재정렬). -->
+<div id="board" hx-get="/partials/board/{{ project['id'] }}"
+     hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
 
-<!-- 노드 클릭 시 태스크 상세 -->
+<!-- 노드 클릭 시 태스크 상세 (모바일에서는 하단 시트) -->
 <div id="task-detail"></div>
 </main>
 
 <script src="/static/marked.min.js?v={{ asset_v() }}"></script>
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
-<script>
-// 선택 상태는 JS 변수로 유지 — 2초 폴링이 SVG를 갈아끼워도 복원된다.
-let selTask = null, selStatus = null;
-
-async function selectTask(id) {
-  selTask = id;
-  const r = await fetch(`/partials/task/${id}`);
-  if (!r.ok) return;
-  const panel = document.getElementById("task-detail");
-  panel.innerHTML = await r.text();
-  const src = panel.querySelector(".task-src");
-  if (src) renderMarkdown(panel.querySelector(".task-out"), src.textContent);
-  const node = document.querySelector(`.graph-node[data-task="${id}"]`);
-  selStatus = node ? node.dataset.status : null;
-  highlightSel();
-}
-
-function highlightSel() {
-  document.querySelectorAll(".graph-node").forEach(n =>
-    n.classList.toggle("selected", n.dataset.task == selTask));
-}
-
-document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (e.target.id !== "board") return;
-  highlightSel();
-  // 선택된 태스크의 상태가 바뀐 순간에만 상세를 다시 불러온다
-  // (매번 갈아끼우면 미디어 재생이 끊기므로)
-  if (selTask !== null) {
-    const node = document.querySelector(`.graph-node[data-task="${selTask}"]`);
-    if (node && node.dataset.status !== selStatus) selectTask(selTask);
-  }
-});
-</script>
+<script src="/static/board-editor.js?v={{ asset_v() }}"></script>
 </body>
 </html>

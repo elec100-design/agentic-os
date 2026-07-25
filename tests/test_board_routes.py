@@ -249,3 +249,182 @@ def test_artifact_route_blocks_traversal(tmp_env):
         assert r.status_code == 404
         r = client.get("/artifacts/1/../../secret.txt")
         assert r.status_code == 404
+
+
+# --- 워크플로 다이어그램 편집기 -------------------------------------------------
+
+def _diagram_project(status="plan_ready", specs=((1, []), (2, [1]))):
+    """편집 가능한 상태의 프로젝트 + 태스크. (pid, {seq: task_id}) 반환."""
+    conn = db.get_conn(config.DB_PATH)
+    pid = db.create_project(conn, "목표")
+    db.update_project(conn, pid, status=status)
+    ids = {}
+    for seq, deps in specs:
+        ids[seq] = db.create_task(conn, pid, seq, f"태스크{seq}", f"설명{seq}",
+                                  "text", "claude",
+                                  depends_on=",".join(str(d) for d in deps))
+    return pid, ids
+
+
+def test_board_partial_shows_editor_when_plan_ready(tmp_env):
+    pid, _ = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.get(f"/partials/board/{pid}")
+        assert r.status_code == 200
+        assert 'class="graph-toolbar"' in r.text
+        assert 'data-canvas="add"' in r.text          # 노드 팔레트
+        assert 'data-canvas="relayout"' in r.text     # 자동 정렬
+        assert 'class="node-port port-out"' in r.text  # 연결 포트
+        assert 'class="node-palette"' in r.text
+        assert 'data-editable="1"' in r.text
+
+
+def test_board_partial_hides_editor_while_running(tmp_env):
+    pid, _ = _diagram_project(status="running")
+    with _client(tmp_env) as client:
+        r = client.get(f"/partials/board/{pid}")
+        assert r.status_code == 200
+        assert "node-port" not in r.text
+        assert "node-palette" not in r.text
+        assert 'data-canvas="fit"' in r.text          # 팬/줌은 실행 중에도 쓴다
+
+
+def test_board_partial_vertical_orientation_for_mobile(tmp_env):
+    pid, _ = _diagram_project()
+    with _client(tmp_env) as client:
+        lr = client.get(f"/partials/board/{pid}?o=lr").text
+        tb = client.get(f"/partials/board/{pid}?o=tb").text
+    assert 'data-orientation="lr"' in lr
+    assert 'data-orientation="tb"' in tb
+    assert lr != tb
+    # 알 수 없는 값은 가로로 폴백한다
+    with _client(tmp_env) as client:
+        assert 'data-orientation="lr"' in client.get(
+            f"/partials/board/{pid}?o=diagonal").text
+
+
+def test_edit_task_route_updates_and_returns_board(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "고친 제목", "description": "고친 설명",
+            "task_type": "image", "agent": "auto", "o": "lr"})
+        assert r.status_code == 200
+        assert "graph-toolbar" in r.text       # 보드 조각을 그대로 돌려준다
+    conn = db.get_conn(config.DB_PATH)
+    task = db.get_task(conn, ids[1])
+    assert task["title"] == "고친 제목"
+    assert task["task_type"] == "image"
+    assert task["provider"] == "media"
+
+
+def test_edit_task_route_rejects_bad_input(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "제목", "description": "설명",
+            "task_type": "hologram", "agent": "auto"})
+        assert r.status_code == 400
+        assert client.post("/tasks/9999/edit", data={
+            "title": "t", "description": "d"}).status_code == 404
+
+
+def test_deps_route_adds_and_removes_edges(tmp_env):
+    pid, ids = _diagram_project(specs=((1, []), (2, []), (3, [])))
+    conn = db.get_conn(config.DB_PATH)
+    with _client(tmp_env) as client:
+        assert client.post(f"/tasks/{ids[3]}/deps",
+                           data={"deps": ["1", "2"]}).status_code == 200
+        assert db.get_task(conn, ids[3])["depends_on"] == "1,2"
+        # 빈 목록 = 모든 연결 끊기
+        assert client.post(f"/tasks/{ids[3]}/deps", data={}).status_code == 200
+        assert db.get_task(conn, ids[3])["depends_on"] == ""
+
+
+def test_deps_route_rejects_cycle(tmp_env):
+    pid, ids = _diagram_project()          # 2가 1에 의존
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/deps", data={"deps": ["2"]})
+        assert r.status_code == 400
+
+
+def test_move_route_persists_position(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        assert client.post(f"/tasks/{ids[1]}/move",
+                           data={"x": "410", "y": "96"}).status_code == 200
+    conn = db.get_conn(config.DB_PATH)
+    assert (db.get_task(conn, ids[1])["pos_x"],
+            db.get_task(conn, ids[1])["pos_y"]) == (410.0, 96.0)
+
+
+def test_relayout_route_clears_positions(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        client.post(f"/tasks/{ids[1]}/move", data={"x": "410", "y": "96"})
+        assert client.post(f"/projects/{pid}/relayout").status_code == 200
+    conn = db.get_conn(config.DB_PATH)
+    assert db.get_task(conn, ids[1])["pos_x"] is None
+
+
+def test_add_task_route_creates_node(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/projects/{pid}/tasks", data={
+            "title": "새 노드", "description": "새 설명", "task_type": "text",
+            "agent": "hermes", "x": "300", "y": "40"})
+        assert r.status_code == 200
+        assert client.post("/projects/9999/tasks",
+                           data={"title": "t"}).status_code == 404
+    conn = db.get_conn(config.DB_PATH)
+    added = [t for t in db.list_tasks(conn, pid) if t["title"] == "새 노드"][0]
+    assert added["seq"] == 3
+    assert added["provider"] == "hermes"
+    assert (added["pos_x"], added["pos_y"]) == (300.0, 40.0)
+
+
+def test_add_task_route_without_coordinates(tmp_env):
+    """폼을 JS 없이 직접 제출하면 좌표가 비어 온다 — 자동 배치에 맡긴다."""
+    pid, _ = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/projects/{pid}/tasks",
+                        data={"title": "좌표 없는 노드", "x": "", "y": ""})
+        assert r.status_code == 200
+    conn = db.get_conn(config.DB_PATH)
+    added = [t for t in db.list_tasks(conn, pid) if t["title"] == "좌표 없는 노드"][0]
+    assert added["pos_x"] is None
+
+
+def test_delete_task_route_strips_edges(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        assert client.post(f"/tasks/{ids[1]}/delete").status_code == 200
+    conn = db.get_conn(config.DB_PATH)
+    assert db.get_task(conn, ids[1]) is None
+    assert db.get_task(conn, ids[2])["depends_on"] == ""
+
+
+def test_edit_routes_blocked_while_running(tmp_env):
+    pid, ids = _diagram_project(status="running")
+    with _client(tmp_env) as client:
+        assert client.post(f"/tasks/{ids[1]}/delete").status_code == 400
+        assert client.post(f"/tasks/{ids[2]}/deps", data={}).status_code == 400
+        # 배치는 시각 요소라 실행 중에도 허용된다
+        assert client.post(f"/tasks/{ids[1]}/move",
+                           data={"x": "5", "y": "5"}).status_code == 200
+
+
+def test_task_detail_edit_form_only_when_editable(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        editable = client.get(f"/partials/task/{ids[2]}").text
+        assert 'class="task-edit"' in editable
+        assert "data-task-edit" in editable
+        assert 'class="task-deps"' in editable
+        assert 'name="deps" value="1"' in editable     # 형제를 선행으로 고를 수 있다
+
+    pid2, ids2 = _diagram_project(status="running")
+    with _client(tmp_env) as client:
+        locked = client.get(f"/partials/task/{ids2[1]}").text
+        assert "task-edit" not in locked
+        assert "task-deps" not in locked

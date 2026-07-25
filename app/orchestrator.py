@@ -127,6 +127,36 @@ def _extract_json(text):
     raise PlanError("JSON 중괄호가 닫히지 않았습니다")
 
 
+def resolve_provider(task_type, agent, description, usage_state=None,
+                     enabled=None, label=""):
+    """(타입, 에이전트 선택) → 실제 provider. 계획 파싱과 다이어그램 편집 공용.
+
+    미디어 태스크의 에이전트 선택은 무시되고 media로 강제된다(media.py가 처리).
+    """
+    if task_type != "text":
+        return MEDIA
+    if agent == "auto":
+        provider, _ = route_auto(description, usage_state=usage_state,
+                                 enabled=enabled)
+        return provider
+    if agent in PROVIDERS:
+        return agent
+    raise PlanError(f"{label}알 수 없는 agent {agent!r}")
+
+
+def _assert_acyclic(deps_by_id):
+    """위상정렬(Kahn)로 순환 검증. 계획 파싱과 다이어그램 편집이 함께 쓴다."""
+    remaining = {k: set(v) for k, v in deps_by_id.items()}
+    while remaining:
+        ready = [k for k, deps in remaining.items() if not deps]
+        if not ready:
+            raise PlanError(f"태스크 의존성에 순환이 있습니다: {sorted(remaining)}")
+        for k in ready:
+            del remaining[k]
+        for deps in remaining.values():
+            deps.difference_update(ready)
+
+
 def parse_plan(text, usage_state=None, enabled=None):
     """계획 응답 → {"title": str, "tasks": [{...}]}. 실패 시 PlanError.
 
@@ -164,17 +194,9 @@ def parse_plan(text, usage_state=None, enabled=None):
             raise PlanError(f"태스크 {tid}: depends_on은 정수 배열이어야 합니다")
         if tid in deps:
             raise PlanError(f"태스크 {tid}: 자기 자신에 의존할 수 없습니다")
-        if ttype != "text":
-            provider = MEDIA
-        else:
-            agent = t.get("agent", "auto")
-            if agent == "auto":
-                provider, _ = route_auto(desc, usage_state=usage_state,
-                                         enabled=enabled)
-            elif agent in PROVIDERS:
-                provider = agent
-            else:
-                raise PlanError(f"태스크 {tid}: 알 수 없는 agent {agent!r}")
+        provider = resolve_provider(ttype, t.get("agent", "auto"), desc,
+                                    usage_state=usage_state, enabled=enabled,
+                                    label=f"태스크 {tid}: ")
         tasks.append({"id": tid, "title": title, "description": desc,
                       "type": ttype, "provider": provider, "depends_on": deps})
 
@@ -184,16 +206,7 @@ def parse_plan(text, usage_state=None, enabled=None):
                 raise PlanError(
                     f"태스크 {t['id']}: 존재하지 않는 선행 태스크 {d}에 의존합니다")
 
-    # 위상정렬로 순환 검증 (Kahn)
-    remaining = {t["id"]: set(t["depends_on"]) for t in tasks}
-    while remaining:
-        ready = [tid for tid, deps in remaining.items() if not deps]
-        if not ready:
-            raise PlanError(f"태스크 의존성에 순환이 있습니다: {sorted(remaining)}")
-        for tid in ready:
-            del remaining[tid]
-        for deps in remaining.values():
-            deps.difference_update(ready)
+    _assert_acyclic({t["id"]: t["depends_on"] for t in tasks})
 
     return {"title": str(data.get("title") or "").strip(), "tasks": tasks}
 
@@ -250,8 +263,12 @@ def _clip(text):
     return text[:limit] + "\n\n...[길이 제한으로 생략]"
 
 
-def _deps(task):
+def task_deps(task):
+    """선행 태스크 seq 목록. 모듈 안에서는 짧은 별칭 _deps로 쓴다."""
     return [int(d) for d in task["depends_on"].split(",") if d.strip()]
+
+
+_deps = task_deps
 
 
 def build_task_prompt(project, task, upstream_tasks):
@@ -444,21 +461,172 @@ def cancel_project(conn, project_id, _status="cancelled"):
     db.update_project(conn, project_id, status=_status)
 
 
+# --- 다이어그램 편집 --------------------------------------------------------
+# 구조 편집을 plan_ready/paused로 제한하는 이유: db.active_projects()가
+# planning/running만 반환하므로, 이 두 상태에서는 오케스트레이터 루프가 프로젝트를
+# 아예 전진시키지 않는다 — 편집과 잡 디스패치가 경합할 수 없다.
+
+EDITABLE_PROJECT_STATUSES = ("plan_ready", "paused")
+# 이미 실행됐거나 실행 중인 태스크는 건드리지 않는다(결과 보존 + 잡과의 정합성).
+EDITABLE_TASK_STATUSES = ("pending", "failed")
+
+
+def project_editable(project):
+    """템플릿이 편집 UI를 그릴지 판단할 때 쓰는 술어."""
+    return project is not None and project["status"] in EDITABLE_PROJECT_STATUSES
+
+
+def task_editable(project, task):
+    return project_editable(project) and task["status"] in EDITABLE_TASK_STATUSES
+
+
+def _editable_project(conn, project_id):
+    project = db.get_project(conn, project_id)
+    if project is None:
+        raise ValueError("프로젝트를 찾을 수 없습니다")
+    if not project_editable(project):
+        raise ValueError("계획 검토 또는 일시정지 상태에서만 그래프를 편집할 수 있습니다")
+    return project
+
+
+def _editable_task(conn, task_id):
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise ValueError("태스크를 찾을 수 없습니다")
+    project = _editable_project(conn, task["project_id"])
+    if task["status"] not in EDITABLE_TASK_STATUSES:
+        raise ValueError("이미 실행된 태스크는 편집할 수 없습니다")
+    return project, task
+
+
+def _resolve_or_400(task_type, agent, description, usage_state=None, enabled=None):
+    try:
+        return resolve_provider(task_type, agent or "auto", description,
+                                usage_state=usage_state, enabled=enabled)
+    except PlanError as e:
+        raise ValueError(str(e)) from e
+
+
+def update_task_fields(conn, task_id, *, title, description, task_type, agent,
+                       usage_state=None, enabled=None):
+    """편집 폼이 보낸 필드로 태스크를 갱신한다. 검증 규칙은 계획 파싱과 동일."""
+    _project, task = _editable_task(conn, task_id)
+    title = (title or "").strip()
+    description = (description or "").strip()
+    if not title or not description:
+        raise ValueError("제목과 설명은 비울 수 없습니다")
+    if task_type not in TASK_TYPES:
+        raise ValueError(f"알 수 없는 type {task_type!r}")
+    provider = _resolve_or_400(task_type, agent, description,
+                               usage_state=usage_state, enabled=enabled)
+    db.update_task(conn, task["id"], title=title, description=description,
+                   task_type=task_type, provider=provider)
+
+
+def set_task_deps(conn, task_id, deps):
+    """태스크의 선행 목록을 통째로 교체 — 엣지 추가와 삭제를 한 연산으로 다룬다.
+
+    검증: 같은 프로젝트에 있는 seq만, 자기 참조 금지, 그래프 전체에 순환 금지.
+    """
+    _project, task = _editable_task(conn, task_id)
+    siblings = db.list_tasks(conn, task["project_id"])
+    known = {t["seq"] for t in siblings}
+    deps = sorted({int(d) for d in deps})
+    if task["seq"] in deps:
+        raise ValueError("자기 자신에 의존할 수 없습니다")
+    unknown = [d for d in deps if d not in known]
+    if unknown:
+        raise ValueError(f"존재하지 않는 선행 태스크: {unknown}")
+    graph = {t["seq"]: (deps if t["seq"] == task["seq"] else _deps(t))
+             for t in siblings}
+    try:
+        _assert_acyclic(graph)
+    except PlanError as e:
+        raise ValueError(str(e)) from e
+    db.update_task(conn, task["id"], depends_on=",".join(str(d) for d in deps))
+
+
+def add_task(conn, project_id, title, description="", task_type="text",
+             agent="auto", pos=None, usage_state=None, enabled=None):
+    """팔레트에서 새 노드 추가. 선행 없이 만들어지고 연결은 사용자가 잇는다."""
+    _editable_project(conn, project_id)
+    if len(db.list_tasks(conn, project_id)) >= config.ORCH_MAX_TASKS:
+        raise ValueError(f"태스크는 최대 {config.ORCH_MAX_TASKS}개까지입니다")
+    title = (title or "").strip()
+    if not title:
+        raise ValueError("제목은 비울 수 없습니다")
+    # 설명을 비워두면 제목을 그대로 쓴다 — 미디어 태스크는 설명이 곧 생성 프롬프트다.
+    description = (description or "").strip() or title
+    if task_type not in TASK_TYPES:
+        raise ValueError(f"알 수 없는 type {task_type!r}")
+    provider = _resolve_or_400(task_type, agent, description,
+                               usage_state=usage_state, enabled=enabled)
+    task_id = db.create_task(conn, project_id, db.next_task_seq(conn, project_id),
+                             title, description, task_type, provider)
+    if pos is not None:
+        move_task(conn, task_id, pos[0], pos[1])
+    return task_id
+
+
+def delete_task(conn, task_id):
+    """태스크를 지우고, 형제들의 depends_on에서 그 seq를 떼어낸다."""
+    _project, task = _editable_task(conn, task_id)
+    project_id, seq = task["project_id"], task["seq"]
+    db.delete_task(conn, task_id)
+    for sib in db.list_tasks(conn, project_id):
+        deps = _deps(sib)
+        if seq in deps:
+            db.update_task(conn, sib["id"],
+                           depends_on=",".join(str(d) for d in deps if d != seq))
+
+
+def move_task(conn, task_id, x, y):
+    """노드 좌표만 기록한다. 실행에 영향이 없어 어떤 상태에서도 허용한다."""
+    if db.get_task(conn, task_id) is None:
+        raise ValueError("태스크를 찾을 수 없습니다")
+    # 캔버스 원점은 (0,0) — 음수로 끌면 뷰박스 밖으로 사라지므로 잘라낸다.
+    db.update_task(conn, task_id, pos_x=max(0.0, float(x)),
+                   pos_y=max(0.0, float(y)))
+
+
+def reset_layout(conn, project_id):
+    """저장된 좌표를 지워 자동 배치로 되돌린다 (n8n의 'tidy up')."""
+    if db.get_project(conn, project_id) is None:
+        raise ValueError("프로젝트를 찾을 수 없습니다")
+    for task in db.list_tasks(conn, project_id):
+        db.update_task(conn, task["id"], pos_x=None, pos_y=None)
+
+
 # --- 그래프 레이아웃 (n8n식 DAG, 서버 렌더링 SVG용) --------------------------
 
 NODE_W, NODE_H = 190, 72
 GAP_X, GAP_Y = 80, 28
 PAD = 24
+ORIENTATIONS = ("lr", "tb")
 
 
-def layout_graph(tasks):
+def _saved_pos(task):
+    """사용자가 옮겨 저장된 좌표. 없으면 None (dict/Row 둘 다 안전)."""
+    try:
+        x, y = task["pos_x"], task["pos_y"]
+    except (KeyError, IndexError):
+        return None
+    return None if x is None or y is None else (float(x), float(y))
+
+
+def layout_graph(tasks, orientation="lr"):
     """태스크 목록 → SVG 좌표. 순수 함수.
 
-    레이어 = 의존성 위상 깊이(왼→오), 레이어 안에서는 seq 순 세로 배치.
-    반환: {"nodes": [{...task fields, x, y, w, h}],
-           "edges": [{"from": seq, "to": seq, "path": "M..C..", "status": ...}],
-           "width": int, "height": int}
+    orientation="lr" (데스크톱): 레이어 = 의존성 위상 깊이(왼→오), 레이어 안에서는
+    seq 순 세로 배치. 사용자가 옮긴 노드(pos_x/pos_y)는 그 좌표를 그대로 쓴다.
+    orientation="tb" (모바일): 깊이를 위→아래로 쌓는 세로 흐름. 좁은 화면에서
+    가로 스크롤을 없애는 게 목적이므로 저장된 좌표는 무시하고 항상 재정렬한다.
+
+    반환: {"nodes": [{...task fields, x, y, w, h, in_x, in_y, out_x, out_y}],
+           "edges": [{"from": seq, "to": seq, "path": "M..C..", "done": bool}],
+           "width": int, "height": int, "orientation": str}
     """
+    vertical = orientation == "tb"
     by_seq = {t["seq"]: t for t in tasks}
 
     depth_cache = {}
@@ -466,7 +634,7 @@ def layout_graph(tasks):
     def depth(seq, trail=()):
         if seq in depth_cache:
             return depth_cache[seq]
-        if seq in trail:  # 순환은 parse_plan에서 걸러지지만 방어
+        if seq in trail:  # 순환은 parse_plan/set_task_deps에서 걸러지지만 방어
             return 0
         task = by_seq[seq]
         deps = [d for d in _deps(task) if d in by_seq]
@@ -479,17 +647,27 @@ def layout_graph(tasks):
         layers.setdefault(depth(t["seq"]), []).append(t)
 
     nodes = {}
-    max_rows = 0
     for layer_idx in sorted(layers):
-        col = sorted(layers[layer_idx], key=lambda t: t["seq"])
-        max_rows = max(max_rows, len(col))
-        for row_idx, t in enumerate(col):
-            nodes[t["seq"]] = {
-                **dict(t),
-                "x": PAD + layer_idx * (NODE_W + GAP_X),
-                "y": PAD + row_idx * (NODE_H + GAP_Y),
-                "w": NODE_W, "h": NODE_H,
-            }
+        line = sorted(layers[layer_idx], key=lambda t: t["seq"])
+        for row_idx, t in enumerate(line):
+            if vertical:
+                x = PAD + row_idx * (NODE_W + GAP_X)
+                y = PAD + layer_idx * (NODE_H + GAP_Y)
+            else:
+                x = PAD + layer_idx * (NODE_W + GAP_X)
+                y = PAD + row_idx * (NODE_H + GAP_Y)
+                saved = _saved_pos(t)
+                if saved:
+                    x, y = saved
+            node = {**dict(t), "x": x, "y": y, "w": NODE_W, "h": NODE_H}
+            # 연결 핸들(포트) 좌표 — 흐름 방향에 따라 좌↔우 또는 위↔아래
+            if vertical:
+                node["in_x"], node["in_y"] = x + NODE_W / 2, y
+                node["out_x"], node["out_y"] = x + NODE_W / 2, y + NODE_H
+            else:
+                node["in_x"], node["in_y"] = x, y + NODE_H / 2
+                node["out_x"], node["out_y"] = x + NODE_W, y + NODE_H / 2
+            nodes[t["seq"]] = node
 
     edges = []
     for t in tasks:
@@ -498,17 +676,22 @@ def layout_graph(tasks):
             if d not in nodes:
                 continue
             parent = nodes[d]
-            x1, y1 = parent["x"] + NODE_W, parent["y"] + NODE_H / 2
-            x2, y2 = child["x"], child["y"] + NODE_H / 2
-            mx = (x1 + x2) / 2
-            edges.append({
-                "from": d, "to": t["seq"],
-                "path": f"M {x1} {y1} C {mx} {y1}, {mx} {y2}, {x2} {y2}",
-                "done": parent["status"] == "done",
-            })
+            x1, y1 = parent["out_x"], parent["out_y"]
+            x2, y2 = child["in_x"], child["in_y"]
+            if vertical:
+                my = (y1 + y2) / 2
+                path = f"M {x1} {y1} C {x1} {my}, {x2} {my}, {x2} {y2}"
+            else:
+                mx = (x1 + x2) / 2
+                path = f"M {x1} {y1} C {mx} {y1}, {mx} {y2}, {x2} {y2}"
+            edges.append({"from": d, "to": t["seq"], "path": path,
+                          "done": parent["status"] == "done"})
 
-    n_layers = len(layers)
-    width = PAD * 2 + n_layers * NODE_W + max(0, n_layers - 1) * GAP_X
-    height = PAD * 2 + max_rows * NODE_H + max(0, max_rows - 1) * GAP_Y
+    # 캔버스는 자동 격자가 아니라 실제 노드 경계에서 잰다 — 사용자가 노드를
+    # 바깥으로 끌면 캔버스도 따라 넓어져야 한다.
+    right = max((n["x"] + n["w"] for n in nodes.values()), default=0)
+    bottom = max((n["y"] + n["h"] for n in nodes.values()), default=0)
     return {"nodes": list(nodes.values()), "edges": edges,
-            "width": max(width, 300), "height": max(height, 160)}
+            "width": max(int(right + PAD), 300),
+            "height": max(int(bottom + PAD), 160),
+            "orientation": "tb" if vertical else "lr"}

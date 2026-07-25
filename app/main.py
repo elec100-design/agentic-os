@@ -755,15 +755,26 @@ def partial_projects(request: Request):
         {"projects": _project_progress(conn, db.list_projects(conn))})
 
 
-@app.get("/partials/board/{project_id}", response_class=HTMLResponse)
-def partial_board(request: Request, project_id: int):
-    conn = db.get_conn()
+def _board_partial(request, conn, project_id, orientation="lr"):
+    """보드 조각 렌더 — 폴링과 모든 편집 액션이 같은 응답을 돌려준다."""
     project = _project_or_404(conn, project_id)
     tasks = db.list_tasks(conn, project_id)
+    if orientation not in orchestrator.ORIENTATIONS:
+        orientation = "lr"
     return templates.TemplateResponse(
         request, "partials/board.html",
         {"project": project, "tasks": tasks,
-         "graph": orchestrator.layout_graph(tasks)})
+         "graph": orchestrator.layout_graph(tasks, orientation=orientation),
+         "editable": orchestrator.project_editable(project),
+         "editable_task_statuses": orchestrator.EDITABLE_TASK_STATUSES,
+         "task_types": orchestrator.TASK_TYPES,
+         "agent_order": settings.enabled_providers()})
+
+
+@app.get("/partials/board/{project_id}", response_class=HTMLResponse)
+def partial_board(request: Request, project_id: int, o: str = "lr"):
+    """o=lr(가로, 데스크톱) | tb(세로, 모바일) — 클라이언트가 뷰포트 폭으로 정한다."""
+    return _board_partial(request, db.get_conn(), project_id, orientation=o)
 
 
 @app.get("/partials/task/{task_id}", response_class=HTMLResponse)
@@ -772,11 +783,18 @@ def partial_task(request: Request, task_id: int):
     task = db.get_task(conn, task_id)
     if task is None:
         raise HTTPException(status_code=404)
+    project = db.get_project(conn, task["project_id"])
     artifact_name = (Path(task["artifact_path"]).name
                      if task["artifact_path"] else None)
+    siblings = [t for t in db.list_tasks(conn, task["project_id"])
+                if t["seq"] != task["seq"]]
     return templates.TemplateResponse(
         request, "partials/task_detail.html",
-        {"task": task, "artifact_name": artifact_name})
+        {"task": task, "artifact_name": artifact_name, "project": project,
+         "siblings": siblings, "deps": orchestrator.task_deps(task),
+         "editable": orchestrator.task_editable(project, task),
+         "task_types": orchestrator.TASK_TYPES,
+         "agent_order": settings.enabled_providers()})
 
 
 def _project_action(project_id, fn):
@@ -821,6 +839,119 @@ def delete_project_endpoint(project_id: int):
         import shutil
         shutil.rmtree(artifacts, ignore_errors=True)
     return RedirectResponse("/board", status_code=303)
+
+
+# --- 다이어그램 편집 (n8n식 캔버스) ---
+# 편집 액션은 리다이렉트가 아니라 보드 조각을 그대로 돌려준다 — htmx가 #board를
+# 제자리 교체하므로 캔버스의 팬/줌·선택 상태가 유지된다.
+
+def _edit_action(request, project_id, fn, orientation="lr"):
+    conn = db.get_conn()
+    try:
+        fn(conn)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _board_partial(request, conn, project_id, orientation=orientation)
+
+
+def _task_project_id(conn, task_id):
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404)
+    return task["project_id"]
+
+
+@app.post("/tasks/{task_id}/edit", response_class=HTMLResponse)
+def edit_task_endpoint(
+    request: Request,
+    task_id: int,
+    title: str = Form(...),
+    description: str = Form(...),
+    task_type: str = Form("text"),
+    agent: str = Form("auto"),
+    o: str = Form("lr"),
+):
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    return _edit_action(
+        request, pid,
+        lambda c: orchestrator.update_task_fields(
+            c, task_id, title=title, description=description,
+            task_type=task_type, agent=agent,
+            enabled=settings.enabled_providers()),
+        orientation=o)
+
+
+@app.post("/tasks/{task_id}/deps", response_class=HTMLResponse)
+def task_deps_endpoint(request: Request, task_id: int,
+                       deps: list[str] = Form([]), o: str = Form("lr")):
+    """선행 목록 전체 교체 — 엣지 추가와 삭제가 같은 엔드포인트를 쓴다.
+    체크박스 폼(반복 필드)과 캔버스 JS(FormData.append) 둘 다 같은 형태로 보낸다."""
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    try:
+        parsed = [int(d) for d in deps if str(d).strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="deps는 정수 목록이어야 합니다")
+    return _edit_action(request, pid,
+                        lambda c: orchestrator.set_task_deps(c, task_id, parsed),
+                        orientation=o)
+
+
+@app.post("/tasks/{task_id}/move", response_class=HTMLResponse)
+def move_task_endpoint(request: Request, task_id: int, x: float = Form(...),
+                       y: float = Form(...), o: str = Form("lr")):
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    return _edit_action(request, pid,
+                        lambda c: orchestrator.move_task(c, task_id, x, y),
+                        orientation=o)
+
+
+@app.post("/tasks/{task_id}/delete", response_class=HTMLResponse)
+def delete_task_endpoint(request: Request, task_id: int, o: str = Form("lr")):
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    return _edit_action(request, pid,
+                        lambda c: orchestrator.delete_task(c, task_id),
+                        orientation=o)
+
+
+@app.post("/projects/{project_id}/tasks", response_class=HTMLResponse)
+def add_task_endpoint(
+    request: Request,
+    project_id: int,
+    title: str = Form(...),
+    description: str = Form(""),
+    task_type: str = Form("text"),
+    agent: str = Form("auto"),
+    x: str = Form(""),
+    y: str = Form(""),
+    o: str = Form("lr"),
+):
+    conn = db.get_conn()
+    _project_or_404(conn, project_id)
+    # 좌표는 캔버스 JS가 채운다. 비어 있으면(폼 직접 제출) 자동 배치에 맡긴다.
+    try:
+        pos = (float(x), float(y)) if x.strip() and y.strip() else None
+    except ValueError:
+        pos = None
+    return _edit_action(
+        request, project_id,
+        lambda c: orchestrator.add_task(
+            c, project_id, title, description=description, task_type=task_type,
+            agent=agent, pos=pos, enabled=settings.enabled_providers()),
+        orientation=o)
+
+
+@app.post("/projects/{project_id}/relayout", response_class=HTMLResponse)
+def relayout_project_endpoint(request: Request, project_id: int,
+                              o: str = Form("lr")):
+    conn = db.get_conn()
+    _project_or_404(conn, project_id)
+    return _edit_action(request, project_id,
+                        lambda c: orchestrator.reset_layout(c, project_id),
+                        orientation=o)
 
 
 @app.post("/tasks/{task_id}/retry")
