@@ -238,6 +238,17 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
   상세 패널). 상태별 노드 색·펄스, 미디어 썸네일·플레이어.
 - v1 제외(후보): 태스크 사이 플래너 재검토 루프, 드래그앤드롭, 태스크별 모델
   선택, 보드 칸반 뷰(같은 데이터로 얇게 추가 가능).
+- **[완료] 보드 컴포저에 메인 챗 기능(모델·워크스페이스·도구) 포함**:
+  - `templates/board.html` 프로젝트 폼에 `enctype="multipart/form-data"` +
+    `#file-chips` + `#tools-btn`/`#tools-popup`(files / attach_memory /
+    timeout_min)를 메인 composer와 동일한 엘리먼트 id로 추가 → `static/app.js`
+    기존 파일칩·드래그앤드롭·팝업 로직을 JS 수정 없이 그대로 재사용(null-guard).
+  - 백엔드(`POST /projects`, `orchestrator.start_project`)는 이미 업로드 저장,
+    메모리 컨텍스트 선행, `timeout_sec`→plan job 전달을 처리(선행 태스크에서 확인).
+  - 2026-07-25 회귀 테스트: pytest 전체 295건 통과, i18n 영문 기본 폴백 스모크 통과.
+    선행 태스크에서 보고된 `codex`→`claude` 폴백 4실패는 `codex`가 더 이상 실제
+    PROVIDERS(claude/antigravity/grok/hermes)에 없음에 기인 — 테스트 픽스처를
+    유효 provider(`grok`)로 핫픽스해 해소.
 
 ### V5 — 확장 기능 후보 (예정)
 

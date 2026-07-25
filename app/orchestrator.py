@@ -12,7 +12,7 @@ import asyncio
 import json
 import re
 
-from app import config, council, db
+from app import config, council, db, models
 from app.providers import MEDIA, PROVIDERS, rank_cloud, route_auto
 
 TASK_TYPES = ("text", "image", "video", "audio")
@@ -80,13 +80,28 @@ def build_plan_prompt(goal, enabled=None):
                               agents=", ".join(f'"{a}"' for a in agents))
 
 
-def start_project(conn, goal, workdir=None, enabled=None):
-    """프로젝트 생성 + 계획 잡 큐잉. project_id 반환."""
+def start_project(conn, goal, workdir=None, enabled=None, planner=None, model=None,
+                  timeout_sec=None, extra_context=None):
+    """프로젝트 생성 + 계획 잡 큐잉. project_id 반환.
+
+    planner가 유효 provider면 그대로 쓰고, 없거나 "auto"면 자동 선택한다.
+    model은 계획 잡에만 적용된다(태스크 잡의 provider/model은 계획 결과로 정해짐).
+    extra_context(메모리/첨부 파일 등)는 계획 프롬프트에만 붙고 project.goal에는
+    남지 않는다 — 보드에는 사용자가 입력한 원래 목표만 표시한다.
+    """
     project_id = db.create_project(conn, goal, workdir=workdir)
-    planner = _pick_planner(enabled=enabled)
-    job_id = db.create_job(conn, build_plan_prompt(goal, enabled=enabled),
-                           planner, route_reason="비전 보드 계획")
-    db.update_project(conn, project_id, plan_job_id=job_id, planner=planner)
+    if planner and planner != "auto" and planner in PROVIDERS:
+        picked = planner
+    else:
+        picked = _pick_planner(enabled=enabled)
+    if not models.is_valid_model(picked, model or ""):
+        model = None
+    plan_goal = f"{extra_context}{goal}" if extra_context else goal
+    job_id = db.create_job(conn, build_plan_prompt(plan_goal, enabled=enabled),
+                           picked, model=model or None, timeout_sec=timeout_sec,
+                           route_reason="비전 보드 계획")
+    db.update_project(conn, project_id, plan_job_id=job_id, planner=picked,
+                      planner_model=model or None)
     return project_id
 
 

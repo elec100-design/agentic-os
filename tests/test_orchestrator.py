@@ -104,6 +104,40 @@ def test_start_project_queues_plan_job(tmp_env):
     assert "블로그를 만들어줘" in job["prompt"]
 
 
+def test_start_project_with_explicit_planner_and_model(tmp_env, monkeypatch):
+    conn = _conn(tmp_env)
+    monkeypatch.setattr(orchestrator.models, "is_valid_model",
+                        lambda provider, model: True)
+    pid = orchestrator.start_project(conn, "목표", workdir="/tmp/work",
+                                     planner="grok", model="gpt-5")
+    project = db.get_project(conn, pid)
+    assert project["planner"] == "grok"
+    assert project["planner_model"] == "gpt-5"
+    assert project["workdir"] == "/tmp/work"
+    job = db.get_job(conn, project["plan_job_id"])
+    assert job["provider"] == "grok"
+    assert job["model"] == "gpt-5"
+
+
+def test_start_project_invalid_model_falls_back_to_none(tmp_env, monkeypatch):
+    conn = _conn(tmp_env)
+    monkeypatch.setattr(orchestrator.models, "is_valid_model",
+                        lambda provider, model: False)
+    pid = orchestrator.start_project(conn, "목표", planner="grok", model="bogus")
+    project = db.get_project(conn, pid)
+    assert project["planner"] == "grok"
+    assert project["planner_model"] is None
+    job = db.get_job(conn, project["plan_job_id"])
+    assert job["model"] is None
+
+
+def test_start_project_unknown_planner_falls_back_to_auto(tmp_env):
+    conn = _conn(tmp_env)
+    pid = orchestrator.start_project(conn, "목표", planner="not-a-real-agent")
+    project = db.get_project(conn, pid)
+    assert project["planner"] in PROVIDERS
+
+
 def test_advance_planning_instantiates_tasks(tmp_env):
     conn = _conn(tmp_env)
     pid = orchestrator.start_project(conn, "목표")

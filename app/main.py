@@ -704,17 +704,38 @@ def board_page(request: Request):
     conn = db.get_conn()
     return templates.TemplateResponse(
         request, "board.html",
-        {"projects": _project_progress(conn, db.list_projects(conn))})
+        {"projects": _project_progress(conn, db.list_projects(conn)),
+         "provider_models": models.get_provider_models(),
+         "agent_order": settings.enabled_providers(),
+         "council_enabled": settings.council_available()})
 
 
 @app.post("/projects")
-def create_project(goal: str = Form(...), workdir: str = Form("")):
+async def create_project(
+    goal: str = Form(...),
+    provider: str = Form("auto"),
+    model: str = Form(""),
+    workdir: str = Form(""),
+    attach_memory: bool = Form(False),
+    timeout_min: int | None = Form(None),
+    files: list[UploadFile] = File(default=[]),
+):
     conn = db.get_conn()
     if not workspace.valid_path(workdir):
         workdir = ""
+    extra_context = ""
+    if attach_memory:
+        extra_context += memory.build_context(goal)
+    uploads = await _save_uploads(files)
+    if uploads:
+        extra_context += "\n\n첨부 파일 (로컬 경로에서 읽을 것):\n" + "\n".join(
+            f"- {p}" for p in uploads
+        ) + "\n\n"
     project_id = orchestrator.start_project(
         conn, goal.strip(), workdir=workdir or None,
-        enabled=settings.enabled_providers())
+        enabled=settings.enabled_providers(), planner=provider, model=model,
+        timeout_sec=timeout_min * 60 if timeout_min else None,
+        extra_context=extra_context or None)
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
