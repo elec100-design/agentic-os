@@ -70,6 +70,8 @@ class ClaudeProvider:
 class AntigravityProvider:
     # Google Antigravity CLI(`agy`) — 구글 OAuth 로그인 지원(시스템 키체인).
     name = "antigravity"
+    # 세션 재개 미지원 CLI — worker가 CONTINUE_PROMPT 대신 원 프롬프트를 재전송해야 한다.
+    supports_resume = False
     _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit", re.I)
 
     def build_command(self, prompt, session_id=None, model=None):
@@ -130,6 +132,163 @@ class GrokProvider:
         return _default_resume_at(now)
 
 
+class CodexProvider:
+    # OpenAI Codex CLI (`codex exec`) — ChatGPT/Codex 구독 로그인 세션 사용.
+    # 헤드리스: `codex exec --json` → JSONL 이벤트 스트림.
+    # 재개: `codex exec resume <session_id>`.
+    name = "codex"
+    _limit_re = re.compile(
+        r"rate.?limit|\b429\b|usage limit|quota|too many requests|"
+        r"you've hit your limit|limit reached",
+        re.I,
+    )
+
+    def build_command(self, prompt, session_id=None, model=None):
+        # 무인 실행: 승인 프롬프트·샌드박스 대기로 행(hang) 나지 않게 한다.
+        # 작업 위치(cwd)는 worker가 잡 workdir로 잡는다.
+        if session_id:
+            cmd = ["codex", "exec", "resume", session_id]
+        else:
+            cmd = ["codex", "exec"]
+        cmd += [
+            "--json",
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+        ]
+        if model:
+            cmd += ["--model", model]
+        cmd.append(prompt)
+        return cmd
+
+    def parse_output(self, stdout, stderr, exit_code):
+        session_id = None
+        messages = []
+        for line in (stdout or "").splitlines():
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue
+            try:
+                ev = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(ev, dict):
+                continue
+            if ev.get("type") == "thread.started" and ev.get("thread_id"):
+                session_id = ev["thread_id"]
+            item = ev.get("item") if ev.get("type") == "item.completed" else None
+            if isinstance(item, dict) and item.get("type") == "agent_message":
+                text = item.get("text")
+                if text:
+                    messages.append(text)
+        if messages:
+            return ParseResult(text=messages[-1], session_id=session_id)
+        # --json 이 아니면 최종 답만 stdout에 온다
+        return ParseResult(text=stdout or stderr, session_id=session_id)
+
+    def detect_rate_limit(self, output, exit_code, now=None):
+        if exit_code == 0 or not self._limit_re.search(output):
+            return None
+        return _default_resume_at(now)
+
+
+class GeminiProvider:
+    # Google Gemini CLI (`gemini`) — OAuth 또는 Vertex AI(ADC). Antigravity와 별개.
+    # 헤드리스: `gemini -p … -y -o json --skip-trust`.
+    # 세션 재개 플래그는 latest/index 전용이라 UUID 이어가기는 지원하지 않는다.
+    name = "gemini"
+    # 세션 재개 미지원 CLI — worker가 CONTINUE_PROMPT 대신 원 프롬프트를 재전송해야 한다.
+    supports_resume = False
+    _limit_re = re.compile(
+        r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit|usage limit", re.I
+    )
+
+    def build_command(self, prompt, session_id=None, model=None):
+        # session_id는 CLI가 UUID 재개를 지원하지 않아 무시(오염 방지).
+        # --skip-trust: 헤드리스에서 trusted-folder 프롬프트를 피한다.
+        cmd = ["gemini", "-p", prompt, "-y", "-o", "json", "--skip-trust"]
+        if model:
+            cmd += ["-m", model]
+        return cmd
+
+    def parse_output(self, stdout, stderr, exit_code):
+        try:
+            data = json.loads(stdout)
+            if not isinstance(data, dict):
+                return ParseResult(text=stdout or stderr, session_id=None)
+            text = data.get("response")
+            if text is None:
+                text = stdout or stderr
+            # session_id가 있어도 이어가기 UI는 main에서 막아 둔다.
+            return ParseResult(text=text, session_id=data.get("session_id"))
+        except (json.JSONDecodeError, TypeError):
+            return ParseResult(text=stdout or stderr, session_id=None)
+
+    def detect_rate_limit(self, output, exit_code, now=None):
+        if exit_code == 0 or not self._limit_re.search(output):
+            return None
+        return _default_resume_at(now)
+
+
+class OpenClawProvider:
+    # OpenClaw — 로컬 Gateway/임베디드 에이전트. 모델은 구독 CLI·OAuth 프로필
+    # 또는 사용자 설정 프로바이더를 쓴다. API 키 환경변수에 의존하지 않는다.
+    # 헤드리스: `openclaw agent --session-id … --message … --json`.
+    name = "openclaw"
+    _limit_re = re.compile(
+        r"rate.?limit|\b429\b|quota|usage limit|too many requests|"
+        r"RESOURCE_EXHAUSTED",
+        re.I,
+    )
+
+    def __init__(self):
+        self._pending_session = None
+
+    def build_command(self, prompt, session_id=None, model=None):
+        sid = session_id or str(uuid.uuid4())
+        self._pending_session = sid
+        cmd = [
+            "openclaw", "agent",
+            "--session-id", sid,
+            "--message", prompt,
+            "--json",
+        ]
+        if model:
+            cmd += ["--model", model]
+        return cmd
+
+    def parse_output(self, stdout, stderr, exit_code):
+        try:
+            data = json.loads(stdout)
+            if not isinstance(data, dict):
+                return ParseResult(
+                    text=stdout or stderr, session_id=self._pending_session
+                )
+            result = data.get("result")
+            if not isinstance(result, dict):
+                result = data
+            texts = []
+            payloads = result.get("payloads") if isinstance(result, dict) else None
+            if isinstance(payloads, list):
+                for p in payloads:
+                    if isinstance(p, dict) and p.get("text"):
+                        texts.append(str(p["text"]))
+            text = "\n\n".join(texts) if texts else (stdout or stderr)
+            sid = (
+                result.get("sessionId")
+                if isinstance(result, dict) else None
+            ) or data.get("sessionId") or self._pending_session
+            return ParseResult(text=text, session_id=sid)
+        except (json.JSONDecodeError, TypeError):
+            return ParseResult(
+                text=stdout or stderr, session_id=self._pending_session
+            )
+
+    def detect_rate_limit(self, output, exit_code, now=None):
+        if exit_code == 0 or not self._limit_re.search(output):
+            return None
+        return _default_resume_at(now)
+
+
 class HermesProvider:
     name = "hermes"
 
@@ -145,7 +304,15 @@ class HermesProvider:
 
 PROVIDERS = {
     p.name: p
-    for p in [ClaudeProvider(), AntigravityProvider(), GrokProvider(), HermesProvider()]
+    for p in [
+        ClaudeProvider(),
+        CodexProvider(),
+        AntigravityProvider(),
+        GeminiProvider(),
+        GrokProvider(),
+        OpenClawProvider(),
+        HermesProvider(),
+    ]
 }
 
 # 협의(Council) 모드 — 실제 CLI가 아니라 app.council 오케스트레이터가 처리하는
@@ -164,10 +331,49 @@ _COMPLEX_KW = [
     "report", "plan", "research", "review", "fix", "bug", "write", "build",
 ]
 
-_CLOUD_ROUTED = ("claude", "antigravity", "grok")
+# 자동 라우팅에 쓰는 에이전트 프로필.
+#
+# ``max_difficulty``는 해당 CLI에 맡길 수 있는 최대 작업 난이도다. 현재 등록된
+# 구독 CLI는 모두 complex 작업을 처리할 수 있고, Hermes는 로컬·무제한 실행을
+# 보존하기 위해 simple 작업 전용으로 둔다. ``affinities``는 *동일한 잔여 사용량*
+# 일 때만 쓰는 타이브레이커다. 따라서 특정 에이전트의 강점이 사용량이 더 많이
+# 남은 다른 에이전트를 제치지 않는다.
+#
+# 새 provider를 추가할 때 이 표에도 항목을 넣으면 자동 추천이 해당 에이전트의
+# 난이도와 작업 성격을 함께 고려한다.
+AGENT_PROFILES = {
+    "claude": {"max_difficulty": "complex", "affinities": {"code", "analysis", "writing"}},
+    "codex": {"max_difficulty": "complex", "affinities": {"code", "automation", "debug"}},
+    "antigravity": {"max_difficulty": "complex", "affinities": {"document", "multimodal", "analysis"}},
+    "gemini": {"max_difficulty": "complex", "affinities": {"document", "multimodal", "analysis"}},
+    "grok": {"max_difficulty": "complex", "affinities": {"research", "current", "analysis"}},
+    "openclaw": {"max_difficulty": "complex", "affinities": {"automation", "analysis", "writing"}},
+    "hermes": {"max_difficulty": "simple", "affinities": {"local", "private"}},
+}
+_DEFAULT_CLOUD_PROFILE = {"max_difficulty": "complex", "affinities": set()}
+
+# 클라우드(구독) 에이전트 — 잔여 사용량 기반 자동 라우팅 대상.
+# 등록된 모든 비로컬 provider를 자동 후보로 삼는다. PROVIDERS의 등록 순서가
+# 사용량·작업 성격까지 같은 경우의 최종 우선순위다. 따라서 새 클라우드
+# 에이전트를 등록하면 별도 라우팅 목록을 고치지 않아도 자동 추천에 포함된다.
+_CLOUD_ROUTED = tuple(name for name in PROVIDERS if name != "hermes")
 # 잔여 사용량을 알 수 없는(CodexBar 미연동) 프로바이더의 기본 순위값.
 # 잔여를 아는 프로바이더가 이보다 많이 남으면 그쪽을 우선한다.
 _UNKNOWN_REMAINING = 50
+
+_DIFFICULTY_RANK = {"simple": 0, "complex": 1}
+
+_TASK_KIND_KW = {
+    "code": ("구현", "리팩터", "코드", "디버그", "버그", "개발", "implement",
+             "refactor", "code", "debug", "bug", "build"),
+    "automation": ("자동화", "스크립트", "워크플로", "automation", "script", "workflow"),
+    "research": ("조사", "검색", "최신", "뉴스", "research", "search", "latest", "news"),
+    "current": ("오늘", "현재", "실시간", "today", "current", "real-time"),
+    "document": ("문서", "보고서", "번역", "요약", "document", "report", "translate", "summar"),
+    "multimodal": ("이미지", "pdf", "영상", "image", "video", "pdf"),
+    "analysis": ("분석", "검토", "설계", "analysis", "review", "design", "plan"),
+    "writing": ("작성", "글", "write", "draft"),
+}
 
 
 def is_complex(prompt):
@@ -177,9 +383,21 @@ def is_complex(prompt):
     return any(kw in low for kw in _COMPLEX_KW)
 
 
+def task_difficulty(prompt):
+    """프롬프트를 자동 라우팅용 simple/complex 난이도로 분류한다."""
+    return "complex" if is_complex(prompt) else "simple"
+
+
+def task_kinds(prompt):
+    """프롬프트에서 감지한 작업 성격 집합(동률 정렬용)을 반환한다."""
+    low = prompt.lower()
+    return {kind for kind, keywords in _TASK_KIND_KW.items()
+            if any(keyword in low for keyword in keywords)}
+
+
 def rank_cloud(usage_state=None, enabled=None):
     """소진되지 않은 클라우드 프로바이더를 잔여 사용량 순으로 정렬해 반환.
-    [(name, remaining), ...] — 잔여 많은 순, 동률이면 우선순위(claude>antigravity>grok) 순.
+    [(name, remaining), ...] — 잔여 많은 순, 동률이면 _CLOUD_ROUTED 우선순위 순.
     enabled(활성 에이전트 목록)를 주면 그 안에서만 고른다.
     """
     usage_state = usage_state or {}
@@ -190,10 +408,34 @@ def rank_cloud(usage_state=None, enabled=None):
         if st.get("available") is False:  # 사용량 소진
             continue
         remaining = st.get("remaining")
-        rank = _UNKNOWN_REMAINING if remaining is None else remaining
-        ranked.append((rank, _CLOUD_ROUTED.index(name), name, remaining))
-    ranked.sort(key=lambda x: (-x[0], x[1]))
-    return [(name, remaining) for _, _, name, remaining in ranked]
+        # 실측값이 있는 후보를 항상 먼저 둔다. OpenClaw처럼 자체 사용량을
+        # 직접 측정할 수 없는 Gateway가 50%라는 가정값으로 실제 10% 남은
+        # 에이전트를 앞지르는 일을 막는다.
+        known = remaining is not None
+        rank = _UNKNOWN_REMAINING if not known else remaining
+        ranked.append((known, rank, _CLOUD_ROUTED.index(name), name, remaining))
+    ranked.sort(key=lambda x: (-x[0], -x[1], x[2]))
+    return [(name, remaining) for _, _, _, name, remaining in ranked]
+
+
+def rank_auto_agents(prompt, usage_state=None, enabled=None):
+    """난이도에 맞는 모든 활성 클라우드 에이전트를 사용량순으로 정렬한다.
+
+    실제 잔여 사용량이 최우선이며, 동률일 때만 프롬프트의 작업 성격과 provider
+    프로필을 적용한다. 반환 형식은 ``rank_cloud``와 동일하다.
+    """
+    kinds = task_kinds(prompt)
+    ranked = []
+    for name, remaining in rank_cloud(usage_state, enabled):
+        # 아직 세부 프로필이 없는 새 provider도 기본 complex 후보로 포함한다.
+        profile = AGENT_PROFILES.get(name, _DEFAULT_CLOUD_PROFILE)
+        if _DIFFICULTY_RANK[profile["max_difficulty"]] < _DIFFICULTY_RANK[task_difficulty(prompt)]:
+            continue
+        affinity = len(kinds & profile["affinities"])
+        ranked.append((remaining is not None, remaining if remaining is not None else _UNKNOWN_REMAINING,
+                       affinity, _CLOUD_ROUTED.index(name), name, remaining))
+    ranked.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
+    return [(name, remaining) for _, _, _, _, name, remaining in ranked]
 
 
 def route_auto(prompt, usage_state=None, enabled=None):
@@ -214,7 +456,7 @@ def route_auto(prompt, usage_state=None, enabled=None):
         return "hermes", (
             "Simple task → local Hermes to save cloud quota" if en
             else "단순 작업이라 로컬 Hermes로 처리해 클라우드 사용량을 아낍니다")
-    ranked = rank_cloud(usage_state, enabled)
+    ranked = rank_auto_agents(prompt, usage_state, enabled)
     if not ranked:
         if hermes_ok:
             return "hermes", (

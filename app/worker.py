@@ -9,6 +9,11 @@ from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 # 추적해야 취소 시 정확한 프로세스를 종료할 수 있다. main.py가 참조한다.
 running_procs: dict[int, object] = {}
 
+# asyncio StreamReader의 기본 readline() 한도(64KiB)는 codex 등 일부 CLI가
+# --json으로 뱉는 긴 한 줄짜리 이벤트(예: 스킬 설명 목록)를 넘겨 버려
+# "Separator is not found, and chunk exceed the limit" ValueError를 낸다.
+STREAM_LIMIT = 16 * 1024 * 1024
+
 
 def terminate_job_procs(job_id):
     """잡의 실행 중 프로세스를 모두 종료한다 (단일 CLI 잡 + 협의 잡의 병렬 CLI들)."""
@@ -26,11 +31,82 @@ def terminate_job_procs(job_id):
             pass
 
 
+def _sanitize_google_adc(env):
+    """잘못된 GOOGLE_APPLICATION_CREDENTIALS 를 제거해 기본 ADC 를 쓰게 한다.
+
+    일부 툴(gws 등)이 OAuth client_secret.json 을 GAC 로 내보내면
+    Vertex/ADC 경로가 깨진다. 유효한 ADC type 이 아니면 환경변수만 지운다.
+    """
+    import json
+    from pathlib import Path
+
+    gac = (env.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    if not gac:
+        return
+    path = Path(gac)
+    valid_types = {
+        "authorized_user",
+        "service_account",
+        "external_account",
+        "external_account_authorized_user",
+        "impersonated_service_account",
+        "gdch_service_account",
+    }
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("type") in valid_types:
+                return
+    except (OSError, json.JSONDecodeError):
+        pass
+    env.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+
+
+def _merge_gemini_dotenv(env):
+    """~/.gemini/.env 의 Vertex/프로젝트 변수를 워커 env 에 보강.
+
+    이미 설정된 키는 덮어쓰지 않는다. CLI 가 자체 로드하기도 하지만
+    launchd 등 비대화형 환경에서 누락을 막기 위함.
+    """
+    from pathlib import Path
+
+    path = Path.home() / ".gemini" / ".env"
+    if not path.is_file():
+        return
+    keep = {
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_PROJECT_ID",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GEMINI_CLI_TRUST_WORKSPACE",
+    }
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key in keep and key not in env and val:
+                env[key] = val
+    except OSError:
+        pass
+
+
 def _clean_env():
+    # 구독 CLI 로그인 세션만 쓰도록 API 키 환경변수를 제거한다(추가 과금 방지).
+    # Vertex AI 는 ADC(+GOOGLE_CLOUD_PROJECT)를 쓰므로 키를 제거해도 동작한다.
     env = dict(os.environ)
-    for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
-                "XAI_API_KEY", "GROK_API_KEY"):
+    for key in (
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY",
+        "XAI_API_KEY", "GROK_API_KEY",
+        "OPENAI_API_KEY", "CODEX_API_KEY",
+    ):
         env.pop(key, None)
+    _sanitize_google_adc(env)
+    _merge_gemini_dotenv(env)
     return env
 
 
@@ -56,8 +132,13 @@ async def run_job(conn, job, providers=None, save=True):
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
     # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.
     # 없는데 session_id가 있으면 사용자가 만든 세션 이어가기 → 본인 프롬프트.
+    # 단, CLI가 세션 재개를 지원하지 않으면(supports_resume=False) 이 호출은
+    # 이전 맥락이 전혀 없는 새 세션이 되므로, CONTINUE_PROMPT(맥락 의존 문구)
+    # 대신 원래 프롬프트를 다시 보낸다 — 그렇지 않으면 에이전트가 맥락 없이
+    # 임의로 행동(환각)한다.
     send_prompt = job["prompt"]
-    if job["session_id"] and job["resume_at"]:
+    if (job["session_id"] and job["resume_at"]
+            and getattr(provider, "supports_resume", True)):
         send_prompt = CONTINUE_PROMPT
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
                                  model=job["model"])
@@ -78,6 +159,7 @@ async def run_job(conn, job, providers=None, save=True):
             stderr=asyncio.subprocess.PIPE,
             env=_clean_env(),
             cwd=workdir,
+            limit=STREAM_LIMIT,
         )
     except (FileNotFoundError, OSError) as e:
         db.update_job(conn, job["id"], status="failed", error=str(e),

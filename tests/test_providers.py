@@ -1,12 +1,17 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import json
+
 from app.providers import (
     PROVIDERS,
     AntigravityProvider,
     ClaudeProvider,
+    CodexProvider,
+    GeminiProvider,
     GrokProvider,
     HermesProvider,
+    OpenClawProvider,
     route_auto,
 )
 
@@ -146,6 +151,106 @@ def test_grok_rate_limit():
     assert p.detect_rate_limit("Too Many Requests", 1, now=NOW) is not None
 
 
+# --- Codex ---
+
+def test_codex_build_new():
+    cmd = CodexProvider().build_command("hi")
+    assert cmd[:2] == ["codex", "exec"]
+    assert "--json" in cmd
+    assert "--skip-git-repo-check" in cmd
+    assert "--dangerously-bypass-approvals-and-sandbox" in cmd
+    assert cmd[-1] == "hi"
+    assert "resume" not in cmd
+
+
+def test_codex_build_resume():
+    cmd = CodexProvider().build_command("continue", session_id="thread-abc")
+    assert cmd[:4] == ["codex", "exec", "resume", "thread-abc"]
+    assert cmd[-1] == "continue"
+
+
+def test_codex_parse_jsonl():
+    stdout = "\n".join([
+        '{"type":"thread.started","thread_id":"tid-1"}',
+        '{"type":"turn.started"}',
+        '{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"첫 답"}}',
+        '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"최종 답"}}',
+        '{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":2}}',
+    ])
+    r = CodexProvider().parse_output(stdout, "", 0)
+    assert r.text == "최종 답"
+    assert r.session_id == "tid-1"
+
+
+def test_codex_rate_limit():
+    p = CodexProvider()
+    assert p.detect_rate_limit("rate limit exceeded", 1, now=NOW) is not None
+    assert p.detect_rate_limit("ok", 0, now=NOW) is None
+
+
+# --- Gemini ---
+
+def test_gemini_build_ignores_session():
+    p = GeminiProvider()
+    assert p.build_command("hi") == [
+        "gemini", "-p", "hi", "-y", "-o", "json", "--skip-trust",
+    ]
+    assert p.build_command("hi", session_id="sess") == [
+        "gemini", "-p", "hi", "-y", "-o", "json", "--skip-trust",
+    ]
+
+
+def test_gemini_parse_json():
+    r = GeminiProvider().parse_output(
+        '{"response": "안녕", "session_id": "g-1"}', "", 0
+    )
+    assert r.text == "안녕"
+    assert r.session_id == "g-1"
+
+
+def test_gemini_rate_limit():
+    p = GeminiProvider()
+    assert p.detect_rate_limit("Error 429 RESOURCE_EXHAUSTED", 1, now=NOW) is not None
+
+
+# --- OpenClaw ---
+
+def test_openclaw_build_mints_session_id():
+    p = OpenClawProvider()
+    cmd = p.build_command("hi")
+    assert cmd[0:2] == ["openclaw", "agent"]
+    assert "--session-id" in cmd
+    sid = cmd[cmd.index("--session-id") + 1]
+    uuid.UUID(sid)
+    assert cmd[cmd.index("--message") + 1] == "hi"
+    assert "--json" in cmd
+    assert p.parse_output("plain", "", 0).session_id == sid
+
+
+def test_openclaw_resume_uses_given_session():
+    p = OpenClawProvider()
+    cmd = p.build_command("next", session_id="sess-9")
+    assert cmd[cmd.index("--session-id") + 1] == "sess-9"
+
+
+def test_openclaw_parse_gateway_json():
+    stdout = json.dumps({
+        "status": "ok",
+        "result": {
+            "sessionId": "s-from-result",
+            "payloads": [{"text": "hello claw"}],
+        },
+    })
+    r = OpenClawProvider().parse_output(stdout, "", 0)
+    assert r.text == "hello claw"
+    assert r.session_id == "s-from-result"
+
+
+def test_openclaw_rate_limit():
+    p = OpenClawProvider()
+    assert p.detect_rate_limit("quota exceeded", 1, now=NOW) is not None
+
+
 # --- Hermes ---
 
 def test_hermes_build_and_never_limits():
@@ -186,16 +291,43 @@ def test_grok_build_with_model():
     assert cmd[-2:] == ["-p", "hi"]
 
 
+def test_codex_build_with_model():
+    cmd = CodexProvider().build_command("hi", model="gpt-5.4")
+    assert cmd[cmd.index("--model") + 1] == "gpt-5.4"
+
+
+def test_gemini_build_with_model():
+    cmd = GeminiProvider().build_command("hi", model="gemini-2.5-pro")
+    assert cmd == [
+        "gemini", "-p", "hi", "-y", "-o", "json", "--skip-trust",
+        "-m", "gemini-2.5-pro",
+    ]
+
+
+def test_openclaw_build_with_model():
+    cmd = OpenClawProvider().build_command("hi", model="openai/gpt-5.5")
+    assert cmd[cmd.index("--model") + 1] == "openai/gpt-5.5"
+
+
 def test_no_model_omits_flag():
     assert "--model" not in ClaudeProvider().build_command("x")
     assert "--model" not in AntigravityProvider().build_command("x")
     assert "--model" not in GrokProvider().build_command("x")
+    assert "--model" not in CodexProvider().build_command("x")
+    assert "-m" not in GeminiProvider().build_command("x")
+    assert "--model" not in OpenClawProvider().build_command("x")
 
 
 # --- Registry & routing ---
 
-def test_registry_has_all_four():
-    assert set(PROVIDERS) == {"claude", "antigravity", "grok", "hermes"}
+def test_registry_has_all_providers():
+    assert set(PROVIDERS) == {
+        "claude", "codex", "antigravity", "gemini", "grok", "openclaw", "hermes",
+    }
+    # 정식 UI 순서
+    assert list(PROVIDERS) == [
+        "claude", "codex", "antigravity", "gemini", "grok", "openclaw", "hermes",
+    ]
 
 
 def _remaining(**kw):
@@ -217,15 +349,20 @@ def test_route_auto_complex_picks_most_remaining():
 
 
 def test_route_auto_complex_skips_exhausted():
+    # 미언급 클라우드(codex/gemini/openclaw)는 unknown=50으로 끼어들 수 있어
+    # 비교 대상만 명시적으로 활성 목록에 넣는다.
     st = {"claude": {"remaining": 0, "available": False},
           "antigravity": {"remaining": 30, "available": True},
           "grok": {"remaining": 50, "available": True}}
-    assert route_auto("버그 수정해줘", usage_state=st)[0] == "grok"
+    assert route_auto(
+        "버그 수정해줘", usage_state=st,
+        enabled=["claude", "antigravity", "grok", "hermes"],
+    )[0] == "grok"
 
 
 def test_route_auto_all_exhausted_falls_back_hermes():
     st = {p: {"remaining": 0, "available": False}
-          for p in ("claude", "antigravity", "grok")}
+          for p in ("claude", "codex", "antigravity", "gemini", "grok", "openclaw")}
     assert route_auto("버그 수정 구현해줘", usage_state=st)[0] == "hermes"
 
 
@@ -248,6 +385,38 @@ def test_rank_cloud_filters_by_enabled():
     from app.providers import rank_cloud
     ranked = rank_cloud({}, enabled=["grok", "hermes"])
     assert [n for n, _ in ranked] == ["grok"]
+
+
+def test_auto_ranking_considers_every_enabled_cloud_agent():
+    """새 provider도 난이도 충족 시 사용량 비교 후보가 된다."""
+    from app.providers import rank_auto_agents
+    usage = _remaining(claude=10, codex=20, antigravity=30, gemini=40,
+                       grok=50, openclaw=60)
+    ranked = rank_auto_agents("복잡한 분석 보고서 작성", usage,
+                              enabled=["claude", "codex", "antigravity", "gemini",
+                                       "grok", "openclaw", "hermes"])
+    assert [name for name, _ in ranked] == [
+        "openclaw", "grok", "gemini", "antigravity",
+        "codex", "claude",
+    ]
+
+
+def test_auto_ranking_prefers_measured_usage_over_unknown_gateway_usage():
+    from app.providers import rank_auto_agents
+    ranked = rank_auto_agents(
+        "코드 구현해줘",
+        {"claude": {"remaining": 10, "available": True},
+         "openclaw": {"remaining": None, "available": None}},
+        enabled=["claude", "openclaw"],
+    )
+    assert [name for name, _ in ranked] == ["claude", "openclaw"]
+
+
+def test_auto_ranking_uses_task_affinity_only_when_usage_tied():
+    from app.providers import rank_auto_agents
+    usage = _remaining(codex=60, grok=60)
+    assert rank_auto_agents("최신 뉴스 조사해줘", usage,
+                            enabled=["codex", "grok"])[0][0] == "grok"
 
 
 def test_route_auto_simple_without_hermes_uses_cloud():
