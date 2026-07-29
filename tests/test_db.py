@@ -128,3 +128,23 @@ def test_migrate_adds_node_position_columns(tmp_env):
     row = conn.execute("SELECT * FROM tasks").fetchone()
     assert row["title"] == "옛 태스크"      # 기존 데이터는 그대로
     assert row["pos_x"] is None
+
+
+def test_create_and_get_test_goal(tmp_env):
+    conn = _conn(tmp_env)
+    goal_id = db.create_test_goal(conn, "test goal")
+    goal = db.get_test_goal(conn, goal_id)
+    assert goal["name"] == "test goal"
+    assert goal["status"] == "pending"
+    assert goal["result"] is None
+
+
+def test_update_test_goal_transitions_status(tmp_env):
+    conn = _conn(tmp_env)
+    goal_id = db.create_test_goal(conn, "test goal")
+    db.update_test_goal(conn, goal_id, status="running")
+    assert db.get_test_goal(conn, goal_id)["status"] == "running"
+    db.update_test_goal(conn, goal_id, status="done", result="완료")
+    goal = db.get_test_goal(conn, goal_id)
+    assert goal["status"] == "done"
+    assert goal["result"] == "완료"

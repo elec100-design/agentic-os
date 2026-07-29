@@ -48,14 +48,16 @@ class MyProvider:
 ```python
 PROVIDERS = {
     p.name: p
-    for p in [ClaudeProvider(), AntigravityProvider(), GrokProvider(),
+    for p in [ClaudeProvider(), CodexProvider(), AntigravityProvider(),
+              GeminiProvider(), GrokProvider(), OpenClawProvider(),
               HermesProvider(), MyProvider()]
 }
 ```
 
-자동 라우팅 대상(클라우드 사용량 기반 배분)에 넣으려면
-`_CLOUD_ROUTED` 튜플에도 `name`을 추가한다. 로컬·무제한 CLI(hermes류)는
-넣지 않는다.
+자동 라우팅은 등록된 모든 비로컬 provider를 자동으로 후보에 포함한다. 작업
+난이도·성격을 세밀하게 지정하려면 `AGENT_PROFILES`에 `name`을 추가한다.
+프로필이 없어도 기본 `complex` 후보로 동작한다. 로컬·무제한 CLI는 Hermes처럼
+이름을 제외하거나 라우팅 프로필을 별도로 설계한다.
 
 ## 3. 셋업 감지 (`app/setup.py`)
 
@@ -74,14 +76,29 @@ PROVIDERS = {
 },
 ```
 
-## 4. (선택) 사용량 실측
+## 4. (선택) 모델 목록
+
+`app/models.py`의 `_DISCOVERERS`에 디스커버 함수를 등록한다. CLI에서 목록을
+못 가져오면 `config.FALLBACK_PROVIDER_MODELS`에 선택지를 넣어 두면 UI 모델
+칩이 바로 노출된다(항목이 1개뿐이면 칩이 숨겨짐).
+
+현재 디스커버 경로:
+- claude: 바이너리 별칭 스캔
+- codex: `codex debug models`
+- gemini: 별칭(auto/pro/flash) + 알려진 full id
+- antigravity: `agy models`
+- grok: `grok models`
+- openclaw: `openclaw models list --json`
+- hermes: `hermes status` (라벨만)
+
+## 5. (선택) 사용량 실측
 
 잔여 사용량을 [CodexBar](https://github.com/steipete/CodexBar)로 읽을 수
 있으면 `config.CODEXBAR_PROVIDERS`에 `{"myagent": "codexbar-id"}`를 더한다.
 없으면 사용량은 "정보 없음"으로 표시되고, 자동 라우팅에서는 기본 순위값
 (`_UNKNOWN_REMAINING`)으로 취급된다.
 
-## 5. 테스트
+## 6. 테스트
 
 `tests/test_providers.py`의 기존 패턴을 따라 `build_command`/`parse_output`/
 `detect_rate_limit`를 검증한다. 워커는 API 키 환경변수를 제거하고 CLI를

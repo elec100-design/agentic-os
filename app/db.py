@@ -1,3 +1,4 @@
+import re
 import sqlite3
 from datetime import datetime, timezone
 
@@ -63,6 +64,62 @@ CREATE TABLE IF NOT EXISTS tasks (
   started_at TEXT,
   finished_at TEXT
 );
+CREATE TABLE IF NOT EXISTS channels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  topic TEXT NOT NULL DEFAULT '',
+  workdir TEXT,
+  default_provider TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+CREATE TABLE IF NOT EXISTS messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id INTEGER NOT NULL REFERENCES channels(id),
+  parent_id INTEGER REFERENCES messages(id),
+  root_id INTEGER REFERENCES messages(id),
+  seq INTEGER NOT NULL,
+  role TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'done',
+  provider TEXT,
+  model TEXT,
+  session_id TEXT,
+  job_id INTEGER REFERENCES jobs(id),
+  reply_count INTEGER NOT NULL DEFAULT 0,
+  last_reply_at TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_messages_channel_seq ON messages(channel_id, seq);
+CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id);
+CREATE INDEX IF NOT EXISTS idx_messages_root ON messages(root_id);
+CREATE TABLE IF NOT EXISTS execution_steps (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  message_id INTEGER NOT NULL REFERENCES messages(id),
+  job_id INTEGER,
+  seq INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  detail TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'done',
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_steps_message_seq ON execution_steps(message_id, seq);
+CREATE TABLE IF NOT EXISTS test_goals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  result TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
 """
 
 
@@ -87,9 +144,17 @@ def _migrate(conn):
     for col in ("model", "note_path", "workdir", "route_reason"):
         if col not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+    # 채널/메시지 계층에서 잡을 역참조하기 위한 링크 (채널 기능 도입 전 잡에는 NULL)
+    for col in ("channel_id", "message_id"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} INTEGER")
     project_cols = {r["name"] for r in conn.execute("PRAGMA table_info(projects)")}
     if "planner_model" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN planner_model TEXT")
+    # 프로젝트 상세의 chat-rail이 붙는 전용 채널 — 기존 프로젝트에는 NULL,
+    # 처음 상세 페이지를 열 때 get_or_create_project_channel()이 채워준다.
+    if "channel_id" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN channel_id INTEGER")
     # 다이어그램 편집기가 저장하는 노드 좌표 (NULL이면 자동 배치)
     task_cols = {r["name"] for r in conn.execute("PRAGMA table_info(tasks)")}
     for col in ("pos_x", "pos_y"):
@@ -99,13 +164,14 @@ def _migrate(conn):
 
 
 def create_job(conn, prompt, provider, timeout_sec=None, session_id=None,
-               model=None, workdir=None, note_path=None, route_reason=None):
+               model=None, workdir=None, note_path=None, route_reason=None,
+               channel_id=None, message_id=None):
     cur = conn.execute(
         "INSERT INTO jobs (prompt, provider, model, timeout_sec, session_id, "
-        "workdir, note_path, route_reason, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "workdir, note_path, route_reason, channel_id, message_id, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (prompt, provider, model, timeout_sec, session_id, workdir, note_path,
-         route_reason, now_iso()),
+         route_reason, channel_id, message_id, now_iso()),
     )
     conn.commit()
     return cur.lastrowid
@@ -230,6 +296,21 @@ def create_project(conn, goal, workdir=None, planner_model=None):
 def get_project(conn, project_id):
     return conn.execute(
         "SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+
+
+def get_or_create_project_channel(conn, project):
+    """프로젝트 상세의 chat-rail이 쓸 채널을 반환, 없으면 그 자리에서 만든다."""
+    if project["channel_id"]:
+        channel = get_channel(conn, project["channel_id"])
+        if channel is not None:
+            return channel
+    title = project["title"] or (project["goal"] or "")[:60]
+    channel_id = create_channel(
+        conn, title, workdir=project["workdir"], default_provider=project["planner"])
+    conn.execute("UPDATE projects SET channel_id = ? WHERE id = ?",
+                 (channel_id, project["id"]))
+    conn.commit()
+    return get_channel(conn, channel_id)
 
 
 def list_projects(conn, limit=50):
@@ -357,3 +438,223 @@ def limit_status(conn):
         "WHERE status = 'rate_limited' GROUP BY provider"
     ).fetchall()
     return {r["provider"]: r["resume_at"] for r in rows}
+
+
+# --- 채널: Slack/Telegram식 주제별 지속 대화 컨테이너 ------------------------
+
+def _slugify(text):
+    base = re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+    return (base or "channel")[:60]
+
+
+def create_channel(conn, title, topic="", workdir=None, default_provider=None):
+    slug = _slugify(title)
+    candidate, i = slug, 2
+    while conn.execute(
+            "SELECT 1 FROM channels WHERE slug = ?", (candidate,)).fetchone():
+        candidate = f"{slug}-{i}"
+        i += 1
+    cur = conn.execute(
+        "INSERT INTO channels (slug, title, topic, workdir, default_provider, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (candidate, title, topic, workdir, default_provider, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_channel(conn, channel_id):
+    return conn.execute(
+        "SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
+
+
+def list_channels(conn, status="active"):
+    if status:
+        return conn.execute(
+            "SELECT * FROM channels WHERE status = ? "
+            "ORDER BY COALESCE(updated_at, created_at) DESC",
+            (status,),
+        ).fetchall()
+    return conn.execute(
+        "SELECT * FROM channels ORDER BY COALESCE(updated_at, created_at) DESC"
+    ).fetchall()
+
+
+def update_channel(conn, channel_id, **fields):
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE channels SET {cols} WHERE id = ?",
+                 (*fields.values(), channel_id))
+    conn.commit()
+
+
+def delete_channel(conn, channel_id):
+    """채널과 소속 메시지, 실행 트레이스, 연결된 잡까지 모두 삭제."""
+    msg_ids = [r["id"] for r in conn.execute(
+        "SELECT id FROM messages WHERE channel_id = ?", (channel_id,))]
+    job_ids = [r["job_id"] for r in conn.execute(
+        "SELECT job_id FROM messages WHERE channel_id = ? AND job_id IS NOT NULL",
+        (channel_id,))]
+    if msg_ids:
+        placeholders = ", ".join("?" for _ in msg_ids)
+        conn.execute(
+            f"DELETE FROM execution_steps WHERE message_id IN ({placeholders})",
+            msg_ids)
+    for jid in job_ids:
+        conn.execute("DELETE FROM jobs WHERE id = ?", (jid,))
+    conn.execute("DELETE FROM messages WHERE channel_id = ?", (channel_id,))
+    conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
+    conn.commit()
+
+
+# --- 메시지: 채널 타임라인의 발화 단위(루트) / 쓰레드 답장 -------------------
+
+def next_message_seq(conn, channel_id):
+    row = conn.execute(
+        "SELECT MAX(seq) AS m FROM messages WHERE channel_id = ?",
+        (channel_id,)).fetchone()
+    return (row["m"] or 0) + 1
+
+
+def create_message(conn, channel_id, role, body, author="", parent_id=None,
+                    status="done", provider=None, model=None, session_id=None,
+                    job_id=None):
+    """parent_id는 항상 쓰레드 루트 메시지를 직접 가리켜야 한다(호출자가 정규화).
+    parent_id가 없으면 이 메시지 자신이 채널의 새 루트가 된다."""
+    seq = next_message_seq(conn, channel_id)
+    root_id = None
+    if parent_id:
+        parent = get_message(conn, parent_id)
+        if parent is not None:
+            root_id = parent["root_id"] or parent["id"]
+    cur = conn.execute(
+        "INSERT INTO messages (channel_id, parent_id, root_id, seq, role, "
+        "author, body, status, provider, model, session_id, job_id, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (channel_id, parent_id, root_id, seq, role, author, body, status,
+         provider, model, session_id, job_id, now_iso()),
+    )
+    conn.commit()
+    message_id = cur.lastrowid
+    if root_id:
+        conn.execute(
+            "UPDATE messages SET reply_count = reply_count + 1, "
+            "last_reply_at = ? WHERE id = ?", (now_iso(), root_id))
+        conn.commit()
+    update_channel(conn, channel_id)
+    return message_id
+
+
+def get_message(conn, message_id):
+    return conn.execute(
+        "SELECT * FROM messages WHERE id = ?", (message_id,)).fetchone()
+
+
+def message_by_job(conn, job_id):
+    return conn.execute(
+        "SELECT * FROM messages WHERE job_id = ?", (job_id,)).fetchone()
+
+
+def list_root_messages(conn, channel_id, before_seq=None, limit=50):
+    """루트 메시지(parent_id IS NULL) 페이지네이션. 오래된 순으로 반환."""
+    if before_seq is not None:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NULL "
+            "AND seq < ? ORDER BY seq DESC LIMIT ?",
+            (channel_id, before_seq, limit)).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE channel_id = ? AND parent_id IS NULL "
+            "ORDER BY seq DESC LIMIT ?", (channel_id, limit)).fetchall()
+    return list(reversed(rows))
+
+
+def list_thread(conn, root_id):
+    """쓰레드 루트 + 그 답장 전체를 seq 순으로."""
+    return conn.execute(
+        "SELECT * FROM messages WHERE id = ? OR root_id = ? ORDER BY seq",
+        (root_id, root_id)).fetchall()
+
+
+def update_message(conn, message_id, **fields):
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE messages SET {cols} WHERE id = ?",
+                 (*fields.values(), message_id))
+    conn.commit()
+
+
+def latest_thread_session(conn, root_id):
+    """쓰레드(root_id + 그 답장들) 안에서 가장 최근 session_id/provider를 찾는다.
+
+    root_id 정규화(모든 답장이 루트를 직접 가리킴) 때문에 parent_id를
+    거슬러 올라가는 방식으론 형제 메시지의 세션을 못 찾는다 — 쓰레드 전체를
+    seq 역순으로 스캔해 가장 최근에 세션을 남긴 메시지를 찾는다."""
+    for row in reversed(list_thread(conn, root_id)):
+        if row["session_id"]:
+            return row["session_id"], row["provider"]
+    return None, None
+
+
+# --- 실행 트레이스: 메시지 하나의 실행 중간 과정(생각/도구 호출/로그) --------
+
+def next_step_seq(conn, message_id):
+    row = conn.execute(
+        "SELECT MAX(seq) AS m FROM execution_steps WHERE message_id = ?",
+        (message_id,)).fetchone()
+    return (row["m"] or 0) + 1
+
+
+def create_execution_step(conn, message_id, kind, title="", detail="",
+                           status="running", job_id=None):
+    seq = next_step_seq(conn, message_id)
+    cur = conn.execute(
+        "INSERT INTO execution_steps (message_id, job_id, seq, kind, title, "
+        "detail, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (message_id, job_id, seq, kind, title, detail, status, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def append_execution_step_detail(conn, step_id, text):
+    conn.execute(
+        "UPDATE execution_steps SET detail = detail || ? WHERE id = ?",
+        (text, step_id))
+    conn.commit()
+
+
+def update_execution_step(conn, step_id, **fields):
+    if fields.get("status") in ("done", "failed") and "finished_at" not in fields:
+        fields["finished_at"] = now_iso()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE execution_steps SET {cols} WHERE id = ?",
+                 (*fields.values(), step_id))
+    conn.commit()
+
+
+def list_execution_steps(conn, message_id):
+    return conn.execute(
+        "SELECT * FROM execution_steps WHERE message_id = ? ORDER BY seq",
+        (message_id,)).fetchall()
+
+
+def create_test_goal(conn, name):
+    cur = conn.execute(
+        "INSERT INTO test_goals (name, created_at) VALUES (?, ?)",
+        (name, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_test_goal(conn, goal_id):
+    return conn.execute(
+        "SELECT * FROM test_goals WHERE id = ?", (goal_id,)).fetchone()
+
+
+def update_test_goal(conn, goal_id, **fields):
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE test_goals SET {cols} WHERE id = ?",
+                 (*fields.values(), goal_id))
+    conn.commit()

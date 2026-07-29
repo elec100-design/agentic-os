@@ -420,7 +420,9 @@ def test_task_detail_edit_form_only_when_editable(tmp_env):
         editable = client.get(f"/partials/task/{ids[2]}").text
         assert 'class="task-edit"' in editable
         assert "data-task-edit" in editable
+        assert "data-task-close" in editable            # 패널 닫기 (모바일 시트)
         assert 'class="task-deps"' in editable
+        assert f'data-task-deps="{ids[2]}"' in editable
         assert 'name="deps" value="1"' in editable     # 형제를 선행으로 고를 수 있다
 
     pid2, ids2 = _diagram_project(status="running")
@@ -428,3 +430,4 @@ def test_task_detail_edit_form_only_when_editable(tmp_env):
         locked = client.get(f"/partials/task/{ids2[1]}").text
         assert "task-edit" not in locked
         assert "task-deps" not in locked
+        assert "data-task-close" in locked             # 읽기 전용에서도 닫을 수 있다

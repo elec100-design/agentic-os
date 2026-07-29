@@ -36,5 +36,5 @@ def tmp_env(tmp_path, monkeypatch):
 def completed_setup(tmp_env):
     """셋업 완료 상태(전체 활성) — `/`가 /setup으로 리다이렉트하지 않는다."""
     from app import settings
-    settings.save(["claude", "antigravity", "grok", "hermes"])
+    settings.save(list(settings.ALL))
     return tmp_env

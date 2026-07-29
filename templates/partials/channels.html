@@ -1,0 +1,34 @@
+<div class="side-channels-head">
+  <h2>{{ '채널' | t }}</h2>
+  <button type="button" class="side-channels-add" id="channel-add-btn" aria-label="{{ '새 채널' | t }}" title="{{ '새 채널' | t }}">＋</button>
+</div>
+<div class="side-channels-scroll">
+{% if not rows %}
+  <p class="empty-note">{{ '아직 채널이 없습니다. + 를 눌러 만들어 보세요.' | t }}</p>
+{% else %}
+  <ul class="channel-list">
+  {% for r in rows %}
+  {% set c = r.channel %}
+  <li class="channel-item{% if r.active %} has-active{% endif %}" data-channel-id="{{ c.id }}">
+    <a class="channel-link" href="/channels/{{ c.id }}">
+      <span class="channel-hash">#</span>
+      <span class="channel-name">{{ c.title }}</span>
+      {% if r.active %}<span class="channel-live-dot" title="{{ '진행 중인 세션' | t }}"></span>{% endif %}
+    </a>
+    {% if r.active %}
+    <ul class="channel-active-list">
+      {% for m in r.active %}
+      <li class="channel-active-item">
+        <a href="/channels/{{ c.id }}#msg-{{ m.id }}">
+          <span class="badge badge-{{ m.status }}">{{ m.status }}</span>
+          <span class="channel-active-snippet">{{ (m.body or '')[:36] }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </li>
+  {% endfor %}
+  </ul>
+{% endif %}
+</div>

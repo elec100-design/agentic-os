@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#{{ channel['title'] }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+</head>
+<body>
+<main class="page channel-page">
+<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
+<h1 class="job-title">
+  <span class="channel-hash">#</span>{{ channel['title'] }}
+  <button type="button" class="btn-ghost btn-del" id="channel-delete-btn">{{ '삭제' | t }}</button>
+</h1>
+{% if channel['topic'] %}<p class="channel-topic">{{ channel['topic'] }}</p>{% endif %}
+{% if channel['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ channel['workdir'] }}</code></p>{% endif %}
+
+<div class="channel-threads" id="thread-list"></div>
+
+<form class="composer channel-new-thread" id="new-thread-form">
+  <textarea id="new-thread-prompt" rows="3" required placeholder="{{ '이 채널에 새 주제로 말을 걸어보세요…' | t }}"></textarea>
+  <div class="composer-bar">
+    <label class="resume-opt">{{ '에이전트' | t }}
+      <select class="ws-select" id="new-thread-provider">
+        <option value="auto">{{ '자동' | t }}</option>
+        {% for a in agent_order %}<option value="{{ a }}">{{ a|capitalize }}</option>{% endfor %}
+      </select>
+    </label>
+    <span class="spacer"></span>
+    <button type="submit" class="send" aria-label="{{ '전송' | t }}">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+      </svg>
+    </button>
+  </div>
+</form>
+</main>
+
+<div class="thread-panel-scrim" id="thread-panel-scrim" hidden></div>
+<aside class="thread-panel" id="thread-panel" hidden>
+  <div class="thread-panel-head">
+    <div class="thread-panel-title">
+      <span>{{ '쓰레드' | t }}</span>
+      <span class="thread-panel-sub" id="thread-panel-sub"></span>
+    </div>
+    <button type="button" class="modal-close" id="thread-panel-close" aria-label="{{ '닫기' | t }}">✕</button>
+  </div>
+  <div class="thread-panel-body" id="thread-panel-body"></div>
+  <form class="thread-reply-form thread-panel-form" id="thread-panel-form">
+    <textarea rows="1" required placeholder="{{ '답장…' | t }}"></textarea>
+    <button type="submit" class="send" aria-label="{{ '전송' | t }}">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+      </svg>
+    </button>
+  </form>
+</aside>
+
+<script src="/static/marked.min.js?v={{ asset_v() }}"></script>
+<script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
+<script src="/static/render.js?v={{ asset_v() }}"></script>
+<script>
+const CHANNEL = {{ channel | tojson }};
+const THREADS = {{ threads | tojson }};
+</script>
+<script src="/static/channels.js?v={{ asset_v() }}"></script>
+</body>
+</html>

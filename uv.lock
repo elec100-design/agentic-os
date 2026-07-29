@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 [[package]]
 name = "agentic-os"
 version = "1.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "jinja2" },

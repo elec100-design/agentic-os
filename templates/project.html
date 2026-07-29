@@ -6,35 +6,44 @@
 <title>{{ project['title'] or ('프로젝트' | t) ~ ' #' ~ project['id'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
 <link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/orca-theme.css?v={{ asset_v() }}">
 <script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 <script src="/static/htmx.min.js"></script>
 </head>
-<body>
-<main class="page page-wide">
-<a class="back-link" href="/board">{{ '← 비전 보드' | t }}</a>
-<h1 class="job-title">
-  {{ project['title'] or project['goal'][:60] }}
-  <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
-        onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
-    <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
-  </form>
-</h1>
-<p class="project-goal-full">{{ project['goal'] }}</p>
-{% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
+<body class="orca">
+<div class="orca-project-shell">
+  {% include "partials/chat_rail.html" %}
 
-<!-- 상태 배너 + DAG 그래프. 2초 폴링으로 노드 상태가 실시간 반영된다.
-     o=lr|tb — 뷰포트 폭에 따라 서버가 가로/세로 흐름으로 배치한다(모바일 재정렬). -->
-<div id="board" hx-get="/partials/board/{{ project['id'] }}"
-     hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
+  <main class="orca-project-main page page-wide">
+    <a class="back-link" href="/board">{{ '← 비전 보드' | t }}</a>
+    <h1 class="job-title">
+      {{ project['title'] or project['goal'][:60] }}
+      <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
+            onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
+        <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
+      </form>
+    </h1>
+    <p class="project-goal-full">{{ project['goal'] }}</p>
+    {% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
 
-<!-- 노드 클릭 시 태스크 상세 (모바일에서는 하단 시트) -->
-<div id="task-detail"></div>
-</main>
+    <!-- 상태 배너 + DAG 그래프. 2초 폴링으로 노드 상태가 실시간 반영된다.
+         o=lr|tb — 뷰포트 폭에 따라 서버가 가로/세로 흐름으로 배치한다(모바일 재정렬).
+         board-editor.js가 매 스왑마다 orca-tasks-updated 이벤트로 태스크 상태를
+         chat-rail(실행 로그 탭)에 실시간으로 흘려보낸다. -->
+    <div id="board" hx-get="/partials/board/{{ project['id'] }}"
+         hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
+
+    <!-- 노드 클릭 시 태스크 상세 (모바일에서는 하단 시트). 백드롭 탭으로 닫기. -->
+    <div id="task-detail-backdrop" class="task-detail-backdrop" hidden data-task-close></div>
+    <div id="task-detail"></div>
+  </main>
+</div>
 
 <script src="/static/marked.min.js?v={{ asset_v() }}"></script>
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
 <script src="/static/board-editor.js?v={{ asset_v() }}"></script>
+<script src="/static/vision-flow.js?v={{ asset_v() }}"></script>
 </body>
 </html>

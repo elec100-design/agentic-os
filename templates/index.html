@@ -35,6 +35,7 @@
     <a class="wordmark" href="/">Agentic OS</a>
   </div>
   <a class="side-nav-link" href="/board">🗂 {{ '비전 보드' | t }}</a>
+  <section class="side-channels" id="channels" hx-get="/partials/channels" hx-trigger="load, every 5s, refresh-channels from:body"></section>
   <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
   <section class="side-usage" id="usage" hx-get="/partials/usage" hx-trigger="load, every 15s"></section>
   <div class="side-foot">
@@ -141,11 +142,37 @@
   </div>
 </div>
 
+<!-- 새 채널 만들기 모달 -->
+<div class="modal-overlay" id="channel-modal" hidden>
+  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="channel-modal-title">
+    <div class="modal-head">
+      <span id="channel-modal-title">{{ '새 채널 만들기' | t }}</span>
+      <button type="button" class="modal-close" id="channel-modal-close" aria-label="{{ '닫기' | t }}">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="ch-field">
+        <span>{{ '채널 이름' | t }}</span>
+        <input type="text" id="channel-title" placeholder="{{ '예: 결제 리팩터링' | t }}" maxlength="80">
+      </label>
+      <label class="ch-field">
+        <span>{{ '주제 (선택)' | t }}</span>
+        <input type="text" id="channel-topic" placeholder="{{ '이 채널에서 다룰 작업을 짧게 설명' | t }}" maxlength="200">
+      </label>
+      <div class="ch-error" id="channel-error" hidden></div>
+    </div>
+    <div class="modal-foot">
+      <span class="modal-hint">{{ '주제별로 대화를 이어가며 답장으로 세션을 유지할 수 있어요' | t }}</span>
+      <button type="button" class="btn-primary" id="channel-create-btn">{{ '만들기' | t }}</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const MODELS = {{ provider_models | tojson }};
 const AGENT_ORDER = {{ agent_order | tojson }};
 const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 </script>
 <script src="/static/app.js?v={{ asset_v() }}"></script>
+<script src="/static/channels.js?v={{ asset_v() }}"></script>
 </body>
 </html>

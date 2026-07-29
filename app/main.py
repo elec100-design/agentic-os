@@ -18,6 +18,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from app import (
     codexbar, config, council, db, github_cli, health, i18n, memory, models,
@@ -336,9 +337,11 @@ async def create_job(
         raise HTTPException(
             status_code=400,
             detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
-    # agy는 헤드리스 세션 재개가 불가능해 이어가기를 지원하지 않는다 → 넘어온
-    # session_id를 무시하고 항상 새 대화로 처리(오염 방지, UI 우회 제출 방어).
-    if provider == "antigravity":
+    # 헤드리스 세션 재개가 불가능한 CLI → 넘어온 session_id를 무시하고 항상
+    # 새 대화로 처리(오염 방지, UI 우회 제출 방어).
+    # - antigravity(agy): 헤드리스 세션 ID 부재
+    # - gemini: --resume 이 latest/index 전용(UUID 재개 없음)
+    if provider in ("antigravity", "gemini"):
         session_id = ""
     if not models.is_valid_model(provider, model):
         model = ""
@@ -386,15 +389,329 @@ def api_recommend(prompt: str = ""):
     return {"provider": provider, "reason": reason}
 
 
+# --- 채널: 주제별 지속 대화(쓰레드 답장) ------------------------------------
+# 사이드바 히스토리의 단발성 잡과 달리, 채널 안 대화는 messages 테이블에
+# 쌓이고 답장이 parent_id로 쓰레드를 이룬다. 실제 CLI 실행은 여전히 jobs가
+# 담당하며(worker.py), messages.job_id로 연결된다.
+
+class ChannelCreate(BaseModel):
+    title: str
+    topic: str = ""
+    workdir: str | None = None
+    default_provider: str | None = None
+
+
+class ChannelUpdate(BaseModel):
+    title: str | None = None
+    topic: str | None = None
+    default_provider: str | None = None
+
+
+class MessageCreate(BaseModel):
+    body: str
+    provider: str = "auto"
+    model: str = ""
+    parent_id: int | None = None
+
+
+class TestGoalCreate(BaseModel):
+    name: str
+
+
+@app.post("/api/test-goal", status_code=201)
+async def api_create_test_goal(payload: TestGoalCreate):
+    conn = db.get_conn()
+    goal_id = db.create_test_goal(conn, payload.name)
+    await worker.run_test_goal(conn, goal_id)
+    return {"id": goal_id, "status": "pending"}
+
+
+@app.get("/api/test-goal/{goal_id}")
+def api_get_test_goal(goal_id: int):
+    conn = db.get_conn()
+    goal = db.get_test_goal(conn, goal_id)
+    if goal is None:
+        raise HTTPException(status_code=404)
+    return {"id": goal["id"], "status": goal["status"], "result": goal["result"]}
+
+
+@app.post("/api/channels", status_code=201)
+def api_create_channel(payload: ChannelCreate):
+    conn = db.get_conn()
+    workdir = payload.workdir if payload.workdir and workspace.valid_path(
+        payload.workdir) else None
+    channel_id = db.create_channel(
+        conn, payload.title, topic=payload.topic, workdir=workdir,
+        default_provider=payload.default_provider or None)
+    return dict(db.get_channel(conn, channel_id))
+
+
+@app.get("/api/channels")
+def api_list_channels(status: str = "active"):
+    conn = db.get_conn()
+    rows = db.list_channels(conn, status=status or None)
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/channels/{channel_id}")
+def api_get_channel(channel_id: int, limit: int = 50):
+    conn = db.get_conn()
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404)
+    rows = db.list_root_messages(conn, channel_id, limit=limit)
+    return {"channel": dict(channel), "messages": [dict(r) for r in rows]}
+
+
+@app.patch("/api/channels/{channel_id}")
+def api_update_channel(channel_id: int, payload: ChannelUpdate):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if fields:
+        db.update_channel(conn, channel_id, **fields)
+    return dict(db.get_channel(conn, channel_id))
+
+
+@app.post("/api/channels/{channel_id}/archive")
+def api_archive_channel(channel_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    db.update_channel(conn, channel_id, status="archived")
+    return dict(db.get_channel(conn, channel_id))
+
+
+@app.delete("/api/channels/{channel_id}")
+def api_delete_channel(channel_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    db.delete_channel(conn, channel_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/channels/{channel_id}/messages")
+def api_list_channel_messages(channel_id: int, before_seq: int | None = None,
+                              limit: int = 50):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    rows = db.list_root_messages(conn, channel_id, before_seq=before_seq,
+                                 limit=limit)
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/channels/{channel_id}/messages", status_code=202)
+def api_create_channel_message(channel_id: int, payload: MessageCreate):
+    conn = db.get_conn()
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404)
+    if not payload.body.strip():
+        raise HTTPException(status_code=400, detail="empty body")
+
+    provider = payload.provider or channel["default_provider"] or "auto"
+    enabled = settings.enabled_providers()
+    route_reason = None
+    if provider == "auto":
+        provider, route_reason = route_auto(
+            payload.body, usage_state=usage_state()["usage"], enabled=enabled)
+    if provider == COUNCIL:
+        try:
+            council.select_members(usage_state()["usage"], enabled=enabled)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    elif provider not in PROVIDERS:
+        raise HTTPException(status_code=400, detail="unknown provider")
+    elif provider not in enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+
+    model = payload.model or ""
+    if not models.is_valid_model(provider, model):
+        model = ""
+    workdir = channel["workdir"]
+    if not workdir or not workspace.valid_path(workdir):
+        workdir = None
+
+    # parent_id는 항상 쓰레드 루트를 직접 가리키도록 정규화해서 넘긴다.
+    thread_root_id = None
+    session_id = None
+    if payload.parent_id:
+        parent = db.get_message(conn, payload.parent_id)
+        if parent is None or parent["channel_id"] != channel_id:
+            raise HTTPException(status_code=404, detail="parent message not found")
+        thread_root_id = parent["root_id"] or parent["id"]
+        inherited_session, inherited_provider = db.latest_thread_session(
+            conn, thread_root_id)
+        if inherited_session and inherited_provider == provider:
+            session_id = inherited_session
+
+    user_message_id = db.create_message(
+        conn, channel_id, role="user", body=payload.body, author="user",
+        parent_id=thread_root_id, status="done")
+
+    # 채널의 새 루트 대화라면(부모 없음) 방금 만든 사용자 메시지가 쓰레드
+    # 루트가 되고, 에이전트 응답은 그 아래 첫 답장으로 들어간다.
+    agent_parent_id = thread_root_id or user_message_id
+    agent_message_id = db.create_message(
+        conn, channel_id, role="agent", body="", author=provider,
+        parent_id=agent_parent_id, status="queued", provider=provider,
+        model=model or None)
+
+    job_id = db.create_job(
+        conn, payload.body, provider, session_id=session_id,
+        model=model or None, workdir=workdir, route_reason=route_reason,
+        channel_id=channel_id, message_id=agent_message_id)
+    db.update_message(conn, agent_message_id, job_id=job_id)
+
+    return {"message_id": agent_message_id, "job_id": job_id,
+            "user_message_id": user_message_id}
+
+
+@app.get("/api/messages/{message_id}")
+def api_get_message(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    return dict(message)
+
+
+@app.get("/api/messages/{message_id}/thread")
+def api_message_thread(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    root_id = message["root_id"] or message["id"]
+    rows = db.list_thread(conn, root_id)
+    return {"root_id": root_id, "messages": [dict(r) for r in rows]}
+
+
+@app.post("/api/messages/{message_id}/cancel")
+def api_cancel_message(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    if message["job_id"]:
+        db.update_job(conn, message["job_id"], status="failed",
+                      error="cancelled", finished_at=db.now_iso())
+        worker.terminate_job_procs(message["job_id"])
+    db.update_message(conn, message_id, status="canceled",
+                      finished_at=db.now_iso())
+    return dict(db.get_message(conn, message_id))
+
+
+@app.get("/api/messages/{message_id}/trace")
+def api_message_trace(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    steps = db.list_execution_steps(conn, message_id)
+    return {"message": dict(message), "steps": [dict(s) for s in steps]}
+
+
+@app.get("/api/messages/{message_id}/stream")
+async def api_message_stream(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    job_id = message["job_id"]
+
+    async def gen():
+        # 잡이 아직 없거나(방금 큐잉) 이미 있으면 job_id로 구독한다. 잡이
+        # 나중에 재시도로 새로 생기는 경우는 없다 — 메시지당 잡 1개.
+        q = stream_hub.subscribe(job_id) if job_id else None
+        sent_len: dict[int, int] = {}
+        last_status = None
+        try:
+            while True:
+                conn = db.get_conn()
+                msg = db.get_message(conn, message_id)
+                if msg is None:
+                    break
+                for step in db.list_execution_steps(conn, message_id):
+                    prev = sent_len.get(step["id"], -1)
+                    cur = len(step["detail"] or "")
+                    if cur != prev or (prev == -1 and step["status"] != "running"):
+                        payload = {
+                            "id": step["id"], "seq": step["seq"],
+                            "kind": step["kind"], "title": step["title"],
+                            "status": step["status"], "detail": step["detail"],
+                        }
+                        yield f"event: step\ndata: {json.dumps(payload)}\n\n"
+                        sent_len[step["id"]] = cur
+                if msg["status"] != last_status:
+                    yield f"event: status\ndata: {json.dumps(msg['status'])}\n\n"
+                    last_status = msg["status"]
+                if msg["status"] in ("done", "failed", "canceled"):
+                    yield "event: done\ndata: {}\n\n"
+                    break
+                if q is not None:
+                    try:
+                        await asyncio.wait_for(q.get(), timeout=config.STREAM_POLL_SEC)
+                    except asyncio.TimeoutError:
+                        pass
+                else:
+                    await asyncio.sleep(config.STREAM_POLL_SEC)
+        finally:
+            if job_id and q is not None:
+                stream_hub.unsubscribe(job_id, q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/partials/channels", response_class=HTMLResponse)
+def partials_channels(request: Request):
+    """사이드바 채널 목록: 워크스페이스 채널 + 실행 중인 액티브 세션(루트 메시지)을
+    계층으로 보여준다. 진행 중인 세션이 있는 채널이 먼저 오도록 정렬한다."""
+    conn = db.get_conn()
+    rows = []
+    for c in db.list_channels(conn, status="active"):
+        roots = db.list_root_messages(conn, c["id"], limit=8)
+        active = []
+        for root in roots:
+            thread = db.list_thread(conn, root["id"])
+            last = thread[-1] if thread else root
+            if last["status"] in ("queued", "running"):
+                active.append({**dict(root), "status": last["status"]})
+        rows.append({"channel": dict(c), "active": active})
+    rows.sort(key=lambda r: bool(r["active"]), reverse=True)
+    return templates.TemplateResponse(
+        request, "partials/channels.html", {"rows": rows})
+
+
+@app.get("/channels/{channel_id}", response_class=HTMLResponse)
+def channel_page(request: Request, channel_id: int):
+    conn = db.get_conn()
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404)
+    roots = db.list_root_messages(conn, channel_id, limit=200)
+    threads = [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots]
+    return templates.TemplateResponse(
+        request, "channel.html",
+        {"channel": dict(channel), "threads": threads,
+         "provider_models": models.get_provider_models(),
+         "agent_order": settings.enabled_providers()})
+
+
 @app.get("/note", response_class=HTMLResponse)
 def note_view(request: Request, path: str):
     note = memory.read_note(path)
     if note is None:
         raise HTTPException(status_code=404)
-    # hermes(로컬·무상태)·antigravity(헤드리스 세션 재개 불가)는 이어가기 미지원.
+    # hermes(로컬·무상태)·antigravity/gemini(헤드리스 UUID 재개 불가)는 이어가기 미지원.
     can_resume = bool(
         note["session_id"] and note["provider"] in PROVIDERS
-        and note["provider"] not in ("hermes", "antigravity")
+        and note["provider"] not in ("hermes", "antigravity", "gemini")
     )
     pm = models.get_provider_models()
     order = settings.enabled_providers()
@@ -743,8 +1060,13 @@ async def create_project(
 def project_page(request: Request, project_id: int):
     conn = db.get_conn()
     project = _project_or_404(conn, project_id)
+    channel = db.get_or_create_project_channel(conn, project)
+    tasks = db.list_tasks(conn, project_id)
     return templates.TemplateResponse(
-        request, "project.html", {"project": project})
+        request, "project.html",
+        {"project": project, "channel": dict(channel),
+         "tasks": [dict(t) for t in tasks],
+         "agent_order": settings.enabled_providers()})
 
 
 @app.get("/partials/projects", response_class=HTMLResponse)

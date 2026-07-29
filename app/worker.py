@@ -120,6 +120,9 @@ async def _pump(stream, sink):
 
 async def run_job(conn, job, providers=None, save=True):
     providers = providers or PROVIDERS
+    if job["message_id"]:
+        db.update_message(conn, job["message_id"], status="running",
+                          started_at=db.now_iso())
     if job["provider"] == "council":
         from app import council
         await council.run_council(conn, job, providers=providers, save=save)
@@ -169,10 +172,18 @@ async def run_job(conn, job, providers=None, save=True):
 
     running_procs[job["id"]] = proc
     stdout_parts, stderr_parts = [], []
+    step_id = None  # 메시지에 연결된 잡이면, 출력 청크를 누적하는 실행 스텝 1개
 
     def on_stdout(text):
+        nonlocal step_id
         stdout_parts.append(text)
         db.append_output(conn, job["id"], text)
+        if job["message_id"]:
+            if step_id is None:
+                step_id = db.create_execution_step(
+                    conn, job["message_id"], kind="output_chunk",
+                    title="실행 로그", status="running", job_id=job["id"])
+            db.append_execution_step_detail(conn, step_id, text)
         # 구독 중인 SSE 스트림을 즉시 깨운다(프로세스 내 fast-path). DB 기록
         # '뒤에' 신호하므로, 깨어난 구독자는 방금 쓴 내용을 반드시 본다.
         stream_hub.publish(job["id"])
@@ -256,6 +267,39 @@ async def run_job(conn, job, providers=None, save=True):
             db.update_job(conn, job["id"], error=f"memory_save_failed: {e}")
 
 
+def _sync_message(conn, job_id):
+    """잡의 최종 상태를 연결된 메시지·실행 스텝에 반영한다.
+
+    run_job은 rate_limited/failed/done 등 여러 조기 반환 경로가 있어 각각에서
+    메시지를 갱신하는 대신, run_job이 끝난 뒤(모든 경로 공통) 여기 한 곳에서
+    잡의 최신 상태를 읽어 동기화한다.
+    """
+    job = db.get_job(conn, job_id)
+    if job is None or not job["message_id"]:
+        return
+    message_id = job["message_id"]
+    status = job["status"]
+    if status == "rate_limited":
+        # 재개 대기 중 — 실행 스텝은 그대로 두고(다음 재개 시 이어 씀)
+        # 메시지 상태만 갱신해 UI가 "대기 중"을 보여줄 수 있게 한다.
+        db.update_message(conn, message_id, status="rate_limited")
+        return
+    for step in db.list_execution_steps(conn, message_id):
+        if step["status"] == "running":
+            db.update_execution_step(
+                conn, step["id"], status="done" if status == "done" else "failed")
+    if status == "done":
+        db.update_message(
+            conn, message_id, status="done", body=job["output"],
+            session_id=job["session_id"] or None,
+            finished_at=job["finished_at"] or db.now_iso())
+    elif status == "failed":
+        canceled = job["error"] == "cancelled"
+        db.update_message(
+            conn, message_id, status="canceled" if canceled else "failed",
+            error=job["error"], finished_at=job["finished_at"] or db.now_iso())
+
+
 async def _run_tracked(conn, job, providers, save, release):
     """run_job 1건을 감싸 예외를 흡수하고, 끝나면 provider 슬롯을 반납한다.
 
@@ -269,8 +313,20 @@ async def _run_tracked(conn, job, providers, save, release):
         db.update_job(conn, job["id"], status="failed",
                       error=f"worker error: {e!r}", finished_at=db.now_iso())
     finally:
+        _sync_message(conn, job["id"])
         stream_hub.publish(job["id"])
         release(job["id"], job["provider"])
+
+
+async def run_test_goal(conn, goal_id):
+    """상태를 running으로 변경 후 실행, 완료 시 done/failed로 전이."""
+    db.update_test_goal(conn, goal_id, status="running")
+    goal = db.get_test_goal(conn, goal_id)
+    try:
+        result = f"'{goal['name']}' 실행 완료"
+        db.update_test_goal(conn, goal_id, status="done", result=result)
+    except Exception as e:
+        db.update_test_goal(conn, goal_id, status="failed", result=str(e))
 
 
 async def worker_loop(stop_event=None, providers=None, save=True, poll_sec=None):
@@ -308,6 +364,7 @@ async def worker_loop(stop_event=None, providers=None, save=True, poll_sec=None)
                     db.update_job(conn, job["id"], status="failed",
                                   error="max attempts exceeded",
                                   finished_at=db.now_iso())
+                    _sync_message(conn, job["id"])
                     stream_hub.publish(job["id"])
                 else:
                     busy.add(job["provider"])

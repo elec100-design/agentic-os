@@ -277,7 +277,9 @@ def test_recommend_endpoint(tmp_env):
         assert simple["provider"] == "hermes"
         complex_ = client.get("/api/recommend",
                               params={"prompt": "이 코드 버그 구현 수정"}).json()
-        assert complex_["provider"] in ("claude", "antigravity", "grok")
+        assert complex_["provider"] in (
+            "claude", "codex", "antigravity", "gemini", "grok", "openclaw",
+        )
         assert complex_["reason"]
 
 
@@ -828,3 +830,22 @@ def test_index_injects_enabled_agent_order(tmp_env):
         assert r.status_code == 200
         assert '"claude"' in r.text.replace("'", '"')
         assert "antigravity" not in r.text.split("AGENT_ORDER")[1].split(";")[0]
+
+
+def test_create_test_goal_and_check_status(tmp_env):
+    with _client(tmp_env) as client:
+        r = client.post("/api/test-goal", json={"name": "test goal"})
+        assert r.status_code == 201
+        goal_id = r.json()["id"]
+
+        r = client.get(f"/api/test-goal/{goal_id}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["status"] == "done"
+        assert body["result"]
+
+
+def test_get_test_goal_missing_returns_404(tmp_env):
+    with _client(tmp_env) as client:
+        r = client.get("/api/test-goal/999")
+        assert r.status_code == 404

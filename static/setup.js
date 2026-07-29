@@ -3,7 +3,9 @@
 // 단계 전환·선택 상태는 전부 이 파일이 관리한다.
 "use strict";
 
-const ORDER = ["claude", "antigravity", "grok", "hermes"];
+const ORDER = [
+  "claude", "codex", "antigravity", "gemini", "grok", "openclaw", "hermes",
+];
 const state = {
   step: SETUP.completed ? 2 : 1,   // 재설정으로 다시 온 경우 선택 단계부터
   status: null,                     // /api/setup/status 결과
@@ -62,6 +64,27 @@ function badge(p) {
     : `<span class="pc-badge badge-miss" title="${st.installHint || ""}">${t("✗ 없음")}</span>`;
 }
 
+// authStatus: ok | needed | unknown | na
+function authBadge(p) {
+  const st = state.status?.providers?.[p];
+  if (!st) return `<span class="pc-badge">${t("확인 중…")}</span>`;
+  if (!st.installed) {
+    return `<span class="pc-badge badge-miss">${t("✗ 없음")}</span>`;
+  }
+  const status = st.authStatus || "unknown";
+  const detail = st.authDetail ? ` title="${String(st.authDetail).replace(/"/g, "&quot;")}"` : "";
+  if (status === "na") {
+    return `<span class="pc-badge badge-ok"${detail}>${t("로그인 불필요")}</span>`;
+  }
+  if (status === "ok") {
+    return `<span class="pc-badge badge-ok"${detail}>${t("✓ 로그인됨")}</span>`;
+  }
+  if (status === "needed") {
+    return `<span class="pc-badge badge-miss"${detail}>${t("✗ 로그인 필요")}</span>`;
+  }
+  return `<span class="pc-badge"${detail}>${t("? 상태 미확인")}</span>`;
+}
+
 function renderProviders() {
   const cards = ORDER.map((p) => {
     const st = state.status?.providers?.[p] || {};
@@ -101,15 +124,23 @@ function renderAuth() {
   const rows = ORDER.filter((p) => state.selected.has(p)).map((p) => {
     const st = state.status?.providers?.[p] || {};
     const cmd = st.authCmd
-      ? `<code class="auth-cmd">${st.authCmd}</code>` : `<span class="pc-badge badge-ok">${t("로그인 불필요")}</span>`;
+      ? `<code class="auth-cmd">${st.authCmd}</code>`
+      : `<span class="pc-badge badge-ok">${t("로그인 불필요")}</span>`;
+    const detail = st.authDetail
+      ? `<span class="pc-desc auth-detail">${t("상태:")} ${st.authDetail}</span>` : "";
+    const needWarn = st.authStatus === "needed" && st.installed
+      ? `<p class="pc-warn">${t("로그인 전에는 이 에이전트 작업이 실패합니다. 아래 명령을 터미널에서 실행한 뒤 재확인하세요.")}</p>`
+      : "";
     return `
       <div class="auth-row">
         <span class="pc-mono">${(st.label || p).charAt(0)}</span>
         <div class="auth-info">
           <span class="pc-name">${st.label || p} ${cmd}</span>
           <span class="pc-desc">${t(st.authHint || "")}</span>
+          ${detail}
+          ${needWarn}
         </div>
-        ${badge(p)}
+        ${authBadge(p)}
       </div>`;
   }).join("");
   const tools = Object.entries(state.status?.tools || {}).map(([name, tool]) =>
@@ -120,7 +151,7 @@ function renderAuth() {
       <h2>${t("각 CLI에 로그인하세요")}</h2>
       <button type="button" class="btn-ghost" id="recheck">${t("재확인")}</button>
     </div>
-    <div class="setup-callout">${t("Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 계속 진행하세요. (로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다)")}</div>
+    <div class="setup-callout">${t("Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 재확인을 누르세요. 로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다.")}</div>
     <div class="auth-list">${rows}</div>
     <div class="setup-optional">
       <h3>${t("보조 도구 (선택)")}</h3>

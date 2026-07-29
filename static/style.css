@@ -1549,6 +1549,36 @@ h2.section-label {
   .chat-turn { max-width: 100%; }
 }
 
+/* ---- 메시지 호버 시 "쓰레드로 답장하기" 버튼 ---- */
+.chat-bubble-wrap { position: relative; }
+.msg-thread-btn {
+  position: absolute;
+  top: -0.7rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  box-shadow: 0 2px 6px rgba(31, 30, 29, 0.12);
+}
+.chat-turn.user .msg-thread-btn { right: auto; left: 0.4rem; }
+.msg-row:hover .msg-thread-btn,
+.msg-thread-btn:focus-visible { opacity: 1; transform: translateY(0); }
+.msg-thread-btn:hover { color: var(--text); border-color: var(--accent); }
+@media (hover: none) {
+  .msg-thread-btn { opacity: 1; transform: none; position: static; margin-top: 0.2rem; }
+}
+
 /* ---- 언어 토글 (사이드바) ---- */
 .side-foot-btns { display: flex; align-items: center; gap: 0.4rem; }
 .lang-toggle {
@@ -1689,6 +1719,11 @@ h2.section-label {
   margin-bottom: 0.5rem;
 }
 .graph-toolbar .spacer { flex: 1; }
+.graph-toolbar [data-flow-toggle].is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .graph-hint { color: var(--muted); font-size: 0.78rem; }
 .graph-flash {
   padding: 0.2rem 0.55rem;
@@ -1696,6 +1731,10 @@ h2.section-label {
   background: var(--err-bg);
   color: var(--err);
   font-size: 0.78rem;
+}
+.graph-flash.ok {
+  background: var(--surface-2);
+  color: var(--ok);
 }
 .graph-canvas {
   height: 62vh;
@@ -1795,6 +1834,7 @@ h2.section-label {
 
 /* 선행 태스크 체크박스 — 캔버스에서 선을 긋기 어려울 때의 대안 경로 */
 .task-deps { margin-top: 0.8rem; }
+.task-deps[hidden] { display: none; }
 .deps-head { color: var(--muted); font-size: 0.76rem; font-weight: 600; margin-bottom: 0.4rem; }
 .deps-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem; }
 .dep-chip {
@@ -1809,6 +1849,12 @@ h2.section-label {
   cursor: pointer;
 }
 .dep-chip:has(input:checked) { border-color: var(--accent); color: var(--accent); }
+.btn-deps-save {
+  min-height: 40px;
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+}
+.btn-deps-save:disabled { opacity: 0.6; cursor: wait; }
 
 /* 태스크 상세 패널 */
 .task-panel {
@@ -1816,6 +1862,14 @@ h2.section-label {
   border-radius: 12px;
   background: var(--surface);
   padding: 0.9rem 1.1rem;
+}
+.task-sheet-handle {
+  display: none;
+  width: 36px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  margin: 0 auto 0.55rem;
 }
 .task-panel-head {
   display: flex;
@@ -1826,6 +1880,23 @@ h2.section-label {
 }
 .task-panel-head .spacer { flex: 1; }
 .task-panel-head a.btn-ghost { text-decoration: none; }
+.task-panel-close {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+.task-panel-close:hover { color: var(--text); border-color: var(--muted); }
 .task-desc { color: var(--muted); font-size: 0.86rem; white-space: pre-wrap; }
 .task-artifact { margin: 0.7rem 0; }
 .task-artifact img, .task-artifact video {
@@ -1836,6 +1907,12 @@ h2.section-label {
 }
 .task-artifact audio { width: 100%; }
 .task-out { margin-top: 0.6rem; }
+
+/* 모바일 시트 백드롭 — 탭하면 패널 닫기 */
+.task-detail-backdrop {
+  display: none;
+}
+.task-detail-backdrop[hidden] { display: none !important; }
 
 /* 모바일 — 서버가 세로 흐름(tb)으로 재배치하고, 여기서는 캔버스를 화면에 맞추고
    터치 타깃을 키운다. 상세 패널은 캔버스를 가리지 않도록 하단 시트로 띄운다. */
@@ -1849,22 +1926,382 @@ h2.section-label {
     padding-left: 0.7rem;
     padding-right: 0.7rem;
   }
+  .task-detail-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(0, 0, 0, 0.28);
+  }
+  body.task-panel-open { overflow: hidden; }
   #task-detail .task-panel {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 40;
-    max-height: 72vh;
+    max-height: 78vh;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     border-radius: 14px 14px 0 0;
     border-bottom: none;
     box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.18);
+    padding-top: 0.55rem;
     padding-bottom: calc(0.9rem + env(safe-area-inset-bottom));
   }
+  #task-detail .task-sheet-handle { display: block; }
+  #task-detail .task-panel-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--surface);
+    padding-bottom: 0.45rem;
+    margin-bottom: 0.55rem;
+    border-bottom: 1px solid var(--border);
+  }
+  #task-detail .task-panel-close {
+    width: 44px;
+    height: 44px;
+    font-size: 1.05rem;
+  }
+  /* 편집 폼 취소/저장이 항상 보이도록 시트 하단에 고정 */
+  #task-detail .task-panel.is-editing .task-edit {
+    padding-bottom: 0.2rem;
+  }
+  #task-detail .task-panel.is-editing .pal-foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0 -1.1rem -0.2rem;
+    padding: 0.65rem 1.1rem calc(0.65rem + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    justify-content: space-between;
+  }
+  #task-detail .task-panel.is-editing .pal-foot .btn-ghost,
+  #task-detail .task-panel.is-editing .pal-foot .btn-primary {
+    min-height: 44px;
+    flex: 1;
+  }
   .deps-list { max-height: 30vh; overflow-y: auto; }
+  .btn-deps-save {
+    min-height: 44px;
+    width: 100%;
+    margin-top: 0.2rem;
+  }
+  /* 시트 위에 떠 있는 플래시 — 저장/오류 피드백이 가려지지 않게 */
+  body.task-panel-open #board .graph-flash {
+    position: fixed;
+    top: max(0.75rem, env(safe-area-inset-top));
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
+    max-width: min(92vw, 28rem);
+    padding: 0.55rem 0.9rem;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.16);
+  }
 }
 /* 터치 기기엔 hover가 없다 — 연결 포트를 항상 보이게 한다 */
 @media (hover: none) {
   .node-port { opacity: 0.85; }
+}
+
+/* ─── 채널: 사이드바 네비게이션 ──────────────────────────────────── */
+.side-channels {
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+  margin-top: 0.2rem;
+  max-height: 34%;
+  display: flex;
+  flex-direction: column;
+}
+.side-channels-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0.2rem 0.5rem;
+}
+.side-channels-head h2 { margin: 0; }
+.side-channels-add {
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.side-channels-add:hover { color: var(--accent); border-color: var(--accent); }
+.side-channels-scroll { overflow-y: auto; flex: 1; min-height: 0; }
+.channel-list { list-style: none; margin: 0; padding: 0; }
+.channel-item { margin-bottom: 0.15rem; }
+.channel-link {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 0.5rem;
+  color: var(--text);
+  text-decoration: none;
+  font-size: 0.88rem;
+}
+.channel-link:hover { background: var(--accent-soft); }
+.channel-hash { color: var(--muted); }
+.channel-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.channel-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-left: auto;
+  flex-shrink: 0;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.channel-active-list { list-style: none; margin: 0 0 0.3rem 1.1rem; padding: 0; }
+.channel-active-item a {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.4rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.76rem;
+}
+.channel-active-item a:hover { background: var(--accent-soft); color: var(--text); }
+.channel-active-snippet { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 새 채널 모달 */
+.modal-sm { max-width: 380px; }
+.ch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.8rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.ch-field input {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+}
+.ch-field input:focus { outline: none; border-color: var(--accent); }
+.ch-error { color: var(--err); font-size: 0.8rem; }
+
+/* ─── 채널 상세 페이지 ──────────────────────────────────────────── */
+.channel-page .job-title { display: flex; align-items: center; gap: 0.6rem; }
+.channel-topic { color: var(--muted); margin: -0.3rem 0 0.8rem; }
+.channel-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+  margin: 1.2rem 0;
+}
+.channel-thread {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1rem 1rem 0.7rem;
+  background: var(--surface);
+}
+.channel-thread .chat-thread { margin: 0 0 0.6rem; }
+.channel-new-thread { margin-bottom: 3rem; }
+.thread-reply-count {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.55rem 0.2rem 0.1rem;
+  cursor: pointer;
+  text-align: left;
+}
+.thread-reply-count:hover { text-decoration: underline; }
+.thread-reply-count[hidden] { display: none; }
+.thread-reply-num { font-weight: 600; flex-shrink: 0; }
+.thread-reply-last { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-reply-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+  border-top: 1px solid var(--border);
+  padding-top: 0.6rem;
+}
+.thread-reply-form textarea {
+  flex: 1;
+  resize: vertical;
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 2.2rem;
+}
+.thread-reply-form textarea:focus { outline: none; border-color: var(--accent); }
+.thread-reply-form .send { flex-shrink: 0; }
+.msg-error { color: var(--err); font-size: 0.8rem; margin: 0.2rem 0.4rem; }
+.msg-trace {
+  margin: 0.3rem 0.4rem 0.6rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--surface-2);
+  font-size: 0.78rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+.msg-trace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.3rem;
+}
+.msg-trace-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.msg-trace-toggle-all {
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+}
+.msg-trace-toggle-all:hover { text-decoration: underline; }
+.msg-trace-list { display: flex; flex-direction: column; }
+.trace-step { padding: 0; }
+.trace-step + .trace-step { border-top: 1px dashed var(--border); }
+.trace-step-head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0.35rem;
+  padding: 0.25rem 0.1rem;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+.trace-chevron {
+  display: inline-block;
+  transition: transform 0.15s ease;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+.trace-step.open > .trace-step-head .trace-chevron { transform: rotate(90deg); }
+.trace-icon { font-size: 0.85rem; line-height: 1; }
+.trace-kind {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--accent);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.trace-title {
+  font-size: 0.78rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.trace-status-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--surface-2);
+}
+.trace-status-dot.status-running { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+.trace-status-dot.status-done { background: var(--ok); }
+.trace-status-dot.status-failed { background: var(--err); }
+.trace-step-body { display: none; }
+.trace-step.open .trace-step-body { display: block; }
+.trace-detail {
+  margin: 0 0 0.3rem;
+  padding: 0.4rem 0.55rem;
+  background: var(--bg);
+  border-radius: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .trace-status-dot.status-running { animation: none; }
+}
+
+/* ---- 우측 슬라이드아웃 쓰레드 답글 패널 ---- */
+.thread-panel-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(31, 30, 29, 0.25);
+}
+.thread-panel-scrim[hidden] { display: none; }
+.thread-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 56;
+  width: min(420px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -16px 0 48px rgba(31, 30, 29, 0.24);
+  transform: translateX(100%);
+  transition: transform 0.22s ease;
+}
+.thread-panel[hidden] { display: none; }
+.thread-panel.open { transform: translateX(0); }
+.thread-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.thread-panel-title { display: flex; flex-direction: column; gap: 0.15rem; font-weight: 600; }
+.thread-panel-sub { font-weight: 400; font-size: 0.78rem; color: var(--muted); }
+.thread-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+.thread-panel-body .chat-turn { max-width: 96%; }
+.thread-panel-form {
+  border-top: 1px solid var(--border);
+  padding: 0.7rem 1rem;
+}
+@media (max-width: 640px) {
+  .thread-panel { width: 100%; }
 }

@@ -20,6 +20,8 @@
   let paletteOpen = false;
   let drag = null, pinch = null;
   const pointers = new Map();
+  let prevNodeStatus = new Map(); // task id → 직전 렌더에서의 status, 변화 감지용
+  let restoredSelection = false; // 새로고침 직후 localStorage에서 선택 복원을 1회만 시도
 
   // --- 조회 헬퍼 ------------------------------------------------------------
 
@@ -139,7 +141,7 @@
 
   // --- 서버 왕복 -----------------------------------------------------------
 
-  function flash(msg) {
+  function flash(msg, kind) {
     const bar = document.querySelector("#board .graph-toolbar");
     if (!bar) return;
     let el = bar.querySelector(".graph-flash");
@@ -148,6 +150,7 @@
       el.className = "graph-flash";
       bar.prepend(el);
     }
+    el.classList.toggle("ok", kind === "ok");
     // 서버 검증 메시지는 한국어 원문으로 온다 — 같은 카탈로그로 번역해 띄운다
     el.textContent = tr(msg);
     clearTimeout(el._timer);
@@ -194,20 +197,58 @@
 
   // --- 태스크 상세 패널 -----------------------------------------------------
 
+  const taskPanel = () => document.getElementById("task-detail");
+  const taskBackdrop = () => document.getElementById("task-detail-backdrop");
+
+  // 선택한 태스크를 프로젝트별로 localStorage에 남겨, 새로고침 후에도 인스펙터가
+  // 같은 노드를 다시 열어둔다.
+  function selKey() {
+    const pid = canvas()?.dataset.project;
+    return pid ? `orca-board-sel-${pid}` : null;
+  }
+
+  function setPanelOpen(open) {
+    const bd = taskBackdrop();
+    if (bd) bd.hidden = !open;
+    document.body.classList.toggle("task-panel-open", open);
+  }
+
   async function selectTask(id) {
     selTask = id;
     const res = await fetch(`/partials/task/${id}`);
     if (!res.ok) return;
-    const panel = document.getElementById("task-detail");
+    const panel = taskPanel();
     panel.innerHTML = await res.text();
     if (window.htmx) window.htmx.process(panel);
     const src = panel.querySelector(".task-src");
     if (src) renderMarkdown(panel.querySelector(".task-out"), src.textContent);
     const node = document.querySelector(`.graph-node[data-task="${id}"]`);
     selStatus = node ? node.dataset.status : null;
+    setPanelOpen(true);
     highlightSel();
+    const key = selKey();
+    if (key) localStorage.setItem(key, String(id));
+    // chat-rail이 이 태스크의 잡을 실행 로그 탭에서 바로 따라가도록 알린다.
+    document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
+      detail: {
+        id, status: selStatus,
+        jobId: node && node.dataset.job ? +node.dataset.job : null,
+      },
+    }));
   }
   window.selectTask = selectTask;
+
+  function closePanel() {
+    selTask = null;
+    selStatus = null;
+    const panel = taskPanel();
+    if (panel) panel.innerHTML = "";
+    setPanelOpen(false);
+    highlightSel();
+    const key = selKey();
+    if (key) localStorage.removeItem(key);
+  }
+  window.closeTaskPanel = closePanel;
 
   function highlightSel() {
     document.querySelectorAll(".graph-node").forEach((n) =>
@@ -220,9 +261,7 @@
     if (document.querySelector(`.graph-node[data-task="${selTask}"]`)) {
       selectTask(selTask);
     } else {
-      selTask = null;
-      selStatus = null;
-      document.getElementById("task-detail").innerHTML = "";
+      closePanel();
     }
   }
 
@@ -232,7 +271,18 @@
     form.hidden = !on;
     const desc = document.querySelector("#task-detail .task-desc");
     if (desc) desc.hidden = on;
-    if (on) form.querySelector("input[name=title]").focus();
+    const deps = document.querySelector("#task-detail .task-deps");
+    if (deps) deps.hidden = on;
+    const editBtn = document.querySelector("#task-detail [data-task-edit]");
+    if (editBtn) editBtn.hidden = on;
+    const panel = document.querySelector("#task-detail .task-panel");
+    if (panel) panel.classList.toggle("is-editing", on);
+    if (on) {
+      // 모바일 시트에서 입력란이 보이도록 패널 상단으로 스크롤
+      form.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      const title = form.querySelector("input[name=title]");
+      if (title) title.focus({ preventScroll: true });
+    }
   }
 
   const editFormOpen = () => {
@@ -240,12 +290,36 @@
     return !!f && !f.hidden;
   };
 
+  // 선행 연결 저장 — 캔버스 post()와 같은 경로. htmx 폼 제출은 모바일에서
+  // 피드백이 없고 실패 메시지도 시트 뒤에 가려져 "반응 없음"처럼 보였다.
+  async function saveDeps(form) {
+    const taskId = form.dataset.taskDeps;
+    if (!taskId) return;
+    const btn = form.querySelector(".btn-deps-save, button[type=submit]");
+    const deps = [...form.querySelectorAll('input[name="deps"]:checked')]
+      .map((el) => el.value);
+    if (btn) {
+      btn.disabled = true;
+      btn.dataset.label = btn.textContent;
+      btn.textContent = tr("저장 중…");
+    }
+    try {
+      const ok = await post(`/tasks/${taskId}/deps`, { deps });
+      if (ok) flash(tr("연결을 저장했습니다"), "ok");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = btn.dataset.label || tr("연결 저장");
+      }
+    }
+  }
+
   // --- 렌더 직후 복구 -------------------------------------------------------
 
   function afterBoardRender() {
     const c = canvas();
     paletteOpen = false;
-    if (!c) return;
+    if (!c) { prevNodeStatus = new Map(); return; }
     if (window.htmx) window.htmx.process(c.parentElement || c);
     // 방향이 바뀌었으면(회전·창 크기) 이전 카메라는 의미가 없다 — 다시 맞춘다
     if (c.dataset.orientation !== lastOrientation) {
@@ -254,6 +328,50 @@
     }
     applyView();
     highlightSel();
+    syncLiveState();
+    restoreSelection();
+  }
+
+  // 새로고침 직후 첫 렌더에서 딱 한 번, 이전에 선택해뒀던 태스크가 아직
+  // 존재하면 인스펙터를 다시 열어준다.
+  function restoreSelection() {
+    if (restoredSelection || selTask !== null) return;
+    restoredSelection = true;
+    const key = selKey();
+    if (!key) return;
+    const saved = localStorage.getItem(key);
+    if (!saved) return;
+    if (document.querySelector(`.graph-node[data-task="${saved}"]`)) {
+      selectTask(+saved);
+    } else {
+      localStorage.removeItem(key);
+    }
+  }
+
+  // 폴링으로 조각이 갈릴 때마다 태스크 상태 스냅샷을 chat-rail(실행 로그 탭)에
+  // 흘려보내고, 직전 렌더 대비 상태가 바뀐 노드를 짧게 반짝여 "지금 여기가
+  // 움직였다"를 캔버스에서도 알 수 있게 한다.
+  function syncLiveState() {
+    const nodes = [...document.querySelectorAll(".graph-node")];
+    const tasks = nodes.map((n) => ({
+      id: +n.dataset.task, seq: +n.dataset.seq, title: n.dataset.title,
+      status: n.dataset.status,
+      job_id: n.dataset.job ? +n.dataset.job : null,
+    }));
+    const nextStatus = new Map();
+    for (const n of nodes) {
+      const id = n.dataset.task;
+      const status = n.dataset.status;
+      nextStatus.set(id, status);
+      if (prevNodeStatus.size && prevNodeStatus.get(id) !== status) {
+        n.classList.remove("orca-live-flash");
+        // eslint-disable-next-line no-unused-expressions
+        n.offsetWidth; // 리플로우 강제 — 같은 클래스를 다시 붙였을 때도 애니메이션 재생
+        n.classList.add("orca-live-flash");
+      }
+    }
+    prevNodeStatus = nextStatus;
+    document.body.dispatchEvent(new CustomEvent("orca-tasks-updated", { detail: tasks }));
   }
 
   // --- 제스처 --------------------------------------------------------------
@@ -438,14 +556,24 @@
   document.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-canvas]");
     if (btn) { onToolbar(btn.dataset.canvas); return; }
+    if (e.target.closest("[data-task-close]")) { closePanel(); return; }
     if (e.target.closest("[data-task-edit]")) { toggleEdit(true); return; }
     if (e.target.closest("[data-task-edit-cancel]")) { toggleEdit(false); }
+  });
+
+  // 연결 저장 폼 — submit을 JS post()로 처리한다.
+  document.addEventListener("submit", (e) => {
+    const form = e.target.closest && e.target.closest("form.task-deps");
+    if (!form) return;
+    e.preventDefault();
+    saveDeps(form);
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     if (paletteOpen) openPalette(false);
     else if (editFormOpen()) toggleEdit(false);
+    else if (selTask !== null) closePanel();
   });
 
   // 폴링이 편집을 방해하지 않게 한다. plan_ready/paused에서는 오케스트레이터가
@@ -481,6 +609,50 @@
     flash(msg);
   });
 
+  // 활성 에이전트 반응을 시각적 무드로 전환한다. queue/run에 진입하면 해당
+  // 메시지와 함께 애니메이션 상태를 켜고, 완료 시 해제한다.
+  function setAgentMood(messageId, provider, status) {
+    const target = document.querySelector(`[data-msg-id="${messageId}"]`);
+    if (!target) return;
+    target.dataset.agentProvider = provider || "";
+    target.dataset.agentStatus = status;
+  }
+  document.body.addEventListener("orca-queued", (e) => {
+    setAgentMood(e.detail?.id, e.detail?.provider || "", "queued");
+  });
+  document.body.addEventListener("orca-running", (e) => {
+    setAgentMood(e.detail?.id, e.detail?.provider || "", "running");
+  });
+  document.body.addEventListener("orca-finished", (e) => {
+    setAgentMood(e.detail?.id, e.detail?.provider || "", "done");
+  });
+
+  function animateMessageAppear(el) {
+    if (!el || typeof gsap === "undefined") return;
+    gsap.fromTo(el,
+      { opacity: 0, y: 10 },
+      { opacity: 1, y: 0, duration: 0.32, ease: "power2.out", overwrite: true }
+    );
+  }
+  document.body.addEventListener("orca-message-appended", (e) => {
+    animateMessageAppear(e.detail?.el);
+  });
+
+  function animateNodeRegistration(node, statusAtRegistration) {
+    if (!node || typeof gsap === "undefined") return;
+    const base = { opacity: 0, scale: 0.86 };
+    gsap.fromTo(node, base, {
+      opacity: 1, scale: 1, duration: 0.38, ease: "back.out(1.4)", overwrite: true
+    });
+    if (statusAtRegistration === "queued") {
+      node.classList.add("orca-live-flash");
+      setTimeout(() => node.classList.remove("orca-live-flash"), 1100);
+    }
+  }
+  document.body.addEventListener("orca-task-registered", (e) => {
+    animateNodeRegistration(e.detail?.node, e.detail?.status);
+  });
+
   let resizeTimer;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
@@ -491,5 +663,11 @@
       if (c.dataset.orientation !== boardOrientation()) reloadBoard();
       else { view = null; applyView(); }
     }, 200);
+  });
+
+  // chat-rail에서 에이전트 메시지가 끝났다는 신호를 보내오면 2초 폴링을 기다리지
+  // 않고 바로 보드를 다시 그린다 — 채팅에서의 활동이 캔버스에 즉시 반영되게 한다.
+  document.body.addEventListener("orca-refresh-board", () => {
+    if (!busy && !paletteOpen && !editFormOpen() && !editable()) reloadBoard();
   });
 })();

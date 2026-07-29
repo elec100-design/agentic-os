@@ -244,21 +244,41 @@ EN = {
     "로컬": "Local",
     "코딩·분석·글쓰기에 강한 범용 에이전트":
         "Versatile agent, strong at coding, analysis, and writing",
+    "ChatGPT/Codex 구독 CLI — 코딩·자동화에 강함":
+        "ChatGPT/Codex subscription CLI — strong at coding and automation",
     "Gemini 기반 에이전트 — Google 계정으로 로그인":
         "Gemini-based agent — sign in with a Google account",
+    "공식 Gemini 터미널 CLI — OAuth 또는 Vertex AI":
+        "Official Gemini terminal CLI — OAuth or Vertex AI",
     "xAI Grok — SuperGrok 구독 CLI": "xAI Grok — SuperGrok subscription CLI",
+    "로컬 Gateway 에이전트 — 여러 클라우드 모델 프로필 연결":
+        "Local Gateway agent — connects multiple cloud model profiles",
     "로컬 실행 모델 — 무제한·개인 데이터에 적합":
         "Local model — unlimited, good for private data",
-    "터미널에서 claude 를 한 번 실행하면 브라우저 로그인(구독 계정 OAuth)이 열립니다. 로그인 후 재확인을 누르세요.":
-        "Run claude once in your terminal to open the browser login (subscription OAuth). Then hit Re-check.",
+    "터미널에서 claude auth login 으로 Anthropic/Claude 구독 계정 OAuth를 완료하세요. 로그인 후 재확인을 누르세요.":
+        "Run claude auth login in your terminal for Anthropic/Claude subscription OAuth. Then hit Re-check.",
+    "터미널에서 codex login 으로 ChatGPT 계정 OAuth 로그인을 완료하세요. (API 키가 아니라 구독 세션을 씁니다. 상태 확인: codex login status)":
+        "Run codex login for ChatGPT OAuth (subscription session, not an API key). Check with: codex login status.",
     "agy 첫 실행 시 Google 계정 OAuth 로그인이 진행되고 시스템 키체인에 저장됩니다.":
         "On first run, agy walks you through Google OAuth and stores it in the system keychain.",
+    "권장(업무/Workspace·Vertex): 1) gcloud auth application-default login  2) ~/.gemini/.env 에 GOOGLE_CLOUD_PROJECT·GOOGLE_CLOUD_LOCATION (예: global)·GOOGLE_GENAI_USE_VERTEXAI=true  3) ~/.gemini/settings.json 의 security.auth.selectedType 을 vertex-ai 로. 또는 터미널에서 gemini 실행 후 Sign in with Google (oauth-personal) — Workspace는 GOOGLE_CLOUD_PROJECT 필요. API 키 모드는 워커가 키를 제거해 동작하지 않습니다. (Antigravity와 별도 CLI)":
+        "Recommended (Workspace/Vertex): 1) gcloud auth application-default login  2) set GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (e.g. global), GOOGLE_GENAI_USE_VERTEXAI=true in ~/.gemini/.env  3) set security.auth.selectedType to vertex-ai in ~/.gemini/settings.json. Or run gemini and Sign in with Google (oauth-personal); Workspace needs GOOGLE_CLOUD_PROJECT. API key mode will not work — the worker strips keys. (Separate from Antigravity.)",
     "grok CLI 자체 로그인 절차(브라우저 인증)를 완료하세요.":
         "Complete the grok CLI's own login (browser auth).",
+    "터미널에서 openclaw models auth login 으로 모델 프로바이더(OAuth/키)를 연결하세요. 프로필이 없으면 작업이 실패합니다. Gateway가 필요하면 openclaw gateway 를 실행해 두세요.":
+        "Run openclaw models auth login to connect a model provider. Without a profile, jobs fail. Start openclaw gateway if needed.",
     "로컬 실행 — 로그인 불필요, 사용량 무제한입니다.":
         "Runs locally — no login needed, unlimited usage.",
-    "사용량 실측 표시 (claude·grok 잔여 사용량 기반 자동 라우팅)":
-        "Real usage display (auto-routing by claude/grok remaining quota)",
+    "✓ 로그인됨": "✓ Signed in",
+    "✗ 로그인 필요": "✗ Sign-in required",
+    "? 상태 미확인": "? Status unknown",
+    "상태:": "Status:",
+    "로그인 전에는 이 에이전트 작업이 실패합니다. 아래 명령을 터미널에서 실행한 뒤 재확인하세요.":
+        "Jobs for this agent will fail until you sign in. Run the command below in a terminal, then Re-check.",
+    "Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 재확인을 누르세요. 로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다.":
+        "Agentic OS cannot sign in for you. Finish each CLI's OAuth in a terminal, then Re-check. You can continue without signing in, but those agents' jobs will fail.",
+    "사용량 실측 표시 (claude·codex·gemini·grok 등 잔여 사용량 기반 자동 라우팅)":
+        "Real usage display (auto-routing by remaining quota for claude/codex/gemini/grok etc.)",
     "GitHub 리포를 작업 위치로 연동": "Use a GitHub repo as a workspace",
     "노트(메모리) 전문 검색": "Full-text search over notes (memory)",
 
@@ -324,6 +344,8 @@ EN = {
     "저장": "Save",
     "선행 태스크": "Depends on",
     "연결 저장": "Save connections",
+    "저장 중…": "Saving…",
+    "연결을 저장했습니다": "Connections saved",
     "이 태스크를 삭제할까요? 연결도 함께 끊어집니다.":
         "Delete this task? Its connections will be removed too.",
     "이 연결을 끊을까요?": "Remove this connection?",
@@ -338,4 +360,29 @@ EN = {
     "제목과 설명은 비울 수 없습니다": "Title and description can't be empty",
     "제목은 비울 수 없습니다": "Title can't be empty",
     "자기 자신에 의존할 수 없습니다": "A task can't depend on itself",
+
+    # --- 채널: 사이드바 네비게이션 / 채널 상세 페이지 ---
+    "채널": "Channels",
+    "새 채널": "New channel",
+    "새 채널 만들기": "Create a channel",
+    "채널 이름": "Channel name",
+    "예: 결제 리팩터링": "e.g. Payment refactor",
+    "주제 (선택)": "Topic (optional)",
+    "이 채널에서 다룰 작업을 짧게 설명": "Briefly describe what this channel is for",
+    "주제별로 대화를 이어가며 답장으로 세션을 유지할 수 있어요":
+        "Keep a topic-focused conversation going — replies keep the same session alive",
+    "만들기": "Create",
+    "채널 이름을 입력하세요": "Enter a channel name",
+    "채널을 만들지 못했습니다": "Couldn't create the channel",
+    "아직 채널이 없습니다. + 를 눌러 만들어 보세요.": "No channels yet. Tap + to create one.",
+    "진행 중인 세션": "Active session",
+    "이 채널에 새 주제로 말을 걸어보세요…": "Start a new topic in this channel…",
+    "답장…": "Reply…",
+    "전송하지 못했습니다": "Couldn't send",
+    "실행 중…": "Working…",
+    "이 채널과 모든 대화를 삭제할까요? 되돌릴 수 없습니다.":
+        "Delete this channel and all its conversations? This can't be undone.",
+    "쓰레드로 답장하기": "Reply in thread",
+    "쓰레드": "Thread",
+    "개 답장": " replies",
 }

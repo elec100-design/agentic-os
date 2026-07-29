@@ -1,0 +1,805 @@
+/* Orca ADE 스타일 디자인 시스템 — 다크모드 중심 글래스모피즘.
+   프로젝트 상세(chat-rail + vision-canvas + inspector) 레이아웃 전용 토큰/유틸리티.
+   기존 style.css(Claude Desktop 라이트 팔레트)는 그대로 두고, 이 레이어는
+   `.orca` 스코프 아래에서만 활성화되어 다른 화면에 영향을 주지 않는다. */
+
+/* 스피너 기본 룩 — elsewhere에서 가져다 쓰는 정적 표시기도 부드럽게 회전시킨다 */
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--orca-border-strong);
+  border-top-color: var(--orca-accent);
+  animation: orca-spin 0.9s linear infinite;
+}
+@keyframes orca-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner, .orca-badge-running::before { animation: none; }
+}
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700&display=swap");
+
+.orca {
+  --orca-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --orca-font-display: "Inter Tight", "Inter", -apple-system, sans-serif;
+  --orca-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  /* 베이스 팔레트 — 딥 네이비/차콜, 라이트 변형은 부가적으로만 지원 */
+  --orca-bg: #0B0D14;
+  --orca-bg-gradient:
+    radial-gradient(1200px 700px at 12% -10%, rgba(122, 130, 255, 0.16), transparent 60%),
+    radial-gradient(900px 600px at 100% 0%, rgba(217, 119, 87, 0.10), transparent 55%),
+    linear-gradient(180deg, #0B0D14 0%, #0A0B11 100%);
+  --orca-surface: rgba(255, 255, 255, 0.045);
+  --orca-surface-hover: rgba(255, 255, 255, 0.075);
+  --orca-surface-2: rgba(255, 255, 255, 0.03);
+  --orca-border: rgba(255, 255, 255, 0.09);
+  --orca-border-strong: rgba(255, 255, 255, 0.16);
+  --orca-text: #EDEEF3;
+  --orca-muted: #8B8FA3;
+  --orca-muted-soft: #5E6178;
+
+  --orca-accent: #7A82FF;
+  --orca-accent-2: #D97757;
+  --orca-accent-soft: rgba(122, 130, 255, 0.14);
+  --orca-accent-glow: rgba(122, 130, 255, 0.35);
+  --orca-ok: #5FD196;
+  --orca-warn: #E3B15C;
+  --orca-err: #F0736E;
+  --orca-ok-soft: rgba(95, 209, 150, 0.14);
+  --orca-warn-soft: rgba(227, 177, 92, 0.14);
+  --orca-err-soft: rgba(240, 115, 110, 0.14);
+
+  /* 글래스 블러 강도 — 레일/캔버스/인스펙터가 각각 다른 깊이감을 갖도록 3단계 */
+  --orca-blur-sm: blur(10px);
+  --orca-blur-md: blur(18px);
+  --orca-blur-lg: blur(28px);
+
+  --orca-radius-sm: 8px;
+  --orca-radius-md: 12px;
+  --orca-radius-lg: 18px;
+  --orca-shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --orca-shadow-float: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  color-scheme: dark;
+  background: var(--orca-bg-gradient);
+  color: var(--orca-text);
+  font-family: var(--orca-font-ui);
+}
+
+/* 라이트 보조 팔레트 — data-theme="light"일 때만, 다크가 기본값이라는 원칙은 유지 */
+.orca[data-theme="light"] {
+  --orca-bg: #F4F5FA;
+  --orca-bg-gradient:
+    radial-gradient(1200px 700px at 12% -10%, rgba(122, 130, 255, 0.10), transparent 60%),
+    linear-gradient(180deg, #F7F8FC 0%, #EEF0F7 100%);
+  --orca-surface: rgba(255, 255, 255, 0.65);
+  --orca-surface-hover: rgba(255, 255, 255, 0.85);
+  --orca-surface-2: rgba(255, 255, 255, 0.45);
+  --orca-border: rgba(15, 17, 32, 0.09);
+  --orca-border-strong: rgba(15, 17, 32, 0.16);
+  --orca-text: #14162A;
+  --orca-muted: #5B5E75;
+  --orca-muted-soft: #8A8CA0;
+  --orca-shadow-panel: 0 8px 32px rgba(15, 17, 32, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --orca-shadow-float: 0 20px 60px rgba(15, 17, 32, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  color-scheme: light;
+}
+
+/* ── 글래스 표면 유틸리티 ─────────────────────────────────────────── */
+.orca-glass {
+  background: var(--orca-surface);
+  backdrop-filter: var(--orca-blur-md) saturate(140%);
+  -webkit-backdrop-filter: var(--orca-blur-md) saturate(140%);
+  border: 1px solid var(--orca-border);
+  box-shadow: var(--orca-shadow-panel);
+}
+.orca-glass-sm { backdrop-filter: var(--orca-blur-sm) saturate(140%); -webkit-backdrop-filter: var(--orca-blur-sm) saturate(140%); }
+.orca-glass-lg {
+  backdrop-filter: var(--orca-blur-lg) saturate(160%);
+  -webkit-backdrop-filter: var(--orca-blur-lg) saturate(160%);
+  box-shadow: var(--orca-shadow-float);
+}
+.orca-glass-hover:hover { background: var(--orca-surface-hover); }
+
+/* 미세한 상단 하이라이트 라인 — 유리판 가장자리에 빛이 닿는 느낌 */
+.orca-glass-edge {
+  position: relative;
+}
+.orca-glass-edge::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.22), transparent);
+  pointer-events: none;
+}
+
+/* ── 레이아웃 존 (와이어프레임 3열 그리드에 대응) ────────────────── */
+.orca-topbar {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1rem;
+  background: var(--orca-surface);
+  backdrop-filter: var(--orca-blur-sm) saturate(140%);
+  -webkit-backdrop-filter: var(--orca-blur-sm) saturate(140%);
+  border-bottom: 1px solid var(--orca-border);
+}
+.orca-nav-rail {
+  width: 56px;
+  background: var(--orca-surface-2);
+  border-right: 1px solid var(--orca-border);
+}
+.orca-chat-rail {
+  background: var(--orca-surface);
+  backdrop-filter: var(--orca-blur-md) saturate(140%);
+  -webkit-backdrop-filter: var(--orca-blur-md) saturate(140%);
+  border-right: 1px solid var(--orca-border);
+}
+.orca-canvas {
+  background: var(--orca-bg-gradient);
+  background-image:
+    radial-gradient(circle, var(--orca-border) 1px, transparent 1px),
+    var(--orca-bg-gradient);
+  background-size: 22px 22px, auto;
+}
+.orca-inspector {
+  background: var(--orca-surface);
+  backdrop-filter: var(--orca-blur-lg) saturate(160%);
+  -webkit-backdrop-filter: var(--orca-blur-lg) saturate(160%);
+  border-left: 1px solid var(--orca-border);
+  box-shadow: var(--orca-shadow-float);
+}
+
+/* ── 타이포그래피 ─────────────────────────────────────────────────── */
+.orca h1, .orca h2, .orca h3 {
+  font-family: var(--orca-font-display);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--orca-text);
+}
+.orca .orca-muted { color: var(--orca-muted); }
+.orca code, .orca pre { font-family: var(--orca-font-mono); }
+
+/* ── 그라데이션 액센트 요소 ───────────────────────────────────────── */
+.orca-gradient-text {
+  background: linear-gradient(120deg, var(--orca-accent), var(--orca-accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.orca-btn-primary {
+  background: linear-gradient(135deg, var(--orca-accent), color-mix(in srgb, var(--orca-accent) 70%, var(--orca-accent-2)));
+  color: #fff;
+  border: none;
+  border-radius: var(--orca-radius-sm);
+  box-shadow: 0 4px 18px var(--orca-accent-glow);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+}
+.orca-btn-primary:hover { filter: brightness(1.08); box-shadow: 0 6px 24px var(--orca-accent-glow); }
+.orca-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--orca-border);
+  color: var(--orca-muted);
+  border-radius: var(--orca-radius-sm);
+  font: inherit;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.orca-btn-ghost:hover { border-color: var(--orca-border-strong); color: var(--orca-text); background: var(--orca-surface-hover); }
+
+/* ── 상태 배지 (RUNNING/DONE/FAILED 등, DAG 노드와 톤 공유) ───────── */
+.orca-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.14rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.76rem;
+  font-weight: 500;
+  background: var(--orca-surface-2);
+  color: var(--orca-muted);
+  border: 1px solid var(--orca-border);
+}
+.orca-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.orca-badge-running { background: var(--orca-warn-soft); color: var(--orca-warn); border-color: transparent; }
+.orca-badge-running::before { animation: orca-pulse 1.4s ease-in-out infinite; }
+.orca-badge-done { background: var(--orca-ok-soft); color: var(--orca-ok); border-color: transparent; }
+.orca-badge-failed { background: var(--orca-err-soft); color: var(--orca-err); border-color: transparent; }
+@keyframes orca-pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .orca-badge-running::before { animation: none; }
+}
+
+/* ── 스크롤바 — 글래스 패널 안에서 튀지 않도록 얇고 은은하게 ──────── */
+.orca ::-webkit-scrollbar { width: 8px; height: 8px; }
+.orca ::-webkit-scrollbar-track { background: transparent; }
+.orca ::-webkit-scrollbar-thumb { background: var(--orca-border-strong); border-radius: 999px; }
+.orca ::-webkit-scrollbar-thumb:hover { background: var(--orca-muted-soft); }
+
+:focus-visible { outline: 2px solid var(--orca-accent, var(--accent)); outline-offset: 2px; }
+
+/* ══ chat-rail 컴포넌트 — 좌측 고정 에이전트 채팅 + 도구 실행 로그 ══════ */
+.orca-chat-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  min-width: 280px;
+  max-width: 480px;
+  height: 100%;
+  transition: width 0.16s ease;
+}
+.orca-chat-rail.is-collapsed { width: 44px; min-width: 44px; }
+.orca-chat-rail.is-collapsed .orca-rail-tabs,
+.orca-chat-rail.is-collapsed .orca-rail-panels,
+.orca-chat-rail.is-collapsed .orca-rail-composer,
+.orca-chat-rail.is-collapsed .orca-rail-title { display: none; }
+.orca-chat-rail.is-resizing { transition: none; }
+
+.orca-rail-resize-handle {
+  position: absolute;
+  top: 0; right: -3px;
+  width: 6px; height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+.orca-rail-resize-handle:hover, .orca-rail-resize-handle.active {
+  background: var(--orca-accent-soft);
+}
+.orca-chat-rail.is-collapsed .orca-rail-resize-handle { cursor: default; pointer-events: none; }
+body.orca-resizing { cursor: col-resize; user-select: none; }
+body.orca-resizing .orca-project-main { pointer-events: none; }
+
+.orca-rail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 0.6rem;
+  border-bottom: 1px solid var(--orca-border);
+  flex-shrink: 0;
+}
+.orca-rail-title {
+  font-family: var(--orca-font-display);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--orca-text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orca-rail-collapse-btn {
+  background: transparent;
+  border: none;
+  color: var(--orca-muted);
+  width: 28px; height: 28px;
+  border-radius: var(--orca-radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.orca-rail-collapse-btn:hover { background: var(--orca-surface-hover); color: var(--orca-text); }
+.orca-chat-rail.is-collapsed .orca-rail-collapse-btn svg { transform: rotate(180deg); }
+
+.orca-rail-tabs {
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.5rem 0.6rem 0;
+  flex-shrink: 0;
+}
+.orca-rail-tab {
+  background: transparent;
+  border: none;
+  color: var(--orca-muted);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 0.4rem 0.7rem 0.55rem;
+  cursor: pointer;
+  position: relative;
+  border-radius: var(--orca-radius-sm) var(--orca-radius-sm) 0 0;
+  transition: color 0.15s ease;
+}
+.orca-rail-tab:hover { color: var(--orca-text); }
+.orca-rail-tab.active { color: var(--orca-text); }
+.orca-rail-tab.active::after {
+  content: "";
+  position: absolute;
+  left: 0.4rem; right: 0.4rem; bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--orca-accent), var(--orca-accent-2));
+}
+.orca-rail-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 0.3rem;
+  margin-left: 0.35rem;
+  border-radius: 999px;
+  background: var(--orca-warn-soft);
+  color: var(--orca-warn);
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.orca-rail-panels {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  border-top: 1px solid var(--orca-border);
+}
+.orca-rail-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.orca-rail-panel[hidden] { display: none; }
+
+.orca-rail-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.orca-rail-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--orca-muted);
+  font-size: 0.82rem;
+  padding: 1.5rem 1rem;
+}
+
+/* ── 채팅 탭: 메시지 버블 ─────────────────────────────────────────── */
+.orca-msg { display: flex; flex-direction: column; gap: 0.3rem; max-width: 94%; }
+.orca-msg.user { align-self: flex-end; align-items: flex-end; }
+.orca-msg.assistant { align-self: flex-start; align-items: flex-start; }
+.orca-msg-role {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  color: var(--orca-muted);
+}
+.orca-msg-bubble {
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--orca-radius-md);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.orca-msg-bubble > *:first-child { margin-top: 0; }
+.orca-msg-bubble > *:last-child { margin-bottom: 0; }
+.orca-msg.user .orca-msg-bubble {
+  background: linear-gradient(135deg, var(--orca-accent), color-mix(in srgb, var(--orca-accent) 70%, var(--orca-accent-2)));
+  color: #fff;
+}
+.orca-msg.assistant .orca-msg-bubble {
+  background: var(--orca-surface-2);
+  border: 1px solid var(--orca-border);
+  color: var(--orca-text);
+}
+.orca-msg-error {
+  font-size: 0.76rem;
+  color: var(--orca-err);
+  background: var(--orca-err-soft);
+  border-radius: var(--orca-radius-sm);
+  padding: 0.35rem 0.55rem;
+}
+
+/* ── 실행 과정 아코디언 (채팅 탭 인라인 + 실행 로그 탭 공용) ───────── */
+.orca-trace {
+  width: 100%;
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-sm);
+  background: var(--orca-surface-2);
+  overflow: hidden;
+}
+.orca-trace-step + .orca-trace-step { border-top: 1px solid var(--orca-border); }
+.orca-trace-step-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  background: transparent;
+  border: none;
+  color: var(--orca-text);
+  font: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  cursor: pointer;
+}
+.orca-trace-step-head:hover { background: var(--orca-surface-hover); }
+.orca-trace-chevron { color: var(--orca-muted); transition: transform 0.15s ease; flex-shrink: 0; }
+.orca-trace-step.open .orca-trace-chevron { transform: rotate(90deg); }
+.orca-trace-kind { color: var(--orca-muted); flex-shrink: 0; }
+.orca-trace-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orca-trace-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--orca-muted-soft);
+  flex-shrink: 0;
+}
+.orca-trace-status-dot.status-running { background: var(--orca-warn); animation: orca-pulse 1.4s ease-in-out infinite; }
+.orca-trace-status-dot.status-done { background: var(--orca-ok); }
+.orca-trace-status-dot.status-error { background: var(--orca-err); }
+.orca-trace-step-body { display: none; padding: 0 0.55rem 0.55rem 1.65rem; }
+.orca-trace-step.open .orca-trace-step-body { display: block; }
+.orca-trace-detail {
+  margin: 0;
+  font-family: var(--orca-font-mono);
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--orca-muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.orca-trace-toggle-all {
+  background: transparent;
+  border: none;
+  color: var(--orca-accent);
+  font-size: 0.72rem;
+  cursor: pointer;
+  padding: 0.35rem 0.55rem;
+}
+.orca-trace-toggle-all:hover { text-decoration: underline; }
+
+/* ── 실행 로그 탭: 태스크 선택 + 스트림 ────────────────────────────── */
+.orca-log-picker {
+  flex-shrink: 0;
+  padding: 0.6rem 0.75rem 0;
+}
+.orca-log-picker select {
+  width: 100%;
+  background: var(--orca-surface-2);
+  border: 1px solid var(--orca-border);
+  color: var(--orca-text);
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--orca-radius-sm);
+}
+.orca-log-picker select:focus { outline: none; border-color: var(--orca-accent); }
+.orca-log-stream {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0.6rem 0.75rem 0.75rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--orca-surface-2);
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-sm);
+  font-family: var(--orca-font-mono);
+  font-size: 0.76rem;
+  line-height: 1.55;
+  color: var(--orca-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── 채팅 입력창 ───────────────────────────────────────────────────── */
+.orca-rail-composer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--orca-border);
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.orca-rail-composer textarea {
+  width: 100%;
+  resize: none;
+  background: var(--orca-surface-2);
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-sm);
+  color: var(--orca-text);
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.6rem;
+}
+.orca-rail-composer textarea:focus { outline: none; border-color: var(--orca-accent); }
+.orca-rail-composer-bar { display: flex; align-items: center; gap: 0.5rem; }
+.orca-rail-agent-select {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid var(--orca-border);
+  color: var(--orca-muted);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: var(--orca-radius-sm);
+}
+.orca-rail-send {
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--orca-accent), color-mix(in srgb, var(--orca-accent) 70%, var(--orca-accent-2)));
+  color: #fff;
+  box-shadow: 0 4px 18px var(--orca-accent-glow);
+  transition: filter 0.15s ease;
+}
+.orca-rail-send:hover { filter: brightness(1.08); }
+.orca-rail-send:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+/* ══ vision-flow 컴포넌트 — 중앙 캔버스의 "진행 흐름" 뷰 ══════════════════
+   #board .graph-canvas(n8n식 노드-링크 다이어그램)와 토글되는 대안 뷰.
+   전체 로드맵(카드), 의존성 트리 다이어그램, 생성/수정된 파일(카드)을 보여준다.
+   #board가 통째로 갈릴 때마다 static/vision-flow.js가 다시 그려 넣는다. */
+.orca-flow {
+  height: 100%;
+  overflow-y: auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.orca-flow-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+.orca-flow-stat-card {
+  flex: 1 1 88px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: var(--orca-radius-md);
+  background: var(--orca-surface);
+  border: 1px solid var(--orca-border);
+  backdrop-filter: var(--orca-blur-sm) saturate(140%);
+  -webkit-backdrop-filter: var(--orca-blur-sm) saturate(140%);
+}
+.orca-flow-stat-num {
+  font-family: var(--orca-font-display);
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--orca-text);
+}
+.orca-flow-stat-label { font-size: 0.74rem; color: var(--orca-muted); }
+.orca-flow-stat-card.is-done .orca-flow-stat-num { color: var(--orca-ok); }
+.orca-flow-stat-card.is-running .orca-flow-stat-num { color: var(--orca-warn); }
+.orca-flow-stat-card.is-failed .orca-flow-stat-num { color: var(--orca-err); }
+
+.orca-flow-progress {
+  position: relative;
+  flex: 1 1 160px;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 0.8rem;
+  border-radius: var(--orca-radius-md);
+  background: var(--orca-surface-2);
+  border: 1px solid var(--orca-border);
+  overflow: hidden;
+}
+.orca-flow-progress-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--orca-accent), var(--orca-accent-2));
+  opacity: 0.28;
+  transition: width 0.3s ease;
+}
+.orca-flow-progress-label {
+  position: relative;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--orca-text);
+}
+
+.orca-flow-section h3 {
+  margin: 0 0 0.55rem;
+  font-size: 0.86rem;
+}
+.orca-flow-empty {
+  margin: 0;
+  padding: 0.9rem;
+  text-align: center;
+  color: var(--orca-muted);
+  font-size: 0.82rem;
+  background: var(--orca-surface-2);
+  border: 1px dashed var(--orca-border);
+  border-radius: var(--orca-radius-md);
+}
+
+/* ── 로드맵 트리 다이어그램 — 의존성 깊이만큼 들여쓰고 세로 가이드선을 잇는다 ── */
+.orca-flow-tree {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.orca-flow-tree-node {
+  padding-left: calc(var(--depth, 0) * 1.4rem);
+}
+.orca-flow-tree-card {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--orca-surface);
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-sm);
+  color: var(--orca-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.orca-flow-tree-card:hover { background: var(--orca-surface-hover); border-color: var(--orca-border-strong); }
+.orca-flow-tree-node[style*="--depth:0"] .orca-flow-tree-card { border-left: 2px solid var(--orca-border-strong); }
+.orca-flow-tree-connector {
+  position: absolute;
+  left: -0.9rem;
+  top: 50%;
+  width: 0.9rem;
+  height: 1px;
+  background: var(--orca-border-strong);
+}
+.orca-flow-tree-node[style*="--depth:0"] .orca-flow-tree-connector { display: none; }
+.orca-flow-tree-card.status-running { border-color: var(--orca-warn); }
+.orca-flow-tree-card.status-failed { border-color: var(--orca-err); }
+.orca-flow-tree-card.status-done { border-color: color-mix(in srgb, var(--orca-ok) 45%, var(--orca-border)); }
+.orca-flow-tree-icon { flex-shrink: 0; }
+.orca-flow-tree-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+.orca-flow-tree-provider {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--orca-muted);
+}
+
+/* ── 생성/수정된 파일 카드 ────────────────────────────────────────────── */
+.orca-flow-files {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 0.6rem;
+}
+.orca-flow-file-card {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.7rem;
+  background: var(--orca-surface);
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-md);
+  color: var(--orca-text);
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.orca-flow-file-card:hover { background: var(--orca-surface-hover); border-color: var(--orca-border-strong); }
+.orca-flow-file-icon { font-size: 1.15rem; flex-shrink: 0; }
+.orca-flow-file-meta { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.orca-flow-file-name {
+  font-size: 0.82rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orca-flow-file-task { font-size: 0.72rem; color: var(--orca-muted); }
+
+.orca-rail-mobile-toggle { display: none; }
+.orca-rail-scrim { display: none; }
+
+@media (max-width: 1023px) {
+  .orca-chat-rail {
+    position: fixed;
+    top: 0; bottom: 0; left: 0;
+    z-index: 40;
+    width: min(360px, 86vw);
+    box-shadow: var(--orca-shadow-float);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+  .orca-chat-rail.is-open { transform: translateX(0); }
+  .orca-chat-rail.is-collapsed { width: min(360px, 86vw); transform: translateX(-100%); }
+  .orca-rail-resize-handle { display: none; }
+
+  /* 오프캔버스 상태에서도 항상 눌러서 열 수 있는 진입점 */
+  .orca-rail-mobile-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    left: 0.8rem;
+    bottom: 0.8rem;
+    z-index: 35;
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--orca-border);
+    background: var(--orca-surface);
+    color: var(--orca-text);
+    box-shadow: var(--orca-shadow-float);
+    cursor: pointer;
+  }
+  body.orca-rail-open .orca-rail-mobile-toggle { display: none; }
+
+  .orca-rail-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: rgba(0, 0, 0, 0.28);
+  }
+  body.orca-rail-open .orca-rail-scrim:not([hidden]) { display: block; }
+}
+
+/* ══ 프로젝트 상세 셸 — 좌측 chat-rail + 중앙 vision-canvas ═══════════ */
+.orca-project-shell {
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+}
+.orca-project-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+@media (max-width: 1023px) {
+  .orca-project-shell { display: block; }
+}
+
+/* 캔버스/트리 노드가 방금 활동을 받았음을 알리는 짧은 하이라이트 —
+   chat-rail 쪽 이벤트(실행 로그 진행)와 보드 쪽 노드를 시각적으로 묶는다. */
+.graph-node.orca-live-flash {
+  animation: orca-live-flash-svg 1.1s ease-out;
+}
+@keyframes orca-live-flash-svg {
+  0% { filter: drop-shadow(0 0 6px var(--orca-accent-glow, rgba(122, 130, 255, 0.9))); }
+  100% { filter: none; }
+}
+.orca-flow-tree-card.orca-live-flash,
+.orca-msg.orca-live-flash .orca-msg-bubble {
+  animation: orca-live-flash 1.1s ease-out;
+  border-radius: var(--orca-radius-sm);
+}
+@keyframes orca-live-flash {
+  0% { box-shadow: 0 0 0 3px var(--orca-accent-glow, rgba(122, 130, 255, 0.6)); }
+  100% { box-shadow: none; }
+}

@@ -2,6 +2,7 @@
 {% set TSTATUS = {'pending': '대기', 'queued': '대기열', 'running': '실행 중',
                   'done': '완료', 'failed': '실패'} %}
 <div class="task-panel" data-task="{{ task['id'] }}">
+  <div class="task-sheet-handle" aria-hidden="true"></div>
   <div class="task-panel-head">
     <b>{{ ICON[task['task_type']] }} [{{ task['seq'] }}] {{ task['title'] }}</b>
     <span class="badge badge-{{ task['status'] }}">{{ TSTATUS[task['status']] | t }}</span>
@@ -25,6 +26,8 @@
     {% if task['job_id'] %}
     <a class="btn-ghost" href="/jobs/{{ task['job_id'] }}">{{ '실행 로그 →' | t }}</a>
     {% endif %}
+    <button type="button" class="task-panel-close" data-task-close
+            aria-label="{{ '닫기' | t }}">✕</button>
   </div>
 
   <p class="task-desc">{{ task['description'] }}</p>
@@ -62,15 +65,13 @@
     </label>
     <div class="pal-foot">
       <button type="button" class="btn-ghost" data-task-edit-cancel>{{ '취소' | t }}</button>
-      <button class="btn-primary">{{ '저장' | t }}</button>
+      <button type="submit" class="btn-primary">{{ '저장' | t }}</button>
     </div>
   </form>
 
   {# 선행 태스크 — 캔버스의 연결선과 같은 데이터. 터치로 선을 긋기 어려울 때의 대안. #}
   {% if siblings %}
-  <form class="task-deps" hx-post="/tasks/{{ task['id'] }}/deps"
-        hx-target="#board" hx-swap="innerHTML"
-        hx-vals='js:{o: boardOrientation()}'>
+  <form class="task-deps" data-task-deps="{{ task['id'] }}">
     <div class="deps-head">{{ '선행 태스크' | t }}</div>
     <div class="deps-list">
       {% for s in siblings %}
@@ -81,7 +82,7 @@
       </label>
       {% endfor %}
     </div>
-    <button class="btn-ghost">{{ '연결 저장' | t }}</button>
+    <button type="submit" class="btn-ghost btn-deps-save">{{ '연결 저장' | t }}</button>
   </form>
   {% endif %}
   {% endif %}
