@@ -418,6 +418,21 @@ class TestGoalCreate(BaseModel):
     name: str
 
 
+class BoardTabCreate(BaseModel):
+    title: str
+    kind: str = "artifact"
+    ref_id: int | None = None
+    status: str = "pending"
+
+
+class BoardTabRename(BaseModel):
+    title: str
+
+
+class BoardTabOrder(BaseModel):
+    tab_ids: list[int]
+
+
 @app.post("/api/test-goal", status_code=201)
 async def api_create_test_goal(payload: TestGoalCreate):
     conn = db.get_conn()
@@ -1027,6 +1042,84 @@ def board_page(request: Request):
          "council_enabled": settings.council_available()})
 
 
+_BOARD_TAB_KINDS = {"chat", "task", "workflow", "flow", "artifact", "diff", "preview"}
+_BOARD_TAB_STATUSES = {"pending", "running", "done", "error"}
+
+
+def _board_or_404(conn, board_id):
+    if db.get_project(conn, board_id) is None:
+        raise HTTPException(status_code=404, detail="보드를 찾을 수 없습니다")
+
+
+def _tab_or_404(conn, board_id, tab_id):
+    tab = db.get_board_tab(conn, tab_id)
+    if tab is None or tab["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="탭을 찾을 수 없습니다")
+    return tab
+
+
+@app.get("/api/boards/{board_id}/tabs")
+def list_board_tabs(board_id: int):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    return {"tabs": [dict(tab) for tab in db.list_board_tabs(conn, board_id)]}
+
+
+@app.post("/api/boards/{board_id}/tabs", status_code=201)
+def create_board_tab(board_id: int, payload: BoardTabCreate):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="탭 제목은 비울 수 없습니다")
+    if payload.kind not in _BOARD_TAB_KINDS or payload.status not in _BOARD_TAB_STATUSES:
+        raise HTTPException(status_code=400, detail="유효하지 않은 탭 종류 또는 상태입니다")
+    tab_id = db.get_or_create_board_tab(conn, board_id, title, payload.kind,
+                                        payload.ref_id, payload.status)
+    return {"tab": dict(db.get_board_tab(conn, tab_id))}
+
+
+@app.patch("/api/boards/{board_id}/tabs/{tab_id}")
+def rename_board_tab(board_id: int, tab_id: int, payload: BoardTabRename):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    _tab_or_404(conn, board_id, tab_id)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="탭 제목은 비울 수 없습니다")
+    db.update_board_tab(conn, tab_id, title=title)
+    return {"tab": dict(db.get_board_tab(conn, tab_id))}
+
+
+@app.delete("/api/boards/{board_id}/tabs/{tab_id}")
+def close_board_tab(board_id: int, tab_id: int):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    if not db.close_board_tab(conn, board_id, tab_id):
+        raise HTTPException(status_code=404, detail="탭을 찾을 수 없습니다")
+    return {"ok": True}
+
+
+@app.put("/api/boards/{board_id}/tabs/order")
+def reorder_board_tabs(board_id: int, payload: BoardTabOrder):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    try:
+        db.reorder_board_tabs(conn, board_id, payload.tab_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"tabs": [dict(tab) for tab in db.list_board_tabs(conn, board_id)]}
+
+
+@app.post("/api/boards/{board_id}/tabs/{tab_id}/activate")
+def activate_board_tab(board_id: int, tab_id: int):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    _tab_or_404(conn, board_id, tab_id)
+    db.set_active_board_tab(conn, board_id, tab_id)
+    return {"tab": dict(db.get_board_tab(conn, tab_id))}
+
+
 @app.post("/projects")
 async def create_project(
     goal: str = Form(...),
@@ -1087,6 +1180,10 @@ def _board_partial(request, conn, project_id, orientation="lr"):
         request, "partials/board.html",
         {"project": project, "tasks": tasks,
          "graph": orchestrator.layout_graph(tasks, orientation=orientation),
+         # '완료'지만 결과가 오류 안내문인 태스크 — 캔버스에서도 눈에 띄어야
+         # 사용자가 그 노드를 열어 조치할 수 있다
+         "warn_ids": {t["id"] for t in tasks
+                      if orchestrator.output_error_hint(t)},
          "editable": orchestrator.project_editable(project),
          "editable_task_statuses": orchestrator.EDITABLE_TASK_STATUSES,
          "task_types": orchestrator.TASK_TYPES,
@@ -1099,7 +1196,7 @@ def partial_board(request: Request, project_id: int, o: str = "lr"):
     return _board_partial(request, db.get_conn(), project_id, orientation=o)
 
 
-@app.get("/partials/task/{task_id}", response_class=HTMLResponse)
+@app.api_route("/partials/task/{task_id}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def partial_task(request: Request, task_id: int):
     conn = db.get_conn()
     task = db.get_task(conn, task_id)
@@ -1110,13 +1207,21 @@ def partial_task(request: Request, task_id: int):
                      if task["artifact_path"] else None)
     siblings = [t for t in db.list_tasks(conn, task["project_id"])
                 if t["seq"] != task["seq"]]
+    agents = settings.enabled_providers()
     return templates.TemplateResponse(
         request, "partials/task_detail.html",
         {"task": task, "artifact_name": artifact_name, "project": project,
          "siblings": siblings, "deps": orchestrator.task_deps(task),
          "editable": orchestrator.task_editable(project, task),
          "task_types": orchestrator.TASK_TYPES,
-         "agent_order": settings.enabled_providers()})
+         "agent_order": agents,
+         # 오류 조치 패널 — 모델 교체용 목록과 '완료지만 오류' 감지 결과
+         "recoverable": orchestrator.task_recoverable(project, task),
+         "output_error": orchestrator.output_error_hint(task),
+         "has_dependents": bool(
+             orchestrator.dependent_seqs(siblings + [task], task["seq"])),
+         "provider_models": {p: v for p, v in
+                             models.get_provider_models().items() if p in agents}})
 
 
 def _project_action(project_id, fn):
@@ -1250,6 +1355,7 @@ def add_task_endpoint(
     x: str = Form(""),
     y: str = Form(""),
     o: str = Form("lr"),
+    message_id: int | None = Form(None),
 ):
     conn = db.get_conn()
     _project_or_404(conn, project_id)
@@ -1262,7 +1368,8 @@ def add_task_endpoint(
         request, project_id,
         lambda c: orchestrator.add_task(
             c, project_id, title, description=description, task_type=task_type,
-            agent=agent, pos=pos, enabled=settings.enabled_providers()),
+            agent=agent, pos=pos, enabled=settings.enabled_providers(),
+            source_message_id=message_id),
         orientation=o)
 
 
@@ -1277,13 +1384,26 @@ def relayout_project_endpoint(request: Request, project_id: int,
 
 
 @app.post("/tasks/{task_id}/retry")
-def retry_task_endpoint(task_id: int):
+def retry_task_endpoint(
+    task_id: int,
+    agent: str = Form(""),
+    model: str = Form(None),
+    instruction: str = Form(None),
+    cascade: bool = Form(False),
+):
+    """실패·오류 태스크 조치 — 모델 교체와 추가 지시를 함께 받아 다시 실행한다.
+
+    폼 필드를 안 보내면(상단 '재시도' 버튼) 기존 설정 그대로 재실행한다.
+    """
     conn = db.get_conn()
     task = db.get_task(conn, task_id)
     if task is None:
         raise HTTPException(status_code=404)
     try:
-        orchestrator.retry_task(conn, task_id)
+        orchestrator.retry_task(
+            conn, task_id, agent=agent or None, model=model,
+            instruction=instruction, cascade=cascade,
+            enabled=settings.enabled_providers())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return RedirectResponse(f"/projects/{task['project_id']}", status_code=303)

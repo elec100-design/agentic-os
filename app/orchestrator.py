@@ -50,10 +50,16 @@ TASK_PROMPT = """당신은 프로젝트의 태스크 하나를 수행하는 에�
 ## 당신의 태스크: {title}
 
 {description}
-{upstream}
+{upstream}{extra}
 ## 지시
 
 태스크 설명에 충실하게 최종 결과물만 출력하세요. 계획이나 사족 없이."""
+
+EXTRA_INSTRUCTION_SECTION = """
+## 추가 지시 (사용자가 직접 덧붙임 — 반드시 지킬 것)
+
+{instruction}
+"""
 
 REPLAN_CONTEXT = """
 ## 이미 완료된 태스크와 결과 (다시 계획하지 말 것 — 남은 일만 계획)
@@ -90,6 +96,10 @@ def start_project(conn, goal, workdir=None, enabled=None, planner=None, model=No
     남지 않는다 — 보드에는 사용자가 입력한 원래 목표만 표시한다.
     """
     project_id = db.create_project(conn, goal, workdir=workdir)
+    # 프로젝트 자체는 워크플로 탭으로 열어 두고, 계획에서 생긴 각 실행 단위는
+    # 아래 _instantiate_plan에서 task 탭으로 추가한다.
+    db.get_or_create_board_tab(conn, project_id, goal.strip()[:80] or "Workflow",
+                               "workflow", project_id, status="pending")
     if planner and planner != "auto" and planner in PROVIDERS:
         picked = planner
     else:
@@ -213,9 +223,11 @@ def parse_plan(text, usage_state=None, enabled=None):
 
 def _instantiate_plan(conn, project, plan):
     for t in plan["tasks"]:
-        db.create_task(conn, project["id"], t["id"], t["title"],
-                       t["description"], t["type"], t["provider"],
-                       depends_on=",".join(str(d) for d in t["depends_on"]))
+        task_id = db.create_task(conn, project["id"], t["id"], t["title"],
+                                 t["description"], t["type"], t["provider"],
+                                 depends_on=",".join(str(d) for d in t["depends_on"]))
+        db.get_or_create_board_tab(conn, project["id"], t["title"], "task",
+                                   task_id, status="pending", activate=False)
     db.update_project(conn, project["id"], status="plan_ready",
                       title=plan["title"] or None, error=None)
 
@@ -271,11 +283,25 @@ def task_deps(task):
 _deps = task_deps
 
 
+def _opt(row, key):
+    """Row/dict에서 없을 수도 있는 컬럼을 안전하게 읽는다 (구 DB·테스트용 dict)."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
 def build_task_prompt(project, task, upstream_tasks):
-    """태스크 실행 프롬프트 — 목표 + 태스크 설명 + 선행 결과(stateless 핸드오프)."""
+    """태스크 실행 프롬프트 — 목표 + 태스크 설명 + 선행 결과(stateless 핸드오프).
+
+    오류 조치로 추가 지시(extra_instruction)가 붙어 있으면 프롬프트 끝에 싣는다.
+    """
+    extra_raw = (_opt(task, "extra_instruction") or "").strip()
     if task["provider"] == MEDIA:
         # 미디어 생성 프롬프트는 description 자체. 선행 텍스트가 있으면 참고로 덧붙인다.
         parts = [task["description"]]
+        if extra_raw:
+            parts.append(f"\n\n{extra_raw}")
         for up in upstream_tasks:
             parts.append(f"\n\n참고 자료 ({up['title']}):\n{_clip(up['output'])}")
         return "".join(parts)
@@ -284,8 +310,11 @@ def build_task_prompt(project, task, upstream_tasks):
         sections = [f"### 선행 태스크 [{up['seq']}] {up['title']}\n\n{_clip(up['output'])}"
                     for up in upstream_tasks]
         upstream = "\n## 선행 태스크 결과\n\n" + "\n\n".join(sections) + "\n"
+    extra = (EXTRA_INSTRUCTION_SECTION.format(instruction=extra_raw)
+             if extra_raw else "")
     return TASK_PROMPT.format(goal=project["goal"], title=task["title"],
-                              description=task["description"], upstream=upstream)
+                              description=task["description"],
+                              upstream=upstream, extra=extra)
 
 
 # 잡 상태 → 태스크 상태 매핑 (rate_limited는 재개 대기 = 큐 대기로 표시)
@@ -323,6 +352,12 @@ def _sync_tasks(conn, project, tasks):
             fields["finished_at"] = job["finished_at"] or db.now_iso()
             failed = True
         db.update_task(conn, task["id"], **fields)
+        tab_status = {"queued": "pending", "running": "running",
+                      "done": "done", "failed": "error"}.get(new_status)
+        if tab_status:
+            db.get_or_create_board_tab(conn, project["id"], task["title"],
+                                       "task", task["id"], status=tab_status,
+                                       activate=False)
     return failed
 
 
@@ -352,9 +387,12 @@ def _advance_running(conn, project):
             continue
         upstream = [by_seq[d] for d in deps if d in by_seq]
         prompt = build_task_prompt(project, task, upstream)
+        # 미디어 잡은 model 컬럼에 종류(image|video|audio)를 실어 보낸다(media.py 계약).
+        # 텍스트 태스크는 사용자가 교체한 모델이 있으면 그걸 쓴다.
         job_id = db.create_job(
             conn, prompt, task["provider"],
-            model=task["task_type"] if task["provider"] == MEDIA else None,
+            model=(task["task_type"] if task["provider"] == MEDIA
+                   else _opt(task, "model") or None),
             workdir=project["workdir"],
             route_reason=f"비전 보드 태스크 #{task['seq']}")
         db.update_task(conn, task["id"], status="queued", job_id=job_id)
@@ -392,15 +430,107 @@ def approve(conn, project_id):
     db.update_project(conn, project_id, status="running", error=None)
 
 
-def retry_task(conn, task_id):
-    """실패 태스크를 pending으로 리셋하고 프로젝트를 재개한다."""
+# 결과가 잘못된 '완료' 태스크도 다시 돌릴 수 있어야 한다 — 잡이 exit 0으로 끝나도
+# 에이전트가 오류 안내문만 남기는 경우가 있다(권한 거부·모델 한도 등).
+RETRYABLE_TASK_STATUSES = ("failed", "done")
+
+# 결과 본문에 이게 있으면 '완료'라도 사실 실패다. CLI들이 오류를 stdout에 안내문으로
+# 흘리고 exit 0으로 끝내기 때문 — 상태 배지만 보면 원인을 알 수 없다.
+OUTPUT_ERROR_MARKERS = (
+    "no output produced",
+    "auto-denied",
+    "dangerously-skip-permissions",
+    "permission denied",
+    "not logged in",
+    "authentication failed",
+    "usage limit reached",
+    "command not found",
+)
+# 긴 산출물 안에 우연히 섞인 문구는 오탐이다 — 짧은 응답(=안내문)만 검사한다.
+_OUTPUT_ERROR_SCAN_CHARS = 1500
+
+
+def output_error_hint(task):
+    """'완료'로 기록됐지만 결과가 사실 오류일 때의 짧은 설명. 정상이면 None."""
+    if task["status"] != "done" or task["task_type"] != "text":
+        return None
+    out = (task["output"] or "").strip()
+    if not out:
+        return "완료로 기록됐지만 에이전트가 결과를 내놓지 않았습니다"
+    if len(out) > _OUTPUT_ERROR_SCAN_CHARS:
+        return None
+    low = out.lower()
+    # 어떤 문구에 걸렸는지는 아래에 원문이 그대로 보이므로 메시지에 끼우지 않는다
+    # (값이 끼면 i18n 카탈로그가 못 잡아 영어 UI에서 한국어가 튀어나온다).
+    if any(marker in low for marker in OUTPUT_ERROR_MARKERS):
+        return "완료로 기록됐지만 결과가 오류 안내문입니다"
+    return None
+
+
+def task_recoverable(project, task):
+    """'모델 교체·지시 추가 후 다시 실행' UI를 띄울 수 있는 태스크인지."""
+    return (project is not None
+            and project["status"] not in ("planning", "plan_failed")
+            and task["status"] in RETRYABLE_TASK_STATUSES)
+
+# 되돌릴 때 지워야 하는 실행 흔적 — 재시도와 후속 태스크 무효화가 함께 쓴다.
+_RESET_FIELDS = {"status": "pending", "job_id": None, "error": None,
+                 "output": "", "artifact_path": None,
+                 "started_at": None, "finished_at": None}
+
+
+def dependent_seqs(tasks, seq):
+    """seq의 결과에 (간접적으로) 의존하는 태스크 seq 집합."""
+    found, frontier = set(), {seq}
+    while frontier:
+        nxt = {t["seq"] for t in tasks
+               if t["seq"] not in found and t["seq"] != seq
+               and set(_deps(t)) & frontier}
+        found |= nxt
+        frontier = nxt
+    return found
+
+
+def retry_task(conn, task_id, *, agent=None, model=None, instruction=None,
+               cascade=False, usage_state=None, enabled=None):
+    """태스크를 되돌려 다시 실행한다. 실패한 태스크와, 결과가 잘못된 완료 태스크 모두.
+
+    agent/model  — 모델 교체(빈 값이면 현재 설정을 유지).
+    instruction  — 프롬프트에 덧붙일 추가 지시(빈 문자열이면 기존 지시를 지운다).
+    cascade      — 이 태스크에 의존하는 후속 태스크도 함께 되돌린다. 낡은 결과를
+                   그대로 두면 프로젝트가 '완료'인 채 잘못된 산출물이 남는다.
+    """
     task = db.get_task(conn, task_id)
-    if task is None or task["status"] != "failed":
-        raise ValueError("실패 상태의 태스크가 아닙니다")
-    db.update_task(conn, task_id, status="pending", job_id=None, error=None,
-                   started_at=None, finished_at=None)
+    if task is None:
+        raise ValueError("태스크를 찾을 수 없습니다")
+    if task["status"] not in RETRYABLE_TASK_STATUSES:
+        raise ValueError("완료 또는 실패한 태스크만 다시 실행할 수 있습니다")
+    fields = dict(_RESET_FIELDS)
+    if agent:
+        provider = _resolve_or_400(task["task_type"], agent, task["description"],
+                                   usage_state=usage_state, enabled=enabled)
+        fields["provider"] = provider
+    else:
+        provider = task["provider"]
+    if model is not None:
+        # 다른 프로바이더의 모델 id가 넘어오면(선택 UI 지연) 기본값으로 되돌린다
+        fields["model"] = model if model and models.is_valid_model(
+            provider, model) else None
+    elif agent:
+        fields["model"] = None  # 에이전트를 바꿨으면 이전 모델은 무효
+    if instruction is not None:
+        fields["extra_instruction"] = instruction.strip() or None
+    db.update_task(conn, task_id, **fields)
+
+    if cascade:
+        siblings = db.list_tasks(conn, task["project_id"])
+        stale = dependent_seqs(siblings, task["seq"])
+        for sib in siblings:
+            if sib["seq"] in stale and sib["status"] in RETRYABLE_TASK_STATUSES:
+                db.update_task(conn, sib["id"], **_RESET_FIELDS)
+
     project = db.get_project(conn, task["project_id"])
-    if project and project["status"] == "paused":
+    if project and project["status"] in ("paused", "done", "cancelled"):
         db.update_project(conn, project["id"], status="running", error=None)
 
 
@@ -547,8 +677,14 @@ def set_task_deps(conn, task_id, deps):
 
 
 def add_task(conn, project_id, title, description="", task_type="text",
-             agent="auto", pos=None, usage_state=None, enabled=None):
-    """팔레트에서 새 노드 추가. 선행 없이 만들어지고 연결은 사용자가 잇는다."""
+             agent="auto", pos=None, usage_state=None, enabled=None,
+             source_message_id=None):
+    """팔레트에서 새 노드 추가. 선행 없이 만들어지고 연결은 사용자가 잇는다.
+
+    source_message_id가 주어지면(채팅에서 태스크가 생성된 경우) 그 메시지의
+    created_task_id를 채워, 클라이언트가 메시지 응답만 보고 탭을 자동으로
+    열 수 있게 한다.
+    """
     _editable_project(conn, project_id)
     if len(db.list_tasks(conn, project_id)) >= config.ORCH_MAX_TASKS:
         raise ValueError(f"태스크는 최대 {config.ORCH_MAX_TASKS}개까지입니다")
@@ -563,6 +699,10 @@ def add_task(conn, project_id, title, description="", task_type="text",
                                usage_state=usage_state, enabled=enabled)
     task_id = db.create_task(conn, project_id, db.next_task_seq(conn, project_id),
                              title, description, task_type, provider)
+    db.get_or_create_board_tab(conn, project_id, title, "task", task_id,
+                               status="pending", activate=False)
+    if source_message_id is not None:
+        db.update_message(conn, source_message_id, created_task_id=task_id)
     if pos is not None:
         move_task(conn, task_id, pos[0], pos[1])
     return task_id

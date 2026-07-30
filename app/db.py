@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   output TEXT NOT NULL DEFAULT '',
   artifact_path TEXT,
   error TEXT,
+  model TEXT,
+  extra_instruction TEXT,
   pos_x REAL,
   pos_y REAL,
   created_at TEXT NOT NULL,
@@ -92,6 +94,7 @@ CREATE TABLE IF NOT EXISTS messages (
   reply_count INTEGER NOT NULL DEFAULT 0,
   last_reply_at TEXT,
   error TEXT,
+  created_task_id INTEGER REFERENCES tasks(id),
   created_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT
@@ -120,6 +123,23 @@ CREATE TABLE IF NOT EXISTS test_goals (
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
+CREATE TABLE IF NOT EXISTS board_tabs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  board_id INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  ref_id INTEGER,
+  status TEXT NOT NULL DEFAULT 'pending',
+  order_index INTEGER NOT NULL DEFAULT 0,
+  is_active INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_board_tabs_board_order
+  ON board_tabs(board_id, deleted_at, order_index);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_board_tabs_active_ref
+  ON board_tabs(board_id, kind, ref_id) WHERE deleted_at IS NULL AND ref_id IS NOT NULL;
 """
 
 
@@ -160,6 +180,21 @@ def _migrate(conn):
     for col in ("pos_x", "pos_y"):
         if col not in task_cols:
             conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} REAL")
+    # 오류 조치용 — 모델 교체(model)와 추가 지시(extra_instruction).
+    # 둘 다 NULL이면 계획이 정한 provider 기본값으로 실행된다.
+    for col in ("model", "extra_instruction"):
+        if col not in task_cols:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} TEXT")
+    tab_cols = {r["name"] for r in conn.execute("PRAGMA table_info(board_tabs)")}
+    # Early development databases may have the table without the soft-delete
+    # marker. Keep the normal additive migration convention used above.
+    if "deleted_at" not in tab_cols:
+        conn.execute("ALTER TABLE board_tabs ADD COLUMN deleted_at TEXT")
+    # 채팅 메시지가 태스크를 만들었을 때의 역참조 — 채팅→탭 자동 오픈 판별용.
+    # 채널/메시지 기능 도입 전 DB에는 컬럼 자체가 없으므로 추가한다.
+    message_cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
+    if "created_task_id" not in message_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN created_task_id INTEGER REFERENCES tasks(id)")
     conn.commit()
 
 
@@ -346,6 +381,7 @@ def delete_project(conn, project_id):
     for jid in job_ids:
         conn.execute("DELETE FROM jobs WHERE id = ?", (jid,))
     conn.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+    conn.execute("DELETE FROM board_tabs WHERE board_id = ?", (project_id,))
     conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
     conn.commit()
 
@@ -408,6 +444,117 @@ def delete_tasks(conn, project_id, statuses=None):
             (project_id, *statuses))
     else:
         conn.execute("DELETE FROM tasks WHERE project_id = ?", (project_id,))
+    conn.commit()
+
+
+# --- 비전 보드 워크스페이스 탭 ----------------------------------------------
+
+def list_board_tabs(conn, board_id, include_closed=False):
+    where = "board_id = ?"
+    if not include_closed:
+        where += " AND deleted_at IS NULL"
+    return conn.execute(
+        f"SELECT * FROM board_tabs WHERE {where} ORDER BY order_index, id",
+        (board_id,),
+    ).fetchall()
+
+
+def get_board_tab(conn, tab_id, include_closed=False):
+    sql = "SELECT * FROM board_tabs WHERE id = ?"
+    if not include_closed:
+        sql += " AND deleted_at IS NULL"
+    return conn.execute(sql, (tab_id,)).fetchone()
+
+
+def get_or_create_board_tab(conn, board_id, title, kind, ref_id=None,
+                            status="pending", activate=True):
+    """연결 대상(kind/ref_id)별 탭을 하나만 유지하고, 닫힌 탭은 재사용한다."""
+    if ref_id is not None:
+        tab = conn.execute(
+            "SELECT * FROM board_tabs WHERE board_id = ? AND kind = ? "
+            "AND ref_id = ? ORDER BY id LIMIT 1", (board_id, kind, ref_id),
+        ).fetchone()
+        if tab is not None:
+            fields = {"title": title, "status": status, "updated_at": now_iso()}
+            if tab["deleted_at"] is not None:
+                fields["deleted_at"] = None
+            _update_board_tab_fields(conn, tab["id"], fields, commit=False)
+            if activate:
+                set_active_board_tab(conn, board_id, tab["id"], commit=False)
+            conn.commit()
+            return tab["id"]
+
+    next_index = conn.execute(
+        "SELECT COALESCE(MAX(order_index), -1) + 1 AS n FROM board_tabs "
+        "WHERE board_id = ? AND deleted_at IS NULL", (board_id,)
+    ).fetchone()["n"]
+    cur = conn.execute(
+        "INSERT INTO board_tabs (board_id, title, kind, ref_id, status, "
+        "order_index, is_active, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)",
+        (board_id, title, kind, ref_id, status, next_index, now_iso(), now_iso()),
+    )
+    if activate:
+        set_active_board_tab(conn, board_id, cur.lastrowid, commit=False)
+    conn.commit()
+    return cur.lastrowid
+
+
+def _update_board_tab_fields(conn, tab_id, fields, commit=True):
+    cols = ", ".join(f"{key} = ?" for key in fields)
+    conn.execute(f"UPDATE board_tabs SET {cols} WHERE id = ?",
+                 (*fields.values(), tab_id))
+    if commit:
+        conn.commit()
+
+
+def update_board_tab(conn, tab_id, **fields):
+    fields["updated_at"] = now_iso()
+    _update_board_tab_fields(conn, tab_id, fields)
+
+
+def set_active_board_tab(conn, board_id, tab_id, commit=True):
+    """한 보드에서 열린 탭은 정확히 하나만 활성화되도록 한다."""
+    conn.execute("UPDATE board_tabs SET is_active = 0, updated_at = ? "
+                 "WHERE board_id = ? AND deleted_at IS NULL", (now_iso(), board_id))
+    cur = conn.execute("UPDATE board_tabs SET is_active = 1, updated_at = ? "
+                       "WHERE id = ? AND board_id = ? AND deleted_at IS NULL",
+                       (now_iso(), tab_id, board_id))
+    if cur.rowcount != 1:
+        raise ValueError("탭을 찾을 수 없습니다")
+    if commit:
+        conn.commit()
+
+
+def close_board_tab(conn, board_id, tab_id):
+    tab = get_board_tab(conn, tab_id)
+    if tab is None or tab["board_id"] != board_id:
+        return False
+    was_active = bool(tab["is_active"])
+    _update_board_tab_fields(conn, tab_id, {"deleted_at": now_iso(),
+                                             "is_active": 0,
+                                             "updated_at": now_iso()}, commit=False)
+    if was_active:
+        replacement = conn.execute(
+            "SELECT id FROM board_tabs WHERE board_id = ? AND deleted_at IS NULL "
+            "ORDER BY order_index, id LIMIT 1", (board_id,)).fetchone()
+        if replacement:
+            set_active_board_tab(conn, board_id, replacement["id"], commit=False)
+    conn.commit()
+    return True
+
+
+def reorder_board_tabs(conn, board_id, tab_ids):
+    """전달되지 않은 열린 탭은 뒤에 유지한다. 다른 보드 탭은 거부한다."""
+    open_tabs = list_board_tabs(conn, board_id)
+    by_id = {tab["id"]: tab for tab in open_tabs}
+    if len(tab_ids) != len(set(tab_ids)) or any(tab_id not in by_id for tab_id in tab_ids):
+        raise ValueError("유효하지 않은 탭 순서입니다")
+    ordered = list(tab_ids) + [tab["id"] for tab in open_tabs if tab["id"] not in tab_ids]
+    for index, tab_id in enumerate(ordered):
+        _update_board_tab_fields(conn, tab_id,
+                                 {"order_index": index, "updated_at": now_iso()},
+                                 commit=False)
     conn.commit()
 
 

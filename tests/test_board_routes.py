@@ -223,6 +223,32 @@ def test_task_detail_and_retry(tmp_env):
         assert db.get_project(conn, pid)["status"] == "running"
 
 
+def test_done_task_with_error_output_offers_recovery(tmp_env):
+    """'완료'지만 결과가 오류 안내문인 태스크 — 조치 패널과 경고가 보여야 한다."""
+    with _client(tmp_env) as client:
+        conn = db.get_conn(config.DB_PATH)
+        pid = db.create_project(conn, "목표")
+        db.update_project(conn, pid, status="done")
+        tid = db.create_task(conn, pid, 1, "태스크", "설명", "text", "claude")
+        db.update_task(conn, tid, status="done",
+                       output="jetski: no output produced — auto-denied.")
+        r = client.get(f"/partials/task/{tid}")
+        assert r.status_code == 200
+        assert "Switch model" in r.text and "Add instructions" in r.text
+        # 캔버스에서도 눈에 띄어야 조치할 노드를 찾을 수 있다
+        assert "has-warn" in client.get(f"/partials/board/{pid}").text
+
+        r = client.post(f"/tasks/{tid}/retry",
+                        data={"agent": "claude", "model": "",
+                              "instruction": "권한 없는 명령은 쓰지 마라"},
+                        follow_redirects=False)
+        assert r.status_code == 303
+        task = db.get_task(conn, tid)
+        assert task["status"] == "pending"
+        assert task["extra_instruction"] == "권한 없는 명령은 쓰지 마라"
+        assert db.get_project(conn, pid)["status"] == "running"
+
+
 def test_delete_project_removes_tasks_and_jobs(tmp_env):
     with _client(tmp_env) as client:
         conn = db.get_conn(config.DB_PATH)

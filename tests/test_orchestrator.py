@@ -274,6 +274,83 @@ def test_retry_task_resumes_project(tmp_env):
     assert db.get_project(conn, pid)["status"] == "running"
 
 
+def test_output_error_hint_flags_error_notice_and_empty(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text")])
+    tid = db.list_tasks(conn, pid)[0]["id"]
+    db.update_task(conn, tid, status="done", output="")
+    assert "결과" in orchestrator.output_error_hint(db.get_task(conn, tid))
+    db.update_task(conn, tid, output="jetski: no output produced — auto-denied.")
+    assert orchestrator.output_error_hint(db.get_task(conn, tid))
+    db.update_task(conn, tid, output="정상 산출물입니다")
+    assert orchestrator.output_error_hint(db.get_task(conn, tid)) is None
+    # 긴 산출물 안에 우연히 섞인 문구는 오탐이므로 검사하지 않는다
+    db.update_task(conn, tid, output="가" * 3000 + " no output produced")
+    assert orchestrator.output_error_hint(db.get_task(conn, tid)) is None
+
+
+def test_retry_done_task_with_model_swap_and_instruction(tmp_env, monkeypatch):
+    monkeypatch.setattr(orchestrator.models, "is_valid_model",
+                        lambda provider, model: True)
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text")])
+    tid = db.list_tasks(conn, pid)[0]["id"]
+    db.update_task(conn, tid, status="done", output="no output produced")
+    db.update_project(conn, pid, status="done")
+
+    orchestrator.retry_task(conn, tid, agent="grok", model="grok-4",
+                            instruction="권한 필요한 명령은 쓰지 마라")
+    task = db.get_task(conn, tid)
+    assert task["status"] == "pending" and task["output"] == ""
+    assert task["provider"] == "grok" and task["model"] == "grok-4"
+    assert db.get_project(conn, pid)["status"] == "running"
+
+    orchestrator._advance(conn, db.get_project(conn, pid))
+    job = db.get_job(conn, db.get_task(conn, tid)["job_id"])
+    assert job["provider"] == "grok" and job["model"] == "grok-4"
+    assert "권한 필요한 명령은 쓰지 마라" in job["prompt"]
+
+
+def test_retry_task_rejects_running_task(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text")])
+    tid = db.list_tasks(conn, pid)[0]["id"]
+    db.update_task(conn, tid, status="running")
+    with pytest.raises(ValueError):
+        orchestrator.retry_task(conn, tid)
+
+
+def test_retry_cascade_resets_downstream_tasks(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text"),
+                                  (2, [1], "grok", "text"),
+                                  (3, [2], "claude", "text")])
+    t1, t2, t3 = db.list_tasks(conn, pid)
+    for t in (t1, t2, t3):
+        db.update_task(conn, t["id"], status="done", output="결과")
+    db.update_project(conn, pid, status="done")
+
+    orchestrator.retry_task(conn, t1["id"], cascade=True)
+    assert [t["status"] for t in db.list_tasks(conn, pid)] == ["pending"] * 3
+    # cascade 없이는 후속 태스크의 기존 결과를 건드리지 않는다
+    for t in (t1, t2, t3):
+        db.update_task(conn, t["id"], status="done", output="결과")
+    orchestrator.retry_task(conn, t1["id"])
+    assert [t["status"] for t in db.list_tasks(conn, pid)] == [
+        "pending", "done", "done"]
+
+
+def test_dependent_seqs_walks_transitively(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text"),
+                                  (2, [1], "grok", "text"),
+                                  (3, [2], "claude", "text"),
+                                  (4, [], "claude", "text")])
+    tasks = db.list_tasks(conn, pid)
+    assert orchestrator.dependent_seqs(tasks, 1) == {2, 3}
+    assert orchestrator.dependent_seqs(tasks, 3) == set()
+
+
 def test_advance_completes_project(tmp_env):
     conn = _conn(tmp_env)
     pid = _running_project(conn, [(1, [], "claude", "text")])
@@ -565,6 +642,30 @@ def test_add_task_respects_max_tasks(tmp_env, monkeypatch):
     pid = _editable_project(conn, [(1, []), (2, [])])
     with pytest.raises(ValueError):
         orchestrator.add_task(conn, pid, "세 번째")
+
+
+def test_add_task_with_source_message_fills_created_task_id(tmp_env):
+    """채팅→탭 자동 오픈 연결고리 — source_message_id가 있으면 그 메시지의
+    created_task_id를 채워, 클라이언트가 메시지 응답만 보고 탭을 열 수 있다."""
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    channel_id = db.create_channel(conn, "테스트 채널")
+    message_id = db.create_message(conn, channel_id, role="user", body="새 태스크 만들어줘")
+    assert db.get_message(conn, message_id)["created_task_id"] is None
+
+    tid = orchestrator.add_task(conn, pid, "채팅에서 생긴 태스크",
+                                source_message_id=message_id)
+
+    assert db.get_message(conn, message_id)["created_task_id"] == tid
+
+
+def test_add_task_without_source_message_leaves_created_task_id_null(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    channel_id = db.create_channel(conn, "테스트 채널")
+    message_id = db.create_message(conn, channel_id, role="user", body="상관없는 메시지")
+    orchestrator.add_task(conn, pid, "수동 추가 태스크")
+    assert db.get_message(conn, message_id)["created_task_id"] is None
 
 
 def test_delete_task_strips_dependency_from_siblings(tmp_env):

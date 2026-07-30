@@ -130,6 +130,44 @@ def test_migrate_adds_node_position_columns(tmp_env):
     assert row["pos_x"] is None
 
 
+def test_migrate_adds_messages_created_task_id_column(tmp_env):
+    """채널/메시지 도입 전 DB에도 messages.created_task_id가 붙고(멱등), 기존 행은 NULL."""
+    import sqlite3
+    path = tmp_env / "old.db"
+    old = sqlite3.connect(path)
+    old.execute("""CREATE TABLE channels (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE,
+      title TEXT NOT NULL, topic TEXT NOT NULL DEFAULT '', workdir TEXT,
+      default_provider TEXT, status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL, updated_at TEXT)""")
+    old.execute("""CREATE TABLE messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, channel_id INTEGER NOT NULL,
+      parent_id INTEGER, root_id INTEGER, seq INTEGER NOT NULL, role TEXT NOT NULL,
+      author TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'done', provider TEXT, model TEXT,
+      session_id TEXT, job_id INTEGER, reply_count INTEGER NOT NULL DEFAULT 0,
+      last_reply_at TEXT, error TEXT, created_at TEXT NOT NULL,
+      started_at TEXT, finished_at TEXT)""")
+    old.execute("INSERT INTO channels (slug, title, created_at) "
+                "VALUES ('old', '옛 채널', '2026-01-01T00:00:00+00:00')")
+    old.execute("INSERT INTO messages (channel_id, seq, role, body, created_at) "
+                "VALUES (1, 1, 'user', '옛 메시지', '2026-01-01T00:00:00+00:00')")
+    old.commit()
+    old.close()
+
+    conn = db.get_conn(path)
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
+    assert "created_task_id" in cols
+    row = conn.execute("SELECT * FROM messages").fetchone()
+    assert row["body"] == "옛 메시지"       # 기존 데이터는 그대로
+    assert row["created_task_id"] is None
+
+    # 재접속(마이그레이션 재실행)해도 에러 없이 멱등하게 통과해야 한다.
+    conn2 = db.get_conn(path)
+    cols2 = {r["name"] for r in conn2.execute("PRAGMA table_info(messages)")}
+    assert "created_task_id" in cols2
+
+
 def test_create_and_get_test_goal(tmp_env):
     conn = _conn(tmp_env)
     goal_id = db.create_test_goal(conn, "test goal")
