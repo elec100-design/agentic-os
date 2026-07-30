@@ -277,8 +277,60 @@ V4.1 편집 캔버스 기반 위에, 목표 3대 축(다이어그램 편집·태
       뷰로 재구성, `MutationObserver`로 보드 폴링·편집 시마다 갱신
 - [x] `templates/project.html`을 `orca-project-shell`(좌 chat-rail + 중앙 캔버스)
       그리드로 재구성, 전용 테마 `static/orca-theme.css`
-- [ ] 채널 API/페이지 pytest 커버리지 없음 — `app/db.py` 채널 CRUD, `/api/channels*`,
-      `/channels/{id}` 라우트에 대한 테스트 후속 추가 필요
+- [x] 채널 API/페이지 pytest 커버리지 — `tests/test_channels.py`(쓰레드 패널 마크업,
+      메시지 생성→잡 실행→trace/thread 조회→답장→채널 삭제 전 과정)
+
+### V4.4 — 태스크 오류 조치: 모델 교체 · 지시 추가 (2026-07-30)
+
+CLI가 오류 안내문(권한 자동 거부·미로그인·사용량 한도)을 stdout에 흘리고 exit 0으로
+끝내면 태스크는 '완료'로 기록된다 — 배지만 보면 원인을 알 수 없고, 프로젝트가 완료
+상태라 그래프 편집도 잠긴다. 조치 경로를 태스크 상세에 따로 뚫었다.
+
+- [x] `orchestrator.output_error_hint` — '완료'지만 결과가 오류 안내문/빈 응답인
+      태스크 감지(`OUTPUT_ERROR_MARKERS`, 짧은 응답만 검사해 오탐 방지).
+      캔버스 노드에 `has-warn` 테두리 + ⚠ 표시(`partials/board.html`)
+- [x] `orchestrator.retry_task(agent=, model=, instruction=, cascade=)` — 실패
+      태스크뿐 아니라 완료 태스크도 되돌린다. 모델 교체(`tasks.model` → 잡의
+      `--model`), 추가 지시(`tasks.extra_instruction` → 프롬프트 말미 섹션),
+      후속 태스크 무효화(`dependent_seqs`, 낡은 결과가 남지 않게)
+- [x] `tasks.model`/`tasks.extra_instruction` 컬럼 + 마이그레이션 (`app/db.py`)
+- [x] UI — 태스크 상세의 `⟳ 조치하고 다시 실행` 패널(`partials/task_detail.html`),
+      에이전트별 모델 목록은 `board-editor.js`가 패널에 실린 JSON으로 채운다.
+      실행 중·완료 상태에서도 열린다(그래프 편집 잠금과 무관)
+- [x] 테스트 6건 (orchestrator 5 · board routes 1)
+
+### V4.5 — 비전 보드 멀티탭·모바일 레이아웃 완성 (2026-07-30)
+
+V4.3에서 뼈대만 있던 멀티탭 워크스페이스(`docs/vision-board-ade-spec.md`)의 갭을
+`docs/vision-board-ade-gap-report.md` 감사 결과대로 하나씩 닫았다. 모바일에서
+전송 버튼이 안 보이고 워크스페이스에서 돌아갈 방법이 없던 문제가 출발점.
+
+- [x] **모바일 컴포저 가시성 수정** — `.orca-chat-rail`의 하단 오프셋이 세그먼트
+      컨트롤 높이(`--orca-segctl-h` 신설, 44px 버튼+패딩+safe-area)를 반영하지
+      않아 전송 버튼이 `.orca-mobile-segctl`에 가려지던 버그 수정. `.orca-project-main`/
+      `.orca-mobile-segctl`도 같은 변수를 공유하도록 통일(`static/orca-theme.css`)
+- [x] **모바일 채팅 ↔ 워크스페이스 왕복 내비게이션** — `.orca-ws-header`(뒤로가기 +
+      제목) 추가, `goToWorkspace()`/`goToChat()`이 `history.pushState`/`popstate`로
+      브라우저 뒤로가기와 연동. 워크스페이스 상단에서 아래로 스와이프하면 채팅으로
+      복귀(스크롤 최상단일 때만, `static/board-workspace.js`)
+- [x] **채팅→탭 자동 오픈** — `messages.created_task_id` 컬럼 추가(`app/db.py`),
+      `orchestrator.add_task(source_message_id=)`가 채움, `chat-rail.js`가 메시지
+      응답에서 이를 감지해 `orca-tab-opened` 이벤트 발행 → 이미 열린 탭이면
+      재사용, 없으면 새로 열림
+- [x] **탭 패널 콘텐츠 주입 완성** — `kind="flow"`(vision-flow.js)를 `#board` 내부
+      토글에서 독립 탭으로 이식. localStorage 탭 복원 시 `HEAD /partials/task/{id}`로
+      존재 확인 후 죽은 탭을 정리(해당 라우트가 HEAD를 지원하지 않던 버그도 함께 수정)
+- [x] **브레이크포인트 3단계 정리** — 태블릿(`768px~1023px`) 전용 오프캔버스 블록을
+      하나로 합쳐 모바일(`<768px`)에 태블릿 규칙이 새지 않게 스코프를 명확히 함,
+      잔여 `!important` 제거
+- [x] i18n 중복 키 정리 — `자동 라우팅`/`완료`가 서로 다른 화면(작업 상세 배지 vs
+      셋업 위저드)에서 다른 뜻으로 쓰이면서 같은 한국어 키를 공유해 dict 마지막
+      값으로 덮어써지던 버그(`app/i18n.py`) — 셋업 위저드 쪽 키를 `자동 배분`/`마침`으로
+      분리, 완전 동일한 중복(`작업 큐`/`에이전트`)은 제거. `tests/test_i18n.py`에
+      회귀 테스트 추가
+- [x] 테스트 393건 통과(신규 다수 — 채널 API/모바일 컴포저/반응형 브레이크포인트/
+      i18n 중복 키/탭 kind=flow). 루트에 흩어진 임시 스모크 스크립트 8개를 검토해
+      재사용 가치 있는 것은 `tests/`로 정식 이관, 나머지는 제거
 
 ### V5 — 확장 기능 후보
 - [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")
