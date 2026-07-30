@@ -49,7 +49,7 @@ function renderWelcome() {
       <p class="setup-sub">${t("구독 중인 AI CLI들을 하나의 대시보드로 — 실측 남은 사용량으로 자동 배분하고, 결과는 노트로 쌓입니다.")}</p>
     </div>
     <ul class="setup-features">
-      <li><span class="feat-ico">⇄</span><div><b>${t("자동 라우팅")}</b><span>${t("남은 사용량이 가장 많은 에이전트로 작업을 배분합니다")}</span></div></li>
+      <li><span class="feat-ico">⇄</span><div><b>${t("자동 배분")}</b><span>${t("남은 사용량이 가장 많은 에이전트로 작업을 배분합니다")}</span></div></li>
       <li><span class="feat-ico">▤</span><div><b>${t("작업 큐")}</b><span>${t("사용 제한에 걸리면 큐에 두었다가 자동으로 재개합니다")}</span></div></li>
       <li><span class="feat-ico">✎</span><div><b>${t("노트 메모리")}</b><span>${t("모든 결과가 마크다운 노트로 저장되고 이어서 작업할 수 있습니다")}</span></div></li>
       <li><span class="feat-ico">⚖</span><div><b>${t("협의 모드")}</b><span>${t("여러 에이전트가 제안·비평하고 하나가 종합합니다")}</span></div></li>
@@ -194,7 +194,7 @@ async function recheck(ev) {
 function syncFooter() {
   backBtn.hidden = state.step === 1;
   skipBtn.hidden = state.step === 4;
-  nextBtn.textContent = state.step === 1 ? t("시작하기") : state.step === 4 ? t("완료") : t("다음");
+  nextBtn.textContent = state.step === 1 ? t("시작하기") : state.step === 4 ? t("마침") : t("다음");
   nextBtn.disabled = state.step >= 2 && state.selected.size === 0;
   document.querySelectorAll("#setup-steps .step").forEach((el) => {
     const n = Number(el.dataset.step);

@@ -1,3 +1,7 @@
+import ast
+import collections
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app import i18n
@@ -56,6 +60,21 @@ def test_lang_route_sets_cookie(tmp_env):
         # 잘못된 코드는 기본(en)으로
         r2 = client.get("/lang/zz", follow_redirects=False)
         assert "aos-lang=en" in r2.headers.get("set-cookie", "")
+
+
+def test_en_catalog_has_no_duplicate_keys():
+    # 파이썬 dict 리터럴은 중복 키를 조용히 덮어써서 뒤에 나온 값만 남는다.
+    # i18n.EN 자체를 봐서는 중복을 알 수 없으므로 소스를 파싱해 확인한다.
+    src = Path(i18n.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    en_dict = next(
+        node.value for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == "EN" for t in node.targets)
+    )
+    keys = [k.value for k in en_dict.keys]
+    dups = [k for k, c in collections.Counter(keys).items() if c > 1]
+    assert dups == []
 
 
 def test_accept_language_korean(tmp_env):

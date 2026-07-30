@@ -126,6 +126,7 @@ EN = {
     "📁 폴더 선택": "📁 Folder",
     "⑂ GitHub 리포": "⑂ GitHub repo",
     "닫기": "Close",
+    "연결 끊김 · 재연결 중…": "Disconnected · reconnecting…",
 
     # --- 작업 상세 에러 배너 ---
     "CLI를 찾을 수 없습니다.": "CLI not found.",
@@ -189,10 +190,9 @@ EN = {
     "Agentic OS에 오신 것을 환영합니다": "Welcome to Agentic OS",
     "구독 중인 AI CLI들을 하나의 대시보드로 — 실측 남은 사용량으로 자동 배분하고, 결과는 노트로 쌓입니다.":
         "All your AI CLIs in one dashboard — routed by real remaining quota, with results saved as notes.",
-    "자동 라우팅": "Auto-routing",
+    "자동 배분": "Auto-routing",
     "남은 사용량이 가장 많은 에이전트로 작업을 배분합니다":
         "Sends work to whichever agent has the most quota left",
-    "작업 큐": "Job queue",
     "사용 제한에 걸리면 큐에 두었다가 자동으로 재개합니다":
         "Queues work through rate limits and resumes automatically",
     "노트 메모리": "Note memory",
@@ -226,7 +226,7 @@ EN = {
     "개 이상이 필요해 비활성화됩니다": "agents, so it's disabled",
     "확인 중…": "Checking…",
     "시작하기": "Get started",
-    "완료": "Finish",
+    "마침": "Finish",
     "다음": "Next",
     "이전": "Back",
     "건너뛰기": "Skip",
@@ -335,7 +335,6 @@ EN = {
     "제목": "Title",
     "설명": "Description",
     "종류": "Type",
-    "에이전트": "Agent",
     "태스크 제목": "Task title",
     "구체적 작업 지시 (비우면 제목을 씁니다)":
         "Specific instructions (defaults to the title if left empty)",
@@ -360,6 +359,22 @@ EN = {
     "제목과 설명은 비울 수 없습니다": "Title and description can't be empty",
     "제목은 비울 수 없습니다": "Title can't be empty",
     "자기 자신에 의존할 수 없습니다": "A task can't depend on itself",
+
+    # --- 태스크 오류 조치 (모델 교체 · 지시 추가) ---
+    "완료로 기록됐지만 에이전트가 결과를 내놓지 않았습니다":
+        "Marked done, but the agent produced no result",
+    "완료로 기록됐지만 결과가 오류 안내문입니다":
+        "Marked done, but the result is an error notice",
+    "⟳ 조치하고 다시 실행": "⟳ Fix up and re-run",
+    "모델 교체": "Switch model",
+    "지시 추가": "Add instructions",
+    "예: 권한이 필요한 명령은 쓰지 말고 파일 편집만으로 끝내라":
+        "e.g. Don't run commands that need permission — finish with file edits only",
+    "이 태스크에 의존하는 후속 태스크도 다시 실행":
+        "Re-run downstream tasks that depend on this one",
+    "이 설정으로 다시 실행": "Re-run with these settings",
+    "완료 또는 실패한 태스크만 다시 실행할 수 있습니다":
+        "Only completed or failed tasks can be re-run",
 
     # --- 채널: 사이드바 네비게이션 / 채널 상세 페이지 ---
     "채널": "Channels",
