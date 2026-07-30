@@ -27,22 +27,72 @@
     <p class="project-goal-full">{{ project['goal'] }}</p>
     {% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
 
-    <!-- 상태 배너 + DAG 그래프. 2초 폴링으로 노드 상태가 실시간 반영된다.
-         o=lr|tb — 뷰포트 폭에 따라 서버가 가로/세로 흐름으로 배치한다(모바일 재정렬).
-         board-editor.js가 매 스왑마다 orca-tasks-updated 이벤트로 태스크 상태를
-         chat-rail(실행 로그 탭)에 실시간으로 흘려보낸다. -->
-    <div id="board" hx-get="/partials/board/{{ project['id'] }}"
-         hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
+    <!-- 워크스페이스 셸 — 상단 탭바 + 탭 콘텐츠 패널. 폭과 무관하게 항상 같은
+         DOM/탭 상태를 쓰고, CSS가 폭별로 모양만 바꾼다: ≥1024px 데스크톱은
+         사이드바 옆 가로 탭바, 768~1023px 태블릿은 전체 폭 가로 탭바(사이드바는
+         오프캔버스), <768px 모바일은 하단 세그먼트 컨트롤 뒤 칩 스트립 탭바. -->
+    <div class="orca-workspace" id="orca-workspace" data-board-id="{{ project['id'] }}">
+      <!-- 모바일(<768px) 전용 sticky 헤더 — 채팅 복귀 버튼 + 활성 탭 제목.
+           board-workspace.js가 활성 탭이 바뀔 때마다 제목을 채운다. -->
+      <div class="orca-ws-header" id="orca-ws-header">
+        <button type="button" class="orca-ws-back" id="orca-ws-back" aria-label="{{ '채팅으로 돌아가기' | t }}">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>
+          <span>{{ '채팅' | t }}</span>
+        </button>
+        <span class="orca-ws-header-title" id="orca-ws-header-title"></span>
+      </div>
+      <header class="orca-tabbar" id="orca-tabbar">
+        <button type="button" class="orca-tabbar-navbtn" data-tabbar-nav="prev"
+                aria-label="{{ '이전 탭' | t }}" hidden>‹</button>
+        <div class="orca-tabbar-scroll" id="orca-tabbar-scroll" role="tablist"
+             aria-label="{{ '워크스페이스 탭' | t }}"></div>
+        <button type="button" class="orca-tabbar-navbtn" data-tabbar-nav="next"
+                aria-label="{{ '다음 탭' | t }}" hidden>›</button>
+      </header>
 
-    <!-- 노드 클릭 시 태스크 상세 (모바일에서는 하단 시트). 백드롭 탭으로 닫기. -->
+      <div class="orca-tab-panels" id="orca-tab-panels">
+        <!-- 상태 배너 + DAG 그래프. 2초 폴링으로 노드 상태가 실시간 반영된다.
+             o=lr|tb — 뷰포트 폭에 따라 서버가 가로/세로 흐름으로 배치한다(모바일 재정렬).
+             board-editor.js가 매 스왑마다 orca-tasks-updated 이벤트로 태스크 상태를
+             chat-rail(실행 로그 탭)에 실시간으로 흘려보낸다. -->
+        <section class="orca-tab-panel" id="orca-tab-panel-canvas" data-tab-id="canvas"
+                 data-tab-kind="workflow" role="tabpanel" aria-labelledby="orca-tabbtn-canvas">
+          <div id="board" hx-get="/partials/board/{{ project['id'] }}"
+               hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
+        </section>
+      </div>
+
+      <div class="orca-tab-empty" id="orca-tab-empty" hidden>
+        <p>{{ '열린 작업 탭이 없습니다.' | t }}</p>
+        <p class="orca-muted">{{ '캔버스에서 태스크를 선택하면 여기에 탭으로 열립니다.' | t }}</p>
+      </div>
+    </div>
+
+    <!-- 노드 클릭 시 태스크 상세. 데스크톱에서는 워크스페이스 탭으로,
+         그 아래 폭에서는 인라인/바텀시트로(board-workspace.js가 노드-폭에 따라 분기).
+         백드롭 탭으로 닫기(모바일 시트 전용). -->
     <div id="task-detail-backdrop" class="task-detail-backdrop" hidden data-task-close></div>
     <div id="task-detail"></div>
   </main>
+
+  <!-- 모바일(<768px) 전용 — 채팅/워크스페이스 전체 화면 전환. board-workspace.js가
+       탭 개수·진행 중 표시(점)·미확인 배지를 채운다. -->
+  <nav class="orca-mobile-segctl" id="orca-mobile-segctl" role="tablist" aria-label="{{ '화면 전환' | t }}">
+    <button type="button" class="orca-mobile-segctl-btn" data-seg="chat" role="tab"
+            aria-selected="true" aria-controls="orca-chat-rail">{{ '채팅' | t }}</button>
+    <button type="button" class="orca-mobile-segctl-btn" data-seg="workspace" role="tab"
+            aria-selected="false" aria-controls="orca-workspace">
+      <span>{{ '작업' | t }}</span><span class="orca-mobile-segctl-count"></span>
+      <span class="orca-mobile-segctl-dot" hidden></span>
+      <span class="orca-mobile-segctl-badge" hidden>0</span>
+    </button>
+  </nav>
 </div>
 
 <script src="/static/marked.min.js?v={{ asset_v() }}"></script>
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
+<script src="/static/board-workspace.js?v={{ asset_v() }}"></script>
 <script src="/static/board-editor.js?v={{ asset_v() }}"></script>
 <script src="/static/vision-flow.js?v={{ asset_v() }}"></script>
 </body>

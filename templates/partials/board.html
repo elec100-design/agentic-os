@@ -95,20 +95,24 @@
   {% for n in graph['nodes'] %}
   {# data-title/provider/type/artifact/error — vision-flow.js가 그래프 DOM만 읽어서
      카드·트리·변경 파일 뷰를 그리므로, 노드 텍스트 잘림(18자)과 별개로 원본 값을 싣는다 #}
-  <g class="graph-node st-{{ n['status'] }}" data-task="{{ n['id'] }}"
+  <g class="graph-node st-{{ n['status'] }}{% if n['id'] in warn_ids %} has-warn{% endif %}"
+     data-task="{{ n['id'] }}"
      data-seq="{{ n['seq'] }}" data-status="{{ n['status'] }}"
      data-x="{{ n['x'] }}" data-y="{{ n['y'] }}"
      data-editable="{{ 1 if editable and n['status'] in editable_task_statuses else 0 }}"
      data-title="{{ n['title'] }}" data-provider="{{ n['provider'] }}"
      data-type="{{ n['task_type'] }}"
      data-artifact="{{ n['artifact_path'].split('/')[-1] if n['artifact_path'] else '' }}"
-     data-error="{{ '1' if n['error'] else '0' }}"
+     data-error="{{ '1' if n['error'] or n['id'] in warn_ids else '0' }}"
      data-job="{{ n['job_id'] or '' }}"
      transform="translate({{ n['x'] }}, {{ n['y'] }})">
     <rect class="node-box" width="{{ n['w'] }}" height="{{ n['h'] }}" rx="10"/>
     <text class="node-title" x="12" y="24">{{ ICON[n['task_type']] }} {{ n['title'][:18] }}{% if n['title'] | length > 18 %}…{% endif %}</text>
     <text class="node-meta" x="12" y="48">{{ n['provider'] }}</text>
     <text class="node-status" x="{{ n['w'] - 12 }}" y="48" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
+    {% if n['id'] in warn_ids %}
+    <text class="node-warn" x="{{ n['w'] - 12 }}" y="24" text-anchor="end">⚠</text>
+    {% endif %}
     {% if n['artifact_path'] and n['task_type'] == 'image' %}
     <image href="/artifacts/{{ project['id'] }}/{{ n['artifact_path'].split('/')[-1] }}"
            x="{{ n['w'] - 40 }}" y="8" width="28" height="28" preserveAspectRatio="xMidYMid slice"/>

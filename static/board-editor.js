@@ -196,9 +196,17 @@
   }
 
   // --- 태스크 상세 패널 -----------------------------------------------------
+  //
+  // window.OrcaWorkspace(board-workspace.js)가 있으면 폭에 상관없이 태스크
+  // 상세를 메인 탭바의 탭으로 연다 — 데스크톱은 사이드바 옆 탭바로, 태블릿은
+  // 전체 폭 탭바로, 모바일은 하단 세그먼트 컨트롤의 "작업" 화면 안 칩 스트립
+  // 탭바로(board-workspace.js가 같은 탭 상태를 물고 폭별로 모양만 바꾼다).
+  // OrcaWorkspace 스크립트가 로드되지 못한 경우에만 예전 #task-detail
+  // 인라인/바텀시트로 폴백한다.
 
   const taskPanel = () => document.getElementById("task-detail");
   const taskBackdrop = () => document.getElementById("task-detail-backdrop");
+  const isTabWorkspace = () => !!window.OrcaWorkspace;
 
   // 선택한 태스크를 프로젝트별로 localStorage에 남겨, 새로고침 후에도 인스펙터가
   // 같은 노드를 다시 열어둔다.
@@ -213,18 +221,168 @@
     document.body.classList.toggle("task-panel-open", open);
   }
 
+  // 현재 편집/조회 대상 태스크 상세의 루트 엘리먼트 — 데스크톱에서는 활성 탭
+  // 패널(태스크마다 독립된 콘텐츠를 들고 있음), 그 아래 폭에서는 #task-detail.
+  function currentTaskRoot() {
+    if (isTabWorkspace()) {
+      return document.querySelector('.orca-tab-panel[data-tab-kind="task"].active') || taskPanel();
+    }
+    return taskPanel();
+  }
+
+  // 클릭 이벤트가 어느 태스크 상세 루트 안에서 일어났는지(데스크톱은 탭마다
+  // 패널이 따로 있으므로 "활성 탭"이 아니라 "이벤트가 실제로 발생한 탭"을 써야 한다).
+  function taskRootOf(el) {
+    return (el.closest && el.closest('.orca-tab-panel[data-tab-kind="task"]')) || taskPanel();
+  }
+
+  function taskContainerFor(id, node) {
+    if (isTabWorkspace()) {
+      return window.OrcaWorkspace.openTaskTab(id, {
+        title: node ? node.dataset.title : `#${id}`,
+        status: node ? node.dataset.status : null,
+      });
+    }
+    return taskPanel();
+  }
+
+  // --- 진행 로그 스트리밍 ----------------------------------------------------
+  //
+  // task_detail.html이 실행 중/대기 중 태스크에 <div class="task-log"
+  // data-job-id> 블록을 심어 두면, 여기서 기존 /jobs/{id}/stream SSE를 그대로
+  // 구독해 라인 단위로 그린다(새 전송 방식 도입 없음 — chat-rail.js의 실행
+  // 로그 탭과 같은 엔드포인트). 패널(탭이든 모바일 시트든) 노드 자체는 상태가
+  // 바뀔 때만 갈아끼워지므로, 탭이 비활성이어도 이 EventSource는 계속 살아
+  // 있어 로그가 백그라운드에서 누적된다.
+  const MAX_LOG_LINES = 2000;
+  const LOG_SCROLL_EDGE = 32; // 이 픽셀 안쪽이면 "바닥 근처"로 본다
+  const taskLogStreams = new Map(); // panel 엘리먼트 → 스트림 상태
+
+  function stopTaskLog(panel) {
+    if (!panel) return;
+    const state = taskLogStreams.get(panel);
+    if (!state) return;
+    state.es.close();
+    taskLogStreams.delete(panel);
+  }
+
+  function initTaskLog(panel) {
+    const box = panel.querySelector(".task-log[data-job-id]");
+    if (!box) return;
+    const jobId = box.dataset.jobId;
+    const stream = box.querySelector(".task-log-stream");
+    const jumpBtn = box.querySelector(".task-log-jump");
+    const offlineEl = box.querySelector(".task-log-offline");
+    if (!stream || !jobId) return;
+
+    const state = { lines: [], tailEl: null, tailText: "", autoStick: true, es: null };
+    taskLogStreams.set(panel, state);
+
+    function scrollToBottom() {
+      stream.scrollTop = stream.scrollHeight;
+      if (jumpBtn) jumpBtn.hidden = true;
+    }
+
+    function trimLines() {
+      while (state.lines.length > MAX_LOG_LINES) {
+        state.lines.shift().remove();
+      }
+    }
+
+    function pushLine(text) {
+      state.tailEl = null; // 방금 완결된 줄은 더 이상 이어 쓰지 않는다
+      const div = document.createElement("div");
+      div.className = "task-log-line";
+      div.textContent = text;
+      stream.appendChild(div);
+      state.lines.push(div);
+    }
+
+    function updateTail() {
+      if (!state.tailEl) {
+        state.tailEl = document.createElement("div");
+        state.tailEl.className = "task-log-line";
+        stream.appendChild(state.tailEl);
+        state.lines.push(state.tailEl);
+      }
+      state.tailEl.textContent = state.tailText;
+    }
+
+    function notifyActivity() {
+      if (!isTabWorkspace() || panel.dataset.tabId === window.OrcaWorkspace.activeTabId()) return;
+      const taskId = panel.querySelector(".task-panel")?.dataset.task;
+      if (taskId == null) return;
+      document.body.dispatchEvent(new CustomEvent("orca-task-log-activity", { detail: { taskId } }));
+    }
+
+    function appendChunk(text) {
+      state.tailText += text;
+      const parts = state.tailText.split("\n");
+      state.tailText = parts.pop();
+      for (const line of parts) pushLine(line);
+      if (state.tailText) updateTail();
+      trimLines();
+      if (state.autoStick) scrollToBottom();
+      else if (jumpBtn) jumpBtn.hidden = false;
+      notifyActivity();
+    }
+
+    stream.addEventListener("scroll", () => {
+      const nearBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < LOG_SCROLL_EDGE;
+      state.autoStick = nearBottom;
+      if (jumpBtn) jumpBtn.hidden = nearBottom;
+    });
+    jumpBtn?.addEventListener("click", () => { state.autoStick = true; scrollToBottom(); });
+
+    const es = new EventSource(`/jobs/${jobId}/stream`);
+    state.es = es;
+    es.onmessage = (e) => {
+      if (offlineEl) offlineEl.hidden = true;
+      appendChunk(JSON.parse(e.data));
+    };
+    es.addEventListener("status", () => {
+      if (offlineEl) offlineEl.hidden = true;
+      es.close();
+    });
+    // 백엔드 장애/오프라인으로 연결이 끊기면 브라우저가 자동 재연결을
+    // 시도한다 — 사용자에게는 그 사이 "멈춘 게 아니다"만 알려준다.
+    es.addEventListener("error", () => { if (offlineEl) offlineEl.hidden = false; });
+  }
+
+  // 데스크톱 탭바에서 탭이 실제로 DOM에서 떨어져 나가기 직전에 정리한다
+  // (board-workspace.js의 closeTab이 panel.remove() 하기 전에 쏘는 신호).
+  document.body.addEventListener("orca-tab-closing", (e) => {
+    stopTaskLog(e.detail && e.detail.panel);
+  });
+
+  // 탭을 다시 활성화했을 때 — 상태가 안 바뀌어 selectTask를 다시 타지 않는
+  // 경우, 비활성 상태에서 쌓인 로그로 스크롤이 바닥에 붙어 있어야 한다.
+  document.body.addEventListener("orca-tab-activated", (e) => {
+    const panel = document.getElementById(window.OrcaWorkspace.getTaskPanelId(e.detail?.refId));
+    const state = panel && taskLogStreams.get(panel);
+    if (state && state.autoStick) {
+      const stream = panel.querySelector(".task-log-stream");
+      if (stream) requestAnimationFrame(() => { stream.scrollTop = stream.scrollHeight; });
+    }
+  });
+
   async function selectTask(id) {
     selTask = id;
     const res = await fetch(`/partials/task/${id}`);
     if (!res.ok) return;
-    const panel = taskPanel();
+    const node = document.querySelector(`.graph-node[data-task="${id}"]`);
+    selStatus = node ? node.dataset.status : null;
+    const desktop = isTabWorkspace();
+    const panel = taskContainerFor(id, node);
+    stopTaskLog(panel);
     panel.innerHTML = await res.text();
+    if (desktop) panel.dataset.contentStatus = selStatus;
     if (window.htmx) window.htmx.process(panel);
     const src = panel.querySelector(".task-src");
     if (src) renderMarkdown(panel.querySelector(".task-out"), src.textContent);
-    const node = document.querySelector(`.graph-node[data-task="${id}"]`);
-    selStatus = node ? node.dataset.status : null;
-    setPanelOpen(true);
+    syncRecoverModels(panel);
+    initTaskLog(panel);
+    if (!desktop) setPanelOpen(true);
     highlightSel();
     const key = selKey();
     if (key) localStorage.setItem(key, String(id));
@@ -239,16 +397,53 @@
   window.selectTask = selectTask;
 
   function closePanel() {
+    if (isTabWorkspace()) {
+      const root = currentTaskRoot();
+      const tabId = root && root.dataset.tabId;
+      if (tabId && tabId !== "canvas") { window.OrcaWorkspace.closeTab(tabId); return; }
+    }
     selTask = null;
     selStatus = null;
     const panel = taskPanel();
-    if (panel) panel.innerHTML = "";
+    if (panel) { stopTaskLog(panel); panel.innerHTML = ""; }
     setPanelOpen(false);
     highlightSel();
     const key = selKey();
     if (key) localStorage.removeItem(key);
   }
   window.closeTaskPanel = closePanel;
+
+  // 워크스페이스 탭바에서 직접 탭을 닫거나 전환했을 때(board-editor.js의 selectTask를
+  // 거치지 않은 경로) 선택 상태를 맞춘다.
+  document.body.addEventListener("orca-tab-closed", (e) => {
+    const { kind, refId } = e.detail || {};
+    if (kind !== "task" || refId !== selTask) return;
+    selTask = null;
+    selStatus = null;
+    highlightSel();
+    const key = selKey();
+    if (key) localStorage.removeItem(key);
+  });
+
+  document.body.addEventListener("orca-tab-activated", (e) => {
+    const { kind, refId } = e.detail || {};
+    if (kind !== "task" || refId === selTask) return;
+    const node = document.querySelector(`.graph-node[data-task="${refId}"]`);
+    const liveStatus = node ? node.dataset.status : null;
+    const panel = document.getElementById(window.OrcaWorkspace.getTaskPanelId(refId));
+    selTask = refId;
+    selStatus = liveStatus;
+    if (panel && panel.dataset.contentStatus !== liveStatus) {
+      selectTask(refId);
+      return;
+    }
+    highlightSel();
+    const key = selKey();
+    if (key) localStorage.setItem(key, String(refId));
+    document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
+      detail: { id: refId, status: liveStatus, jobId: node && node.dataset.job ? +node.dataset.job : null },
+    }));
+  });
 
   function highlightSel() {
     document.querySelectorAll(".graph-node").forEach((n) =>
@@ -265,17 +460,50 @@
     }
   }
 
-  function toggleEdit(on) {
-    const form = document.querySelector("#task-detail .task-edit");
+  // --- 오류 조치 패널 (모델 교체) -------------------------------------------
+  // 모델 목록은 에이전트마다 다르다 — 서버가 패널에 실어 보낸 JSON에서 지금 고른
+  // 에이전트의 목록만 뽑아 <select>를 다시 채운다.
+
+  function syncRecoverModels(root) {
+    const panel = root || currentTaskRoot();
+    const box = panel && panel.querySelector("[data-recover-models]");
+    const agentSel = panel && panel.querySelector("[data-recover-agent]");
+    const modelSel = panel && panel.querySelector("[data-recover-model]");
+    if (!box || !agentSel || !modelSel) return;
+    let byProvider = {};
+    try { byProvider = JSON.parse(box.textContent) || {}; } catch (err) { return; }
+    // 첫 렌더에서는 서버가 저장해 둔 모델을, 이후에는 사용자가 고른 값을 유지한다
+    const keep = modelSel.dataset.current || modelSel.value;
+    modelSel.textContent = "";
+    const base = document.createElement("option");
+    base.value = "";
+    base.textContent = tr("기본값");
+    modelSel.appendChild(base);
+    for (const entry of byProvider[agentSel.value] || []) {
+      if (!entry.model) continue;   // '기본값' 행은 위에서 이미 넣었다
+      const opt = document.createElement("option");
+      opt.value = entry.model;
+      opt.textContent = entry.label || entry.model;
+      if (entry.model === keep) opt.selected = true;
+      modelSel.appendChild(opt);
+    }
+    modelSel.dataset.current = "";
+    modelSel.disabled = modelSel.options.length < 2;
+  }
+
+  function toggleEdit(on, root) {
+    const scope = root || currentTaskRoot();
+    if (!scope) return;
+    const form = scope.querySelector(".task-edit");
     if (!form) return;
     form.hidden = !on;
-    const desc = document.querySelector("#task-detail .task-desc");
+    const desc = scope.querySelector(".task-desc");
     if (desc) desc.hidden = on;
-    const deps = document.querySelector("#task-detail .task-deps");
+    const deps = scope.querySelector(".task-deps");
     if (deps) deps.hidden = on;
-    const editBtn = document.querySelector("#task-detail [data-task-edit]");
+    const editBtn = scope.querySelector("[data-task-edit]");
     if (editBtn) editBtn.hidden = on;
-    const panel = document.querySelector("#task-detail .task-panel");
+    const panel = scope.querySelector(".task-panel");
     if (panel) panel.classList.toggle("is-editing", on);
     if (on) {
       // 모바일 시트에서 입력란이 보이도록 패널 상단으로 스크롤
@@ -286,7 +514,8 @@
   }
 
   const editFormOpen = () => {
-    const f = document.querySelector("#task-detail .task-edit");
+    const scope = currentTaskRoot();
+    const f = scope && scope.querySelector(".task-edit");
     return !!f && !f.hidden;
   };
 
@@ -372,6 +601,8 @@
     }
     prevNodeStatus = nextStatus;
     document.body.dispatchEvent(new CustomEvent("orca-tasks-updated", { detail: tasks }));
+    // 백그라운드(비활성) 태스크 탭도 상태 점만은 실시간으로 따라가게 한다.
+    if (window.OrcaWorkspace) window.OrcaWorkspace.syncStatuses(tasks);
   }
 
   // --- 제스처 --------------------------------------------------------------
@@ -557,8 +788,14 @@
     const btn = e.target.closest("[data-canvas]");
     if (btn) { onToolbar(btn.dataset.canvas); return; }
     if (e.target.closest("[data-task-close]")) { closePanel(); return; }
-    if (e.target.closest("[data-task-edit]")) { toggleEdit(true); return; }
-    if (e.target.closest("[data-task-edit-cancel]")) { toggleEdit(false); }
+    if (e.target.closest("[data-task-edit]")) { toggleEdit(true, taskRootOf(e.target)); return; }
+    if (e.target.closest("[data-task-edit-cancel]")) { toggleEdit(false, taskRootOf(e.target)); }
+  });
+
+  document.addEventListener("change", (e) => {
+    if (e.target.closest && e.target.closest("[data-recover-agent]")) {
+      syncRecoverModels(taskRootOf(e.target));
+    }
   });
 
   // 연결 저장 폼 — submit을 JS post()로 처리한다.
@@ -599,7 +836,8 @@
   // 상세 패널의 폼(편집·연결·삭제)은 #board를 갈아끼운다 — 패널도 함께 맞춘다.
   document.body.addEventListener("htmx:afterRequest", (e) => {
     const elt = e.detail && e.detail.elt;
-    if (!elt || !elt.closest || !elt.closest("#task-detail")) return;
+    if (!elt || !elt.closest) return;
+    if (!elt.closest("#task-detail") && !elt.closest('.orca-tab-panel[data-tab-kind="task"]')) return;
     if (e.detail.successful) refreshPanel();
   });
 
@@ -664,6 +902,25 @@
       else { view = null; applyView(); }
     }, 200);
   });
+
+  // 데스크톱 워크스페이스에서 사이드바 폭을 드래그로 바꾸는 등, window resize
+  // 이벤트 없이 #board의 컨테이너 크기만 바뀌는 경우(예: 채팅 레일 리사이즈
+  // 핸들)에도 뷰박스를 다시 맞춘다. viewBox 자체는 SVG width/height=100%로
+  // 이미 늘어나지만, 가로세로 비율이 바뀌면 fitView를 다시 돌려야 여백 없이
+  // 꽉 찬다.
+  if (window.ResizeObserver) {
+    let boardResizeTimer;
+    const boardResizeObserver = new ResizeObserver(() => {
+      clearTimeout(boardResizeTimer);
+      boardResizeTimer = setTimeout(() => {
+        if (!canvas()) return;
+        view = null;
+        applyView();
+      }, 120);
+    });
+    const boardEl = board();
+    if (boardEl) boardResizeObserver.observe(boardEl);
+  }
 
   // chat-rail에서 에이전트 메시지가 끝났다는 신호를 보내오면 2초 폴링을 기다리지
   // 않고 바로 보드를 다시 그린다 — 채팅에서의 활동이 캔버스에 즉시 반영되게 한다.

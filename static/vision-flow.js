@@ -6,6 +6,11 @@
 // "지금 프로젝트가 어디까지 왔는지"를 카드/트리/파일 목록으로 다시 그린다.
 // #board가 폴링·편집으로 통째로 갈릴 때마다 MutationObserver가 다시 그려서,
 // board-editor.js를 건드리지 않고도 항상 최신 상태를 반영한다.
+//
+// 렌더 결과는 board-workspace.js가 관리하는 독립 탭(kind="flow")의 패널에
+// 주입된다 — #board 내부에 패널을 붙였다 떼는 예전 토글 방식은 쓰지 않는다.
+// 탭 자체의 존재/활성화/DOM 생명주기는 전부 OrcaWorkspace가 맡고, 이 파일은
+// "패널이 있으면 최신 내용으로 채운다"만 책임진다.
 
 (function () {
   "use strict";
@@ -16,7 +21,6 @@
   };
   const STATUS_ORDER = ["pending", "queued", "running", "done", "failed"];
 
-  let flowOpen = false;
   let prevStatus = new Map(); // task id → 직전 렌더 status, 변화 시 트리 카드를 반짝인다
 
   const tr = (s) => (window.t ? window.t(s) : s);
@@ -148,35 +152,32 @@
       </div>`;
   }
 
-  // --- 패널 조립/토글 ---------------------------------------------------------
+  // --- 패널 렌더 ---------------------------------------------------------
 
-  function ensurePanel() {
-    let panel = document.getElementById("orca-flow");
-    if (panel) return panel;
-    panel = document.createElement("div");
-    panel.id = "orca-flow";
-    panel.className = "orca orca-flow";
-    panel.hidden = true;
-    board().appendChild(panel);
-    return panel;
+  // 탭이 아직 열려 있지 않으면 만들지 않는다 — 패널 내용은 실제로 탭이
+  // 열렸을 때만 채운다(생성은 OrcaWorkspace.openFlowTab의 몫).
+  function getPanel() {
+    return document.getElementById("orca-tab-panel-flow");
   }
 
   function render() {
     const c = canvas();
-    if (!c) { const p = document.getElementById("orca-flow"); if (p) p.remove(); return; }
+    const panel = getPanel();
+    if (!c || !panel) return;
 
     const nodes = readNodes();
     const projectId = c.dataset.project;
-    const panel = ensurePanel();
     panel.innerHTML = `
-      ${renderStats(nodes)}
-      <div class="orca-flow-section">
-        <h3>${tr("로드맵")}</h3>
-        ${renderTree(nodes)}
-      </div>
-      <div class="orca-flow-section">
-        <h3>${tr("변경된 파일")}</h3>
-        ${renderFiles(nodes, projectId)}
+      <div class="orca-flow">
+        ${renderStats(nodes)}
+        <div class="orca-flow-section">
+          <h3>${tr("로드맵")}</h3>
+          ${renderTree(nodes)}
+        </div>
+        <div class="orca-flow-section">
+          <h3>${tr("변경된 파일")}</h3>
+          ${renderFiles(nodes, projectId)}
+        </div>
       </div>`;
     prevStatus = new Map(nodes.map((n) => [n.id, n.status]));
     // 새로 그려진 카드에 대해 등록 애니메이션/무드를 적용한다.
@@ -192,31 +193,18 @@
         document.body.dispatchEvent(new CustomEvent("orca-task-registered", { detail: { node: card, status } }));
       });
     }
-    applyOpenState();
   }
 
-  function applyOpenState() {
-    const panel = document.getElementById("orca-flow");
-    const c = canvas();
-    const btn = toggleBtn();
-    if (!panel || !c) return;
-    panel.hidden = !flowOpen;
-    c.hidden = flowOpen;
-    if (btn) {
-      btn.setAttribute("aria-pressed", String(flowOpen));
-      btn.classList.toggle("is-active", flowOpen);
-    }
-  }
-
-  function toggleFlow() {
-    flowOpen = !flowOpen;
-    render();
+  // 탭바 밖(캔버스 툴바) 버튼 — 진행 흐름 탭을 열고(없으면 만들고) 활성화한다.
+  // 실제 렌더는 뒤이어 오는 orca-tab-activated 이벤트 리스너가 담당한다.
+  function openFlowTab() {
+    if (window.OrcaWorkspace) window.OrcaWorkspace.openFlowTab();
   }
 
   // --- 바인딩 ------------------------------------------------------------
 
   document.addEventListener("click", (e) => {
-    if (e.target.closest("[data-flow-toggle]")) { toggleFlow(); return; }
+    if (e.target.closest("[data-flow-toggle]")) { openFlowTab(); return; }
     const card = e.target.closest("[data-flow-select]");
     if (card && window.selectTask) {
       e.preventDefault();
@@ -224,13 +212,22 @@
     }
   });
 
+  document.body.addEventListener("orca-tab-activated", (e) => {
+    const btn = toggleBtn();
+    if (btn) btn.setAttribute("aria-pressed", String(e.detail && e.detail.kind === "flow"));
+    if (e.detail && e.detail.kind === "flow") render();
+  });
+  document.body.addEventListener("orca-tab-closed", (e) => {
+    if (!(e.detail && e.detail.kind === "flow")) return;
+    const btn = toggleBtn();
+    if (btn) btn.setAttribute("aria-pressed", "false");
+  });
+
   // #board 전체가 폴링/편집으로 통째로 갈릴 때마다(htmx 스왑, board-editor.js의
-  // post() 응답) 다시 그린다 — board-editor.js 이벤트에 얹혀가지 않고 DOM만 본다.
+  // post() 응답) 다시 그린다 — 진행 흐름 탭이 열려 있을 때만 실제로 그리며,
+  // board-editor.js 이벤트에 얹혀가지 않고 DOM만 본다.
   const observer = new MutationObserver((mutations) => {
-    // 우리가 #orca-flow에 쓴 변경으로 재귀 트리거되지 않도록 board 직속 자식만 본다
-    const relevant = mutations.some((m) =>
-      [...m.addedNodes, ...m.removedNodes].some((n) =>
-        n.nodeType === 1 && n.id !== "orca-flow"));
+    const relevant = mutations.some((m) => [...m.addedNodes, ...m.removedNodes].some((n) => n.nodeType === 1));
     if (relevant) render();
   });
 
@@ -238,6 +235,5 @@
     const b = board();
     if (!b) return;
     observer.observe(b, { childList: true });
-    render();
   });
 })();
