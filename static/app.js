@@ -453,7 +453,9 @@ document.addEventListener("click", (e) => {
   if (!e.target.closest("#note-dropdown")) closeDropdown();
 });
 window.addEventListener("resize", closeDropdown);
-document.querySelector(".note-scroll") && document.addEventListener("scroll", closeDropdown, true);
+// 노트 목록이 우측 레일 같은 내부 스크롤 컨테이너 안에 있으면 그 스크롤에도
+// 메뉴가 따라오지 않는다(메뉴는 body 기준 절대배치) — 어떤 조상이 스크롤되든 닫는다.
+document.addEventListener("scroll", closeDropdown, true);
 
 // ---- 작업 위치(workspace) 선택·추가·제거 --------------------------------
 const WS_DEFAULT = t("기본(연동 안 함)");

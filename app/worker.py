@@ -139,9 +139,11 @@ async def run_job(conn, job, providers=None, save=True):
     # 이전 맥락이 전혀 없는 새 세션이 되므로, CONTINUE_PROMPT(맥락 의존 문구)
     # 대신 원래 프롬프트를 다시 보낸다 — 그렇지 않으면 에이전트가 맥락 없이
     # 임의로 행동(환각)한다.
+    # 서버가 죽어 재큐잉된 잡(attempts > 1)도 마찬가지다 — 세션이 남아 있으면
+    # 처음부터 다시 시키지 않고 하던 작업을 이어서 완료하게 한다.
     send_prompt = job["prompt"]
-    if (job["session_id"] and job["resume_at"]
-            and getattr(provider, "supports_resume", True)):
+    if (job["session_id"] and getattr(provider, "supports_resume", True)
+            and (job["resume_at"] or job["attempts"] > 1)):
         send_prompt = CONTINUE_PROMPT
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
                                  model=job["model"])

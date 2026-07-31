@@ -345,7 +345,12 @@ def claim_next_job(conn, exclude_providers=None):
 def recover_running(conn):
     """서버 재시작 시 'running' 상태 잡을 복구한다.
     협의(council) 잡은 재시도가 매우 비싸고(여러 CLI 재실행), 재개 시
-    누적 출력이 중복 저장되므로 처음부터 다시 돌리지 않고 실패 처리한다."""
+    누적 출력이 중복 저장되므로 처음부터 다시 돌리지 않고 실패 처리한다.
+
+    비전 보드 쪽 실행 세션/시도도 함께 '중단됨'으로 마감한다 — 세션은 여전히
+    재개 대상으로 남고(get_resumable_run), 다음 시도는 새 task_runs 행이 된다."""
+    mark_interrupted_task_runs(conn)
+    mark_interrupted_workflow_runs(conn)
     conn.execute(
         "UPDATE jobs SET status = 'failed', error = 'interrupted: server restarted', "
         "finished_at = ? WHERE status = 'running' AND provider = 'council'",

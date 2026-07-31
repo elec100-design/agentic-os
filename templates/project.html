@@ -58,7 +58,9 @@
              chat-rail(실행 로그 탭)에 실시간으로 흘려보낸다. -->
         <section class="orca-tab-panel" id="orca-tab-panel-canvas" data-tab-id="canvas"
                  data-tab-kind="workflow" role="tabpanel" aria-labelledby="orca-tabbtn-canvas">
-          <div id="board" hx-get="/partials/board/{{ project['id'] }}"
+          <div id="board-{{ project['id'] }}" class="orca-board-host"
+               data-project-id="{{ project['id'] }}"
+               hx-get="/partials/board/{{ project['id'] }}"
                hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
         </section>
       </div>

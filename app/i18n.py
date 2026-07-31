@@ -317,6 +317,12 @@ EN = {
     "일시정지됨": "Paused",
     "실패한 태스크를 클릭해 재시도하거나, 재계획하세요.":
         "Click the failed task to retry, or replan.",
+    "⏸ 일시정지": "⏸ Pause",
+    "▶ 이어서 실행": "▶ Resume",
+    "일시정지하는 중 — 실행 중인 태스크가 끝나면 멈춥니다.":
+        "Pausing — will stop once running tasks finish.",
+    "노드를 클릭해 사이드바에서 태스크를 편집한 뒤 이어서 실행하세요.":
+        "Click a node to edit the task in the sidebar, then resume.",
     "프로젝트가 완료되었습니다.": "Project completed.",
     "취소된 프로젝트입니다.": "This project was cancelled.",
     "재시도": "Retry",
@@ -350,6 +356,21 @@ EN = {
     "편집": "Edit",
     "저장": "Save",
     "선행 태스크": "Depends on",
+    # 사이드바 태스크 인스펙터(static/chat-rail.js)
+    "추가 지시": "Extra instructions",
+    "고급": "Advanced",
+    # 홈 대시보드 재구성 — 좌: 비전보드, 우: 작업 편집
+    "작업 편집": "Edit task",
+    "비전 보드로 만들 목표를 적어 주세요…": "Describe a goal to turn into a vision board…",
+    "전체 보드": "All boards",
+    "비전 보드를 만들지 못했습니다.": "Could not create the vision board.",
+    "아직 진행 중입니다 — 끝나면 여기서 이어서 지시할 수 있어요.":
+        "Still running — you can send a follow-up here once it finishes.",
+    "기본": "Default",
+    "다시 실행": "Run again",
+    "시도": "Attempt",
+    "시도 이력": "Attempt history",
+    "다시 실행하지 못했습니다.": "Could not run it again.",
     "연결 저장": "Save connections",
     "저장 중…": "Saving…",
     "연결을 저장했습니다": "Connections saved",

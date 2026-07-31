@@ -370,6 +370,60 @@ _JOB_TO_TASK = {"queued": "queued", "running": "running",
                 "rate_limited": "queued", "done": "done", "failed": "failed"}
 
 
+# --- 실행 세션(workflow_runs) ------------------------------------------------
+# 프로젝트 한 번의 "전체 실행"이 세션 하나다. 세션 안의 task_runs가 태스크별
+# 시도 이력(부분 출력·에이전트·에러)을 남겨, 서버가 죽거나 사용량 한도로 끊겨도
+# 완료된 태스크는 건너뛰고 미완료 태스크부터 이어서 실행할 수 있다.
+
+def current_run_id(conn, project_id):
+    """진행 중인 실행 세션 id — 없으면 새로 연다.
+
+    서버 재시작으로 'interrupted'가 된 세션은 새로 만들지 않고 그대로 이어
+    쓴다(그 세션에 남은 done 기록 덕분에 완료 태스크를 다시 돌리지 않는다).
+    """
+    run = db.get_resumable_run(conn, project_id)
+    if run is None:
+        return db.create_workflow_run(conn, project_id)
+    if run["status"] != "running":
+        db.update_workflow_run(conn, run["id"], status="running")
+    return run["id"]
+
+
+def _close_run(conn, project_id, status):
+    run = db.get_resumable_run(conn, project_id)
+    if run is not None:
+        db.update_workflow_run(conn, run["id"], status=status)
+
+
+def _open_task_run(conn, project, task):
+    """이 태스크의 새 시도를 현재 세션에 기록한다(attempt는 이력에서 이어진다)."""
+    run_id = current_run_id(conn, project["id"])
+    return db.create_task_run(conn, task["id"], run_id, agent=task["provider"])
+
+
+def _running_task_run(conn, project_id, task_id):
+    run = db.get_resumable_run(conn, project_id)
+    if run is None:
+        return None
+    task_run = db.get_active_task_run(conn, task_id, run["id"])
+    if task_run is None or task_run["status"] != "running":
+        return None
+    return task_run
+
+
+def _close_task_run(conn, project, task, *, status, output=None, error=None):
+    """진행 중인 시도를 마감하며 그 시점의 출력을 스냅샷으로 보존한다."""
+    task_run = _running_task_run(conn, project["id"], task["id"])
+    if task_run is None:
+        return
+    if output:
+        db.append_task_run_output(conn, task_run["id"], output)
+    if status == "done":
+        db.mark_task_run_done(conn, task_run["id"])
+    else:
+        db.mark_task_run_failed(conn, task_run["id"], error=error)
+
+
 def _sync_tasks(conn, project, tasks):
     """디스패치된 태스크의 잡 상태를 태스크 행으로 반영한다. 실패 발견 시 True."""
     failed = False
@@ -380,14 +434,21 @@ def _sync_tasks(conn, project, tasks):
         if job is None:  # 잡이 지워짐 — 태스크 실패 처리
             db.update_task(conn, task["id"], status="failed",
                            error="잡이 삭제되었습니다", finished_at=db.now_iso())
+            _close_task_run(conn, project, task, status="failed",
+                            error="잡이 삭제되었습니다")
             failed = True
             continue
         new_status = _JOB_TO_TASK.get(job["status"], task["status"])
         if new_status == task["status"]:
             continue
         fields = {"status": new_status}
-        if new_status == "running" and not task["started_at"]:
-            fields["started_at"] = job["started_at"] or db.now_iso()
+        if new_status == "running":
+            if not task["started_at"]:
+                fields["started_at"] = job["started_at"] or db.now_iso()
+            # 중단(서버 재시작 등)으로 이전 시도가 마감됐다면 재개된 이번 실행을
+            # 새 시도로 기록한다 — 디스패치 때 연 시도가 살아 있으면 그대로 쓴다.
+            if _running_task_run(conn, project["id"], task["id"]) is None:
+                _open_task_run(conn, project, task)
         if new_status == "done":
             fields["output"] = job["output"]
             fields["finished_at"] = job["finished_at"] or db.now_iso()
@@ -400,6 +461,9 @@ def _sync_tasks(conn, project, tasks):
             fields["finished_at"] = job["finished_at"] or db.now_iso()
             failed = True
         db.update_task(conn, task["id"], **fields)
+        if new_status in ("done", "failed"):
+            _close_task_run(conn, project, task, status=new_status,
+                            output=job["output"], error=fields.get("error"))
         tab_status = {"queued": "pending", "running": "running",
                       "done": "done", "failed": "error"}.get(new_status)
         if tab_status:
@@ -422,6 +486,7 @@ def _advance_running(conn, project):
         db.update_project(conn, project["id"], status="paused",
                           pause_reason="task_failed",
                           error="태스크 실패 — 재시도하거나 재계획하세요")
+        _close_run(conn, project["id"], "paused")
         return
     tasks = db.list_tasks(conn, project["id"])
     by_seq = {t["seq"]: t for t in tasks}
@@ -429,12 +494,14 @@ def _advance_running(conn, project):
     if all(t["status"] == "done" for t in tasks):
         db.update_project(conn, project["id"], status="done",
                           pause_reason=None, error=None)
+        _close_run(conn, project["id"], "completed")
         return
 
     inflight = sum(1 for t in tasks if t["status"] in ("queued", "running"))
     if _opt(project, "pause_reason") == "manual":
         if inflight == 0:
             db.update_project(conn, project["id"], status="paused")
+            _close_run(conn, project["id"], "paused")
         return
 
     for task in tasks:
@@ -456,6 +523,7 @@ def _advance_running(conn, project):
             workdir=project["workdir"],
             route_reason=f"비전 보드 태스크 #{task['seq']}")
         db.update_task(conn, task["id"], status="queued", job_id=job_id)
+        _open_task_run(conn, project, task)
         inflight += 1
 
 
@@ -488,6 +556,33 @@ def approve(conn, project_id):
     if project is None or project["status"] != "plan_ready":
         raise ValueError("승인 대기 상태의 프로젝트가 아닙니다")
     db.update_project(conn, project_id, status="running", error=None)
+
+
+def pause_project(conn, project_id):
+    """실행 중 프로젝트에 수동 일시정지를 건다.
+
+    status는 running으로 둔 채 pause_reason만 세운다 — db.active_projects()가
+    running만 보므로, 그래야 오케스트레이터가 계속 돌며 이미 실행 중인 태스크를
+    끝까지 동기화하고 인플라이트가 다 빠진 뒤에 스스로 paused로 내린다
+    (_advance_running). 즉시 paused로 내리면 진행 중 태스크의 결과 회수가 멈춘다.
+    """
+    project = db.get_project(conn, project_id)
+    if project is None or project["status"] != "running":
+        raise ValueError("실행 중인 프로젝트만 일시정지할 수 있습니다")
+    db.update_project(conn, project_id, pause_reason="manual")
+
+
+def resume_project(conn, project_id):
+    """일시정지된 프로젝트를 이어서 실행한다(완료된 태스크는 다시 돌지 않는다)."""
+    project = db.get_project(conn, project_id)
+    if project is None or project["status"] != "paused":
+        raise ValueError("일시정지 상태의 프로젝트만 재개할 수 있습니다")
+    tasks = db.list_tasks(conn, project_id)
+    if any(t["status"] == "failed" for t in tasks):
+        raise ValueError("실패한 태스크를 먼저 재시도하거나 편집한 뒤 재개하세요")
+    current_run_id(conn, project_id)  # 중단된 세션을 이어 열거나 새로 연다
+    db.update_project(conn, project_id, status="running", pause_reason=None,
+                      error=None)
 
 
 # 결과가 잘못된 '완료' 태스크도 다시 돌릴 수 있어야 한다 — 잡이 exit 0으로 끝나도
@@ -649,6 +744,8 @@ def cancel_project(conn, project_id, _status="cancelled"):
         db.update_job(conn, plan_job["id"], status="failed", error="cancelled",
                       finished_at=db.now_iso())
         worker.terminate_job_procs(plan_job["id"])
+    # 실행 세션도 함께 마감한다 — 재개 대상으로 남으면 안 된다(재계획도 마찬가지).
+    _close_run(conn, project_id, "cancelled")
     db.update_project(conn, project_id, status=_status)
 
 

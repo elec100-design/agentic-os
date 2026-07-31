@@ -445,7 +445,16 @@ class TaskUpdate(BaseModel):
     task_type: str | None = None
     agent: str | None = None
     model: str | None = None
+    extra_instruction: str | None = None
+    depends_on: list[int] | None = None
     reset_status: bool = False
+
+
+class TaskRetry(BaseModel):
+    agent: str | None = None
+    model: str | None = None
+    instruction: str | None = None
+    cascade: bool = False
 
 
 class TaskMessageCreate(BaseModel):
@@ -758,7 +767,7 @@ def note_view(request: Request, path: str):
     )
 
 
-def _job_view_ctx(job):
+def _job_view_ctx(job, embed_followup=True):
     """작업 상세 뷰(단독 페이지·홈 탭 공용)의 렌더 컨텍스트.
 
     thread: 이 작업 '이전'의 대화 턴들 — 연결된 스레드 노트에서 읽는다. 노트는
@@ -786,8 +795,11 @@ def _job_view_ctx(job):
         and job["provider"] in PROVIDERS
         and (can_resume or job["note_path"])
     )
+    # embed_followup=False면 후속 지시 컴포저를 본문에 넣지 않는다 — 홈 대시보드는
+    # 중앙 탭을 결과 전용으로 두고 우측 레일에서 편집한다(/partials/job/{id}/followup).
     return {"job": job, "thread": thread,
-            "can_resume": can_resume, "can_follow_up": can_follow_up}
+            "can_resume": can_resume, "can_follow_up": can_follow_up,
+            "embed_followup": embed_followup}
 
 
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
@@ -881,7 +893,22 @@ def partial_job(request: Request, job_id: int):
     if job is None:
         raise HTTPException(status_code=404)
     return templates.TemplateResponse(
-        request, "partials/job_view.html", _job_view_ctx(job))
+        request, "partials/job_view.html", _job_view_ctx(job, embed_followup=False))
+
+
+@app.get("/partials/job/{job_id}/followup", response_class=HTMLResponse)
+def partial_job_followup(request: Request, job_id: int):
+    """후속 지시 컴포저만 따로 — 홈 우측 레일의 작업 인스펙터가 붙인다.
+
+    히든 필드(provider/model/workdir/session_id/context_note)는 이미
+    _job_view_ctx가 계산하므로 JSON API 대신 서버 렌더 조각을 그대로 준다.
+    아직 실행 중이라 이어갈 수 없으면 빈 본문이 온다."""
+    conn = db.get_conn()
+    job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/job_followup.html", _job_view_ctx(job))
 
 
 @app.get("/partials/jobs", response_class=HTMLResponse)
@@ -1187,6 +1214,7 @@ def activate_board_tab(board_id: int, tab_id: int):
 
 @app.post("/projects")
 async def create_project(
+    request: Request,
     goal: str = Form(...),
     provider: str = Form("auto"),
     model: str = Form(""),
@@ -1211,6 +1239,10 @@ async def create_project(
         enabled=settings.enabled_providers(), planner=provider, model=model,
         timeout_sec=timeout_min * 60 if timeout_min else None,
         extra_context=extra_context or None)
+    # 홈 사이드바의 비전보드 채팅은 페이지 이동 대신 중앙에 탭을 연다 —
+    # POST /jobs와 같은 Accept 분기(폼 제출은 그대로 303).
+    if "application/json" in (request.headers.get("accept") or ""):
+        return {"project_id": project_id}
     return RedirectResponse(f"/projects/{project_id}", status_code=303)
 
 
@@ -1244,6 +1276,8 @@ def _board_partial(request, conn, project_id, orientation="lr"):
     return templates.TemplateResponse(
         request, "partials/board.html",
         {"project": project, "tasks": tasks,
+         # 일시정지 배너 문구/버튼 분기 — 수동 일시정지와 태스크 실패는 다르다
+         "pause_reason": project["pause_reason"],
          "graph": orchestrator.layout_graph(tasks, orientation=orientation),
          # '완료'지만 결과가 오류 안내문인 태스크 — 캔버스에서도 눈에 띄어야
          # 사용자가 그 노드를 열어 조치할 수 있다
@@ -1255,7 +1289,8 @@ def _board_partial(request, conn, project_id, orientation="lr"):
          "agent_order": settings.enabled_providers()})
 
 
-@app.get("/partials/board/{project_id}", response_class=HTMLResponse)
+@app.api_route("/partials/board/{project_id}", methods=["GET", "HEAD"],
+               response_class=HTMLResponse)
 def partial_board(request: Request, project_id: int, o: str = "lr"):
     """o=lr(가로, 데스크톱) | tb(세로, 모바일) — 클라이언트가 뷰포트 폭으로 정한다."""
     return _board_partial(request, db.get_conn(), project_id, orientation=o)
@@ -1307,6 +1342,18 @@ def approve_project(project_id: int):
 @app.post("/projects/{project_id}/replan")
 def replan_project(project_id: int):
     return _project_action(project_id, orchestrator.replan)
+
+
+@app.post("/projects/{project_id}/pause")
+def pause_project_endpoint(project_id: int):
+    """실행 중 일시정지 — 진행 중 태스크는 끝까지 두고 새 디스패치만 멈춘다."""
+    return _project_action(project_id, orchestrator.pause_project)
+
+
+@app.post("/projects/{project_id}/resume")
+def resume_project_endpoint(project_id: int):
+    """일시정지 후 이어서 실행 — 완료된 태스크는 다시 돌지 않는다."""
+    return _project_action(project_id, orchestrator.resume_project)
 
 
 @app.post("/projects/{project_id}/retry-plan")
@@ -1536,6 +1583,9 @@ def api_get_task(task_id: int):
                 "error": job["error"], "started_at": job["started_at"],
                 "finished_at": job["finished_at"],
             }
+    agents = settings.enabled_providers()
+    siblings = [t for t in db.list_tasks(conn, task["project_id"])
+                if t["seq"] != task["seq"]]
     return {
         "id": task["id"], "project_id": task["project_id"], "seq": task["seq"],
         "title": task["title"], "description": task["description"],
@@ -1545,8 +1595,29 @@ def api_get_task(task_id: int):
         "output": task["output"], "artifact_path": task["artifact_path"],
         "error": task["error"], "extra_instruction": task["extra_instruction"],
         "editable": project is None or project["status"] != "running",
+        "retryable": task["status"] in orchestrator.RETRYABLE_TASK_STATUSES,
+        "project_status": project["status"] if project else None,
         "recent_job": recent_job,
+        # 사이드바가 셀렉트/체크리스트를 그리는 데 필요한 선택지들 — 캔버스 탭
+        # (task_detail.html)이 템플릿 컨텍스트로 받던 것과 같은 목록이다.
+        "task_types": list(orchestrator.TASK_TYPES),
+        "agents": agents,
+        "provider_models": {p: v for p, v in models.get_provider_models().items()
+                            if p in agents},
+        "siblings": [{"seq": t["seq"], "title": t["title"]} for t in siblings],
     }
+
+
+@app.get("/api/tasks/{task_id}/runs")
+def api_list_task_runs(task_id: int):
+    """이 태스크의 시도 이력 — 중단(interrupted) 시도의 부분 출력까지 보존된다."""
+    conn = db.get_conn()
+    _task_or_404(conn, task_id)
+    return [{"id": r["id"], "attempt": r["attempt"], "status": r["status"],
+             "agent": r["agent"], "error": r["error"],
+             "output": (r["output"] or "")[-4000:],
+             "created_at": r["created_at"], "finished_at": r["finished_at"]}
+            for r in db.list_task_runs(conn, task_id)]
 
 
 @app.patch("/api/tasks/{task_id}")
@@ -1603,12 +1674,38 @@ def api_update_task(task_id: int, payload: TaskUpdate):
         else:
             fields["model"] = None
 
-    if not fields and not payload.reset_status:
+    if payload.extra_instruction is not None:
+        fields["extra_instruction"] = payload.extra_instruction.strip() or None
+
+    if not fields and not payload.reset_status and payload.depends_on is None:
         raise HTTPException(status_code=400, detail="변경할 내용이 없습니다")
     if payload.reset_status:
         fields["status"] = "pending"
 
-    db.update_task(conn, task_id, **fields)
+    if fields:
+        db.update_task(conn, task_id, **fields)
+    if payload.depends_on is not None:
+        # 의존성은 캔버스 편집과 같은 검증(자기참조·순환·미존재 seq)을 그대로 탄다.
+        try:
+            orchestrator.set_task_deps(conn, task_id, payload.depends_on)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    return dict(db.get_task(conn, task_id))
+
+
+@app.post("/api/tasks/{task_id}/retry")
+def api_retry_task(task_id: int, payload: TaskRetry):
+    """사이드바용 JSON 재시도 — 폼 라우트(/tasks/{id}/retry)와 달리 리다이렉트하지
+    않아 사이드바 안에서 그대로 갱신할 수 있다."""
+    conn = db.get_conn()
+    _task_or_404(conn, task_id)
+    try:
+        orchestrator.retry_task(
+            conn, task_id, agent=payload.agent or None, model=payload.model,
+            instruction=payload.instruction, cascade=payload.cascade,
+            enabled=settings.enabled_providers())
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return dict(db.get_task(conn, task_id))
 
 

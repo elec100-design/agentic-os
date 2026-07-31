@@ -24,13 +24,13 @@
   let prevStatus = new Map(); // task id → 직전 렌더 status, 변화 시 트리 카드를 반짝인다
 
   const tr = (s) => (window.t ? window.t(s) : s);
-  const board = () => document.getElementById("board");
-  const canvas = () => document.querySelector("#board .graph-canvas");
-  const toolbar = () => document.querySelector("#board .graph-toolbar");
-  const toggleBtn = () => document.querySelector("#board [data-flow-toggle]");
+  const board = () => document.querySelector(".orca-board-host");
+  const canvas = () => document.querySelector(".orca-board-host .graph-canvas");
+  const toolbar = () => document.querySelector(".orca-board-host .graph-toolbar");
+  const toggleBtn = () => document.querySelector(".orca-board-host [data-flow-toggle]");
 
   function readNodes() {
-    return [...document.querySelectorAll("#board .graph-node")].map((g) => ({
+    return [...document.querySelectorAll(".orca-board-host .graph-node")].map((g) => ({
       id: g.dataset.task,
       seq: +g.dataset.seq,
       status: g.dataset.status,
@@ -45,7 +45,7 @@
   function readDeps() {
     // seq → [dep seq, ...] — .graph-edge-g가 캔버스와 같은 소스이므로 재사용
     const deps = new Map();
-    document.querySelectorAll("#board .graph-edge-g").forEach((eg) => {
+    document.querySelectorAll(".orca-board-host .graph-edge-g").forEach((eg) => {
       const from = +eg.dataset.from, to = +eg.dataset.to;
       if (!deps.has(to)) deps.set(to, []);
       deps.get(to).push(from);

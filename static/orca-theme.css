@@ -355,6 +355,8 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
   min-height: 0;
 }
 .orca-rail-panel[hidden] { display: none; }
+/* 노트 탭: .side-memory가 패널의 직계 자식이라 자체 flex 컬럼을 그대로 쓴다 */
+.orca-rail-panel > .side-memory { padding: 0.75rem; }
 
 .orca-rail-scroll {
   flex: 1;
@@ -565,7 +567,7 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
 .orca-rail-send:disabled { opacity: 0.5; cursor: default; filter: none; }
 
 /* ══ vision-flow 컴포넌트 — 중앙 캔버스의 "진행 흐름" 뷰 ══════════════════
-   #board .graph-canvas(n8n식 노드-링크 다이어그램)와 토글되는 대안 뷰.
+   .orca-board-host .graph-canvas(n8n식 노드-링크 다이어그램)와 토글되는 대안 뷰.
    전체 로드맵(카드), 의존성 트리 다이어그램, 생성/수정된 파일(카드)을 보여준다.
    #board가 통째로 갈릴 때마다 static/vision-flow.js가 다시 그려 넣는다. */
 .orca-flow {
@@ -974,13 +976,13 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
   overflow: hidden;
 }
 .orca-tab-panel[data-tab-kind="workflow"].active { display: flex; flex-direction: column; }
-.orca-tab-panel[data-tab-kind="workflow"] > #board {
+.orca-tab-panel[data-tab-kind="workflow"] > .orca-board-host {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
-#board .graph-canvas {
+.orca-board-host .graph-canvas {
   flex: 1;
   height: auto;
   min-height: 180px;
@@ -988,16 +990,16 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
   margin-bottom: 0;
 }
 /* 툴바는 한 줄 스크롤 — 좁은 화면에서 두 줄로 접히며 캔버스 높이를 먹지 않게. */
-#board .graph-toolbar {
+.orca-board-host .graph-toolbar {
   flex-wrap: nowrap;
   overflow-x: auto;
   scrollbar-width: none;
   flex-shrink: 0;
 }
-#board .graph-toolbar::-webkit-scrollbar { display: none; }
-#board .graph-toolbar .btn-ghost { white-space: nowrap; flex-shrink: 0; }
+.orca-board-host .graph-toolbar::-webkit-scrollbar { display: none; }
+.orca-board-host .graph-toolbar .btn-ghost { white-space: nowrap; flex-shrink: 0; }
 /* 폭이 모자라면 버튼이 아니라 힌트 문구가 먼저 줄어든다. */
-#board .graph-hint {
+.orca-board-host .graph-hint {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1120,6 +1122,33 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     margin-top: 0.4rem;
   }
 
+  /* 작업 뷰는 화면에 고정한다 — 페이지(그리고 iOS 고무줄 스크롤)는 움직이지
+     않고, 스크롤·드래그는 안쪽 워크플로우 캔버스에서만 일어나야 한다.
+     그래서 워크플로우 탭 패널도 스크롤하지 않고, 남는 높이를 캔버스가 전부
+     가져간다(배너/툴바 아래로 다이어그램이 잘려 나가지 않게). */
+  body[data-orca-mobile-view="workspace"] {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  .orca-tab-panel[data-tab-kind="workflow"] {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .orca-tab-panel[data-tab-kind="workflow"] > .orca-board-host {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  .orca-board-host .graph-canvas {
+    flex: 1;
+    height: auto;
+    min-height: 200px;
+    max-height: none;
+    margin-bottom: 0;
+  }
+
   /* 헤더 크롬(뒤로가기·제목)은 거의 보지 않는 영역이라 한 줄 최소 높이로 눌러
      둔다 — 접힌 개요는 34px 한 줄 탭 타깃, 펼치면 화면 절반까지만 차지하고
      안에서 스크롤한다(펼친 채로도 워크스페이스가 남는다). */
@@ -1143,24 +1172,24 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
   /* 다이어그램 툴바 — 힌트 문구는 접어 두고 버튼만 한 줄로 스크롤한다.
      버튼은 자주 쓰지 않으므로 32px 높이로 줄여 캔버스에 높이를 넘긴다
      (style.css의 700px 블록이 지정한 44px를 id 선택자로 덮는다). */
-  #board .graph-hint { display: none; }
-  #board .graph-toolbar { gap: 0.25rem; margin-bottom: 0.3rem; }
-  #board .graph-toolbar .btn-ghost {
+  .orca-board-host .graph-hint { display: none; }
+  .orca-board-host .graph-toolbar { gap: 0.25rem; margin-bottom: 0.3rem; }
+  .orca-board-host .graph-toolbar .btn-ghost {
     min-height: 32px;
     min-width: 32px;
     padding: 0 0.5rem;
     font-size: 0.75rem;
   }
   /* 상태 배너도 한 줄 알림 수준으로 — 내용은 그대로 두고 여백만 걷어낸다. */
-  #board .board-banner {
+  .orca-board-host .board-banner {
     gap: 0.4rem;
     padding: 0.3rem 0.55rem;
     border-radius: 8px;
     font-size: 0.76rem;
     margin-bottom: 0.35rem;
   }
-  #board .board-banner .btn-ghost,
-  #board .board-banner .btn-primary {
+  .orca-board-host .board-banner .btn-ghost,
+  .orca-board-host .board-banner .btn-primary {
     min-height: 30px;
     padding: 0.1rem 0.6rem;
     font-size: 0.76rem;
@@ -1305,12 +1334,63 @@ body.orca-home.with-sidebar main {
 }
 
 /* 데스크톱에서는 고정 사이드바를 flex 트랙으로 되돌린다(≤900px는 기존 오프캔버스 유지). */
+/* ── 좌측 사이드바: 프로젝트 목록 · 태스크 인스펙터 · 비전보드 컴포저 ──── */
+body.orca-home .side-projects {
+  flex: 1 1 40%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+body.orca-home .side-task-inspector {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--orca-border);
+  margin-top: 0.6rem;
+  padding-top: 0.4rem;
+}
+body.orca-home .side-task-inspector[hidden] { display: none; }
+/* 인스펙터가 열리면 목록을 눌러 편집 화면에 높이를 넘긴다 */
+body.orca-home .sidebar.has-inspector .side-projects { flex: 0 0 30%; }
+.side-inspector-head { display: flex; align-items: center; min-height: 24px; }
+body.orca-home .side-task-inspector .orca-task-context {
+  position: relative; /* 레일과 달리 사이드바에서는 흐름 안에서 늘어난다 */
+  inset: auto;
+  flex: 1;
+  min-height: 0;
+  padding: 0.2rem 0;
+  background: transparent;
+}
+.vision-composer {
+  flex-shrink: 0;
+  margin: 0.6rem 0 0;
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-sm);
+  padding: 0.5rem;
+  background: var(--orca-surface);
+}
+.vision-composer textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  border: none;
+  background: transparent;
+  color: var(--orca-text);
+  font: inherit;
+  font-size: 0.82rem;
+}
+.vision-composer textarea:focus { outline: none; }
+.vision-composer .composer-bar { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.35rem; }
+.vision-composer .side-nav-link { margin: 0; padding: 0.1rem 0.3rem; font-size: 0.72rem; }
+
 @media (min-width: 901px) {
+  /* 300px — 태스크 인스펙터 폼(제목·설명·의존성·태스크 채팅)이 260px에서는 못 쓴다 */
   body.orca-home .sidebar {
     position: relative;
     inset: auto;
-    flex: 0 0 260px;
-    width: 260px;
+    flex: 0 0 300px;
+    width: 300px;
     height: auto;
   }
 }
@@ -1435,6 +1515,7 @@ body.orca-resizing .orca-home-main { pointer-events: none; }
 
 /* ── 최하단 작업 큐 상태바 ─────────────────────────────────────────── */
 .orca-statusbar {
+  position: relative; /* 펼친 사용량 상세가 바 위로 뜨는 기준 */
   flex-shrink: 0;
   border-top: 1px solid var(--orca-border);
   background: var(--orca-surface-2);
@@ -1444,16 +1525,27 @@ body.orca-resizing .orca-home-main { pointer-events: none; }
   align-items: center;
   gap: 0.5rem;
   width: 100%;
-  min-height: 32px;
+  min-height: 34px;
   padding: 0 0.8rem;
+  color: var(--orca-muted);
+  font-size: 0.78rem;
+}
+/* 작업 상태 칩 — 누르면 큐 목록이 펼쳐진다(취소·삭제는 그 안에 있다) */
+.orca-statusbar-jobs-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
   border: none;
+  border-radius: var(--orca-radius-sm);
+  padding: 0.2rem 0.45rem;
   background: transparent;
   color: var(--orca-muted);
   font: inherit;
   font-size: 0.78rem;
   cursor: pointer;
 }
-.orca-statusbar-bar:hover { background: var(--orca-surface-hover); color: var(--orca-text); }
+.orca-statusbar-jobs-btn:hover { background: var(--orca-surface-hover); color: var(--orca-text); }
 .orca-statusbar-caret { flex-shrink: 0; transition: transform 0.16s ease; }
 .orca-statusbar.is-open .orca-statusbar-caret { transform: rotate(180deg); }
 .orca-statusbar-label {
@@ -1475,9 +1567,42 @@ body.orca-resizing .orca-home-main { pointer-events: none; }
   padding: 0 0.8rem 0.8rem;
 }
 .orca-statusbar-body[hidden] { display: none; }
-/* 상태바 자체가 "작업 큐" 라벨을 달고 있으므로 조각의 제목은 숨긴다. */
-.orca-statusbar-body #jobs > h2 { display: none; }
+/* 바에 더 이상 "작업 큐" 라벨이 없으므로 조각의 제목이 유일한 라벨이다. */
+.orca-statusbar-body #jobs > h2 { margin: 0.6rem 0 0.4rem; font-size: 0.82rem; }
 .orca-statusbar-body .panel { margin: 0; padding: 0; border: none; background: none; }
+
+/* ── 사용량: 세로 사이드바 카드 → 가로 상태바 ─────────────────────────── */
+.orca-statusbar .side-usage {
+  flex: 0 1 auto;
+  min-width: 0;
+  border-top: 0;      /* style.css의 사이드바용 구분선·여백을 무효화 */
+  padding-top: 0;
+  margin-top: 0;
+}
+.orca-statusbar .usage-toggle { padding: 0; }
+.orca-statusbar .usage-head-row { display: inline-flex; align-items: baseline; gap: 0.4rem; }
+.orca-statusbar .usage-head-row h2 { margin: 0; font-size: 0.78rem; }
+.orca-statusbar .usage-summary {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.orca-statusbar .usage-summary::-webkit-scrollbar { display: none; }
+/* 34px 바 안에 세로 막대 목록이 들어갈 수 없으므로 바 위로 띄운다. */
+.orca-statusbar .side-usage.usage-open .usage-detail {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--orca-border);
+  background: var(--orca-surface-2);
+  padding: 0.8rem;
+}
 
 /* ── 태블릿·모바일(<1024px) — 우측 레일을 오프캔버스로 ───────────────── */
 @media (max-width: 1023px) {
@@ -1573,6 +1698,9 @@ body.orca-resizing .orca-home-main { pointer-events: none; }
   /* 햄버거가 위에서 내려왔으니 상단 여백 보정(3.4rem)이 필요 없다 — 탭바가
      화면 맨 위부터 쓴다. */
   body.orca-home .orca-home-main { padding-top: 0.6rem; }
+  /* 서랍 사이드바가 하단 상태바(사용량·작업 칩) 밑으로 들어가지 않게 —
+     비전보드 컴포저가 바에 가리면 목표를 보낼 수 없다. */
+  body.orca-home .sidebar { padding-bottom: 3rem; }
   /* 사이드바의 햄버거 회피 여백(3.6rem)도 되돌린다. */
   body.orca-home .sidebar { padding-top: 1rem; }
 }

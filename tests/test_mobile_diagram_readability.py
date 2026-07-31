@@ -75,19 +75,19 @@ def test_mobile_workspace_takes_remaining_height():
         r"\.project-brief-summary \{[^}]*\}", mobile).group()).group(1))
     assert 32 <= brief_h <= 36
     # 툴바 힌트 문구는 한 줄을 차지하지 않고, 버튼도 캔버스 높이를 덜 먹는다.
-    assert "#board .graph-hint { display: none; }" in mobile
+    assert ".orca-board-host .graph-hint { display: none; }" in mobile
     tb_h = int(re.search(r"min-height:\s*(\d+)px", re.search(
-        r"#board \.graph-toolbar \.btn-ghost \{[^}]*\}", mobile).group()).group(1))
+        r"\.orca-board-host \.graph-toolbar \.btn-ghost \{[^}]*\}", mobile).group()).group(1))
     assert 30 <= tb_h <= 34
     # 상태 배너도 한 줄 알림 수준의 여백만 쓴다.
-    assert re.search(r"#board \.board-banner \{[^}]*padding:\s*0\.3rem", mobile)
+    assert re.search(r"\.orca-board-host \.board-banner \{[^}]*padding:\s*0\.3rem", mobile)
 
 
 def test_workflow_panel_fills_height_instead_of_fixed_vh():
-    canvas_rule = re.search(r"#board \.graph-canvas \{[^}]*\}", ORCA_CSS).group()
+    canvas_rule = re.search(r"\.orca-board-host \.graph-canvas \{[^}]*\}", ORCA_CSS).group()
     assert "flex: 1" in canvas_rule
     assert "max-height: none" in canvas_rule
-    # id 선택자라 style.css의 고정 높이(.graph-canvas { height: 56vh })를 이긴다.
+    # 자손 선택자 두 개라 style.css의 고정 높이(.graph-canvas { height: 56vh })를 이긴다.
     assert "height: auto" in canvas_rule
     assert re.search(
         r'\.orca-tab-panel\[data-tab-kind="workflow"\]\.active \{[^}]*display: flex',
