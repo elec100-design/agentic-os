@@ -1,5 +1,9 @@
 # 설계: 사이드바 태스크 편집 + 전체 실행/일시정지/재개 + 중단 후 이어하기
 
+> **구현 완료** — 아래 §7의 1~6단계가 모두 반영됐다. 실제 구현이 이 문서와
+> 다른 부분은 §8 "구현 결과"에 정리했다(설계안 자체는 기록으로 남긴다).
+> 7단계(`openTaskTab`/`kind="task"` 탭 인프라 정리)만 후속 과제로 남아 있다.
+
 조사 범위: `app/main.py`, `app/orchestrator.py`, `app/db.py`, `static/board-editor.js`,
 `static/app.js`, `static/chat-rail.js`, `templates/partials/board.html`,
 `templates/partials/task_detail.html`, `templates/partials/chat_rail.html`,
@@ -613,3 +617,67 @@ project["pause_reason"]`를 추가해 템플릿이 분기할 수 있게 한다.
 
 각 단계는 이전 단계 없이도 독립적으로 배포 가능하다(1~2는 백엔드만, 3~4는
 프런트만, 5~6은 복구 견고성만 다뤄 서로 의존성이 낮다).
+
+---
+
+## 8. 구현 결과 (설계안과 달라진 점)
+
+구현 시점에 이미 §3.2의 이력 테이블이 `workflow_runs`(실행 세션) +
+`task_runs`(세션 안의 태스크별 시도)로 확장돼 DB 레이어까지 들어와 있었고
+(`app/db.py`, `tests/test_workflow_runs.py`), 프런트의 "노드 클릭 → 사이드바"
+배선(§6.1)도 이미 끝나 있었다. 그래서 이번 작업은 **비어 있던 배선을 잇는
+것**이 중심이다.
+
+### 8.1 실행 세션(workflow_runs) — 설계안의 `task_runs` 단일 테이블 대신
+
+- `orchestrator.current_run_id()`가 진행 중 세션을 찾거나(없으면) 연다.
+  서버 재시작으로 `interrupted`가 된 세션은 새로 만들지 않고 **그대로 이어
+  쓴다** — 그 세션에 남은 `done` 기록 덕분에 완료 태스크를 다시 돌리지 않는다
+  (`db.get_pending_tasks_for_run`).
+- `_advance_running()`이 태스크를 디스패치할 때 `_open_task_run()`으로 시도를
+  열고, `_sync_tasks()`가 완료/실패를 반영할 때 `_close_task_run()`으로 그
+  시점의 출력 스냅샷과 에러를 남긴다. 중단된 시도 뒤에 태스크가 다시
+  `running`이 되면(잡 재큐잉) 새 시도 행을 연다 — `attempt`가 이어져 몇 번째
+  시도인지 그대로 보인다.
+- 세션 마감: 프로젝트 완료 → `completed`, 일시정지 → `paused`, 취소/재계획 →
+  `cancelled`. `db.get_resumable_run()`이 마감된 세션을 재개 대상에서 뺀다.
+- `db.recover_running()`(워커 기동 시 1회)이 `mark_interrupted_task_runs()` +
+  `mark_interrupted_workflow_runs()`를 먼저 호출한다 — 중단 이력이 남고,
+  세션은 여전히 재개 대상으로 조회된다.
+
+### 8.2 재개 규칙 — `resume_project`는 실패 태스크를 그냥 넘기지 않는다
+
+설계안(§4)과 달리 **실패한 태스크가 남아 있으면 `resume_project`가
+`ValueError`를 낸다**. 실패 태스크는 오케스트레이터가 다시 디스패치하지
+않으므로(디스패치 대상은 `pending`뿐) 그대로 재개하면 프로젝트가 `running`인
+채로 영원히 멈춰 있게 되고, 그 상태에서는 편집도 막힌다. 실패 태스크는
+`retry_task`(사이드바의 '다시 실행')로 `pending`으로 되돌리는 것이 정상
+경로이며, 그 호출 자체가 이미 프로젝트를 재개시킨다. 배너도 이에 맞춰
+실패 태스크가 남아 있으면 '이어서 실행' 버튼을 감춘다.
+
+### 8.3 API — 설계안 §5에서 추가된 것
+
+- `GET /api/tasks/{id}`가 사이드바 폼에 필요한 선택지(`task_types`, `agents`,
+  `provider_models`, `siblings`)와 `retryable`, `project_status`를 함께 준다.
+  캔버스 탭 템플릿이 컨텍스트로 받던 것과 같은 목록이라 폼 기능이 동등해졌다.
+- `GET /api/tasks/{id}/runs` — 시도 이력(부분 출력 포함, 4000자 클립).
+- `POST /api/tasks/{id}/retry`(JSON) — 기존 폼 라우트는 그대로 두고 신설.
+- `PATCH /api/tasks/{id}`에 `extra_instruction`, `depends_on` 추가
+  (의존성은 `orchestrator.set_task_deps`의 검증을 그대로 탄다).
+
+### 8.4 중단된 CLI 호출 이어가기
+
+`worker.run_job()`의 재개 프롬프트 조건을 설계안대로 완화했다 —
+`session_id`가 있고 provider가 세션 재개를 지원하면 `resume_at`뿐 아니라
+`attempts > 1`(서버가 죽어 재큐잉된 잡)에서도 `CONTINUE_PROMPT`를 보낸다.
+처음부터 다시 시키지 않고 하던 작업을 이어서 완료하게 하는 것이 목적이다.
+
+### 8.5 테스트
+
+- `tests/test_pause_resume.py` — 일시정지의 인플라이트 보존 의미론, 재개가
+  완료 태스크를 다시 돌리지 않는 것, 실패 태스크가 남았을 때의 거부,
+  세션/시도 기록, 서버 재시작 후 같은 세션 재개.
+- `tests/test_task_sidebar_api.py` — pause/resume 엔드포인트와 배너 버튼,
+  사이드바 편집(추가 지시·의존성·순환 거부·실행 중 409), JSON 재시도,
+  시도 이력 API.
+- `tests/test_worker.py` — 재큐잉된 잡이 이어가기 프롬프트를 쓰는지.

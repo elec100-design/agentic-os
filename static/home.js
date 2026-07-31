@@ -29,19 +29,30 @@
   }
 
   // ── 중앙 탭 상태 ──────────────────────────────────────────────────────
-  // tabs: [{ jobId, title, status, dispose }]  — dispose는 열린 SSE를 끊는다.
+  // tabs: [{ tabId, kind, refId, title, status, dispose }]
+  //   kind="job"     → /partials/job/{id} + job-view.js (SSE)
+  //   kind="project" → /partials/board/{id} 비전보드 워크플로우
+  // dispose는 그 탭이 연 SSE·폴링을 끊는다.
   const LS_TABS = "aos-home-tabs";
   let tabs = [];
-  let activeJobId = null;
+  let activeTabId = null;
 
-  function panelId(jobId) { return `home-tab-panel-${jobId}`; }
-  function tabButtonId(jobId) { return `home-tabbtn-${jobId}`; }
-  function findTab(jobId) { return tabs.find((tb) => tb.jobId === jobId); }
+  function tabKey(kind, refId) { return `${kind}-${refId}`; }
+  function panelId(tabId) { return `home-tab-panel-${tabId}`; }
+  function tabButtonId(tabId) { return `home-tabbtn-${tabId}`; }
+  function findTab(tabId) { return tabs.find((tb) => tb.tabId === tabId); }
+  // 채팅 말풍선·상태 점은 잡 탭에만 해당한다.
+  function activeJobId() {
+    const tb = findTab(activeTabId);
+    return tb && tb.kind === "job" ? tb.refId : null;
+  }
 
   function saveTabs() {
     try {
       localStorage.setItem(LS_TABS, JSON.stringify({
-        jobIds: tabs.map((tb) => tb.jobId), activeJobId,
+        v: 2,
+        tabs: tabs.map((tb) => ({ kind: tb.kind, refId: tb.refId })),
+        activeTabId,
       }));
     } catch (e) { /* 저장 실패는 무시 — 탭은 메모리에서 계속 동작한다 */ }
   }
@@ -49,21 +60,24 @@
   function renderTabbar() {
     scrollTrack.innerHTML = "";
     tabs.forEach((tb) => {
+      const active = tb.tabId === activeTabId;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "orca-tab" + (tb.jobId === activeJobId ? " active" : "");
-      btn.id = tabButtonId(tb.jobId);
-      btn.dataset.jobId = tb.jobId;
+      btn.className = "orca-tab" + (active ? " active" : "");
+      btn.id = tabButtonId(tb.tabId);
+      btn.dataset.tabId = tb.tabId;
+      btn.dataset.tabKind = tb.kind;
+      if (tb.kind === "job") btn.dataset.jobId = tb.refId;
       btn.setAttribute("role", "tab");
-      btn.setAttribute("aria-selected", tb.jobId === activeJobId ? "true" : "false");
-      btn.setAttribute("aria-controls", panelId(tb.jobId));
-      btn.tabIndex = tb.jobId === activeJobId ? 0 : -1;
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+      btn.setAttribute("aria-controls", panelId(tb.tabId));
+      btn.tabIndex = active ? 0 : -1;
       btn.title = tb.title;
       btn.innerHTML = `
-        <span class="orca-tab-icon" aria-hidden="true">📋</span>
+        <span class="orca-tab-icon" aria-hidden="true">${LOADERS[tb.kind].icon}</span>
         <span class="orca-tab-title">${escapeHtml(tb.title)}</span>
         ${tb.status ? `<span class="orca-tab-status-dot status-${STATUS_MAP[tb.status] || "pending"}"></span>` : ""}
-        <button type="button" class="orca-tab-close" data-tab-close="${tb.jobId}" aria-label="${tt("닫기")}">✕</button>
+        <button type="button" class="orca-tab-close" data-tab-close="${tb.tabId}" aria-label="${tt("닫기")}">✕</button>
       `;
       scrollTrack.appendChild(btn);
     });
@@ -86,76 +100,146 @@
 
   function renderPanels() {
     panelsRoot.querySelectorAll(".orca-tab-panel").forEach((p) => {
-      p.classList.toggle("active", +p.dataset.jobId === activeJobId);
+      p.classList.toggle("active", p.dataset.tabId === activeTabId);
     });
   }
 
-  // 탭 내용 = /partials/job/{id} 조각 + job-view.js 마운트(마크다운 + SSE).
+  // ── 탭 종류별 로더 ────────────────────────────────────────────────────
+  // mount()는 정리 함수(dispose)를 돌려준다 — 탭을 닫거나 다시 그릴 때 호출된다.
+  const LOADERS = {
+    job: {
+      icon: "📋",
+      defaultTitle: (id) => `${tt("작업")} #${id}`,
+      probe: (id) => fetch(`/partials/job/${id}`, { method: "HEAD" }),
+      async mount(panel, tb) {
+        const res = await fetch(`/partials/job/${tb.refId}`);
+        if (!res.ok) throw new Error(res.status === 404
+          ? tt("작업이 삭제되었거나 서버가 아직 이 화면을 모릅니다(재시작 필요).")
+          : `HTTP ${res.status}`);
+        panel.innerHTML = await res.text();
+        // 작업이 끝나면 조각을 다시 받아 최종 상태(배지·오류 배너)를 반영하고,
+        // 우측 인스펙터도 새로 받는다(끝나야 후속 지시 컴포저가 생긴다).
+        const dispose = window.mountJobView?.(panel.querySelector(".job-view"), () => {
+          loadPanel(tb);
+          if (tb.tabId === activeTabId) loadJobInspector(tb.refId);
+        });
+        // 대화 뷰이므로 최신 턴이 보이는 맨 아래에서 시작한다.
+        panel.scrollTop = panel.scrollHeight;
+        return dispose;
+      },
+    },
+    project: {
+      icon: "🗂",
+      defaultTitle: (id) => `${tt("비전 보드")} #${id}`,
+      probe: (id) => fetch(`/partials/board/${id}`, { method: "HEAD" }),
+      async mount(panel, tb) {
+        panel.innerHTML = `<div class="orca-board-host" id="board-${tb.refId}"
+                                data-project-id="${tb.refId}"></div>`;
+        const host = panel.firstElementChild;
+        const url = () => `/partials/board/${tb.refId}?o=${window.boardOrientation
+          ? window.boardOrientation() : (window.innerWidth < 768 ? "tb" : "lr")}`;
+        async function reload() {
+          const res = await fetch(url());
+          if (res.ok) host.innerHTML = await res.text();
+        }
+        const first = await fetch(url());
+        if (!first.ok) throw new Error(first.status === 404
+          ? tt("프로젝트가 삭제되었습니다.") : `HTTP ${first.status}`);
+        host.innerHTML = await first.text();
+        // 다이어그램 조작(팬·줌·노드 선택·편집)은 board-editor.js가 맡는다.
+        const unmount = window.mountBoardEditor?.(host);
+        // 비활성 탭은 폴링하지 않는다 — 보드 탭 여러 개가 동시에 서버를 때리지 않게.
+        const timer = setInterval(async () => {
+          if (tb.tabId !== activeTabId) return;
+          await reload().catch(() => {});
+          window.mountBoardEditor?.(host);   // 조각이 갈렸으니 카메라·선택을 다시 맞춘다
+        }, 2000);
+        return () => { clearInterval(timer); unmount?.(); };
+      },
+    },
+  };
+
   async function loadPanel(tb) {
-    const panel = document.getElementById(panelId(tb.jobId));
+    const panel = document.getElementById(panelId(tb.tabId));
     if (!panel) return;
     panel.innerHTML = `<p class="orca-muted">${tt("불러오는 중…")}</p>`;
-    let html;
+    tb.dispose?.();
+    tb.dispose = null;
     try {
-      const res = await fetch(`/partials/job/${tb.jobId}`);
-      if (!res.ok) throw new Error(res.status === 404
-        ? tt("작업이 삭제되었거나 서버가 아직 이 화면을 모릅니다(재시작 필요).")
-        : `HTTP ${res.status}`);
-      html = await res.text();
+      tb.dispose = await LOADERS[tb.kind].mount(panel, tb);
     } catch (e) {
       panel.innerHTML = `<div class="orca-tab-error">
         <p class="orca-muted">${escapeHtml(tt("불러올 수 없습니다.") + " " + e.message)}</p>
-        <button type="button" class="btn-ghost" data-tab-retry="${tb.jobId}">${tt("다시 시도")}</button>
+        <button type="button" class="btn-ghost" data-tab-retry="${tb.tabId}">${tt("다시 시도")}</button>
       </div>`;
-      return;
     }
-    tb.dispose?.();
-    panel.innerHTML = html;
-    // 작업이 끝나면 조각을 다시 받아 최종 상태(배지·오류 배너)를 반영한다.
-    tb.dispose = window.mountJobView?.(panel.querySelector(".job-view"), () => loadPanel(tb));
-    // 대화 뷰이므로 최신 턴과 "이어서 작업" 컴포저가 보이는 맨 아래에서 시작한다.
-    panel.scrollTop = panel.scrollHeight;
   }
 
-  function openTab(jobId, title) {
-    jobId = +jobId;
-    let tb = findTab(jobId);
+  function openTab(spec) {
+    const kind = spec.kind || "job";
+    const refId = +spec.refId;
+    const tabId = tabKey(kind, refId);
+    let tb = findTab(tabId);
     if (!tb) {
-      tb = { jobId, title: title || `${tt("작업")} #${jobId}`, status: null, dispose: null };
+      tb = { tabId, kind, refId, title: spec.title || LOADERS[kind].defaultTitle(refId),
+             status: null, dispose: null };
       tabs.push(tb);
       const panel = document.createElement("section");
       panel.className = "orca-tab-panel";
-      panel.id = panelId(jobId);
-      panel.dataset.jobId = String(jobId);
+      panel.id = panelId(tabId);
+      panel.dataset.tabId = tabId;
+      panel.dataset.tabKind = kind;
+      if (kind === "job") panel.dataset.jobId = String(refId);
       panel.setAttribute("role", "tabpanel");
-      panel.setAttribute("aria-labelledby", tabButtonId(jobId));
+      panel.setAttribute("aria-labelledby", tabButtonId(tabId));
       panelsRoot.appendChild(panel);
       loadPanel(tb);
     }
-    activeJobId = jobId;
+    activeTabId = tabId;
     renderTabbar();
     renderPanels();
     saveTabs();
     syncFromJobsTable();
     closeRailOverlay();
+    // board-editor.js/task-inspector 등이 "지금 어떤 탭인지" 알 수 있게 알린다
+    // (프로젝트 페이지의 board-workspace.js와 같은 이벤트 이름·detail 형태).
+    document.body.dispatchEvent(new CustomEvent("orca-tab-activated", {
+      detail: { tabId, kind, refId },
+    }));
+    return document.getElementById(panelId(tabId));
   }
 
-  function closeTab(jobId) {
-    jobId = +jobId;
-    const tb = findTab(jobId);
-    tb?.dispose?.();
-    tabs = tabs.filter((x) => x.jobId !== jobId);
-    document.getElementById(panelId(jobId))?.remove();
-    if (activeJobId === jobId) activeJobId = tabs.length ? tabs[tabs.length - 1].jobId : null;
+  function closeTab(tabId) {
+    const tb = findTab(tabId);
+    if (!tb) return;
+    const panel = document.getElementById(panelId(tabId));
+    document.body.dispatchEvent(new CustomEvent("orca-tab-closing", {
+      detail: { tabId, kind: tb.kind, refId: tb.refId, panel },
+    }));
+    tb.dispose?.();
+    tabs = tabs.filter((x) => x.tabId !== tabId);
+    panel?.remove();
+    if (activeTabId === tabId) {
+      activeTabId = tabs.length ? tabs[tabs.length - 1].tabId : null;
+      const next = findTab(activeTabId);
+      if (next) {
+        document.body.dispatchEvent(new CustomEvent("orca-tab-activated", {
+          detail: { tabId: next.tabId, kind: next.kind, refId: next.refId },
+        }));
+      }
+    }
     renderTabbar();
     renderPanels();
     saveTabs();
+    document.body.dispatchEvent(new CustomEvent("orca-tab-closed", {
+      detail: { tabId, kind: tb.kind, refId: tb.refId },
+    }));
   }
 
   panelsRoot.addEventListener("click", (e) => {
     const retry = e.target.closest("[data-tab-retry]");
     if (retry) {
-      const tb = findTab(+retry.dataset.tabRetry);
+      const tb = findTab(retry.dataset.tabRetry);
       if (tb) loadPanel(tb);
     }
   });
@@ -163,16 +247,19 @@
   // job-view.js의 "이어서 작업" 컴포저가 후속 작업을 만들면 그 자리에서 새 탭으로
   // 잇는다(이전 탭은 닫아 대화가 한 탭에서 계속되는 것처럼 보이게 한다).
   window.openJobTab = function (jobId, replaceJobId) {
-    openTab(jobId);
-    if (replaceJobId && +replaceJobId !== +jobId) closeTab(replaceJobId);
+    openTab({ kind: "job", refId: jobId });
+    if (replaceJobId && +replaceJobId !== +jobId) closeTab(tabKey("job", +replaceJobId));
     document.body.dispatchEvent(new Event("refresh-jobs"));
   };
+
+  // 비전보드 채팅·프로젝트 카드가 중앙에 보드 탭을 열 때 쓴다.
+  window.openHomeTab = function (spec) { return openTab(spec); };
 
   scrollTrack.addEventListener("click", (e) => {
     const closeBtn = e.target.closest("[data-tab-close]");
     if (closeBtn) { closeTab(closeBtn.dataset.tabClose); return; }
     const tabBtn = e.target.closest(".orca-tab");
-    if (tabBtn) openTab(tabBtn.dataset.jobId);
+    if (tabBtn) openTab({ kind: tabBtn.dataset.tabKind, refId: tabBtn.dataset.tabId.split("-").pop() });
   });
 
   // ── #jobs 테이블 → 상태바 카운트 / 채팅 말풍선 / 탭 상태 점 ──────────
@@ -209,10 +296,10 @@
         ? parts.join("") : `<span class="orca-sb-count">${tt("작업 없음")}</span>`;
     }
 
-    // 열린 탭의 상태 점·제목 갱신
+    // 열린 잡 탭의 상태 점·제목 갱신 (보드 탭은 #jobs와 무관하다)
     let dirty = false;
-    tabs.forEach((tb) => {
-      const j = byId.get(tb.jobId);
+    tabs.filter((tb) => tb.kind === "job").forEach((tb) => {
+      const j = byId.get(tb.refId);
       if (!j) return;
       const title = j.prompt ? `#${j.id} ${j.prompt}` : `${tt("작업")} #${j.id}`;
       if (tb.status !== j.status || tb.title !== title) {
@@ -234,9 +321,10 @@
       return;
     }
     const atBottom = chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 40;
+    const activeJob = activeJobId();
     // 서버는 최신순(id DESC)으로 준다 — 대화처럼 위→아래 시간순으로 뒤집는다.
     chatScroll.innerHTML = [...jobs].reverse().map((j) => `
-      <button type="button" class="orca-chat-bubble${j.id === activeJobId ? " active" : ""}" data-job-id="${j.id}">
+      <button type="button" class="orca-chat-bubble${j.id === activeJob ? " active" : ""}" data-job-id="${j.id}">
         <span class="orca-chat-bubble-text">${escapeHtml(j.prompt)}</span>
         <span class="orca-chat-bubble-meta">
           <span class="orca-tab-status-dot status-${STATUS_MAP[j.status] || "pending"}"></span>
@@ -248,7 +336,7 @@
 
   chatScroll?.addEventListener("click", (e) => {
     const bubble = e.target.closest(".orca-chat-bubble");
-    if (bubble) openTab(bubble.dataset.jobId);
+    if (bubble) openTab({ kind: "job", refId: bubble.dataset.jobId });
   });
 
   // 큐의 작업 링크는 페이지 이동 대신 중앙 탭으로 연다(딥링크 자체는 그대로 유효).
@@ -256,7 +344,117 @@
     const link = e.target.closest('.job-prompt a[href^="/jobs/"]');
     if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
-    openTab(link.getAttribute("href").split("/").pop(), `#${link.closest("tr").querySelector(".job-id").textContent.trim()} ${link.textContent.trim()}`);
+    openTab({
+      kind: "job", refId: link.getAttribute("href").split("/").pop(),
+      title: `#${link.closest("tr").querySelector(".job-id").textContent.trim()} ${link.textContent.trim()}`,
+    });
+  });
+
+  // 좌측 프로젝트 카드도 페이지 이동 대신 중앙 보드 탭으로 연다.
+  const projectsPanel = document.getElementById("projects");
+  projectsPanel?.addEventListener("click", (e) => {
+    const link = e.target.closest('.project-card[href^="/projects/"]');
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    openTab({
+      kind: "project", refId: link.getAttribute("href").split("/").pop(),
+      title: link.querySelector(".project-title")?.textContent.trim(),
+    });
+  });
+
+  // ── 작업 인스펙터(우측 레일) — 중앙 작업 탭의 후속 지시는 여기서 보낸다 ──
+  // 중앙 탭은 결과·로그 전용이고(embed_followup=False), 편집은 레일이 맡는다.
+  const jobInspector = document.getElementById("home-job-inspector");
+
+  function showRailPanel(name) {
+    if (!rail) return;
+    rail.querySelectorAll("[data-rail-tab]").forEach(
+      (b) => b.classList.toggle("active", b.dataset.railTab === name));
+    rail.querySelectorAll("[data-rail-panel]").forEach(
+      (p) => { p.hidden = p.dataset.railPanel !== name; });
+    // '작업'은 탭 버튼이 없는 프로그램 전용 패널이라 헤더 문구로 상태를 알린다.
+    const title = rail.querySelector(".orca-rail-title");
+    if (title) title.textContent = name === "job" ? tt("작업 편집") : tt("에이전트");
+  }
+
+  async function loadJobInspector(jobId) {
+    if (!jobInspector) return;
+    if (jobId == null) {
+      jobInspector.innerHTML = "";
+      if (!rail?.querySelector('[data-rail-panel="job"]')?.hidden) showRailPanel("chat");
+      return;
+    }
+    try {
+      const res = await fetch(`/partials/job/${jobId}/followup`);
+      const html = res.ok ? await res.text() : "";
+      jobInspector.innerHTML = html.trim()
+        ? html
+        : `<p class="orca-muted">${tt("아직 진행 중입니다 — 끝나면 여기서 이어서 지시할 수 있어요.")}</p>`;
+      if (html.trim()) window.wireJobFollowUp?.(jobInspector, jobId);
+      showRailPanel("job");
+    } catch (e) { jobInspector.innerHTML = ""; }
+  }
+
+  document.body.addEventListener("orca-tab-activated", (e) => {
+    const d = e.detail || {};
+    if (d.kind === "job") loadJobInspector(d.refId);
+    else loadJobInspector(null);
+  });
+  document.body.addEventListener("orca-tab-closed", () => {
+    if (!tabs.length) loadJobInspector(null);
+  });
+
+  // ── 태스크 인스펙터 — 중앙 워크플로우의 노드를 클릭하면 좌측이 편집창이 된다 ──
+  const sidebar = document.querySelector("aside.sidebar");
+  const inspectorBox = document.getElementById("home-task-inspector");
+  const inspectorBack = document.getElementById("home-inspector-back");
+  const taskInspector = inspectorBox && window.mountTaskInspector?.(inspectorBox, {
+    onOpen: () => {
+      inspectorBox.hidden = false;
+      sidebar?.classList.add("has-inspector");
+      // 좁은 화면에서 사이드바는 서랍이다 — 열어 주지 않으면 편집창이 화면 밖에 뜬다.
+      if (window.innerWidth < 901) document.body.classList.add("nav-open");
+    },
+    onClose: () => {
+      inspectorBox.hidden = true;
+      sidebar?.classList.remove("has-inspector");
+    },
+    onBoardChanged: (projectId) => document.body.dispatchEvent(
+      new CustomEvent("orca-refresh-board", { detail: { projectId } })),
+  });
+  inspectorBack?.addEventListener("click", () => taskInspector?.close());
+  document.body.addEventListener("orca-task-selected", (e) => {
+    const { id, projectId } = e.detail || {};
+    if (id != null) taskInspector?.show(id, { projectId });
+  });
+  document.body.addEventListener("orca-task-context-close", () => taskInspector?.close());
+  // 보드 탭을 닫거나 다른 종류의 탭으로 넘어가면 편집창도 접는다.
+  document.body.addEventListener("orca-tab-activated", (e) => {
+    if (e.detail?.kind !== "project") taskInspector?.close();
+  });
+
+  // ── 비전보드 채팅 — 목표를 보내면 중앙에 보드 탭이 열린다(페이지 이동 없음) ──
+  const visionForm = document.getElementById("vision-composer");
+  visionForm?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ta = visionForm.querySelector("textarea");
+    const goal = ta.value.trim();
+    if (!goal) return;
+    const btn = visionForm.querySelector("button[type=submit]");
+    btn.disabled = true;
+    try {
+      const res = await fetch("/projects", {
+        method: "POST", body: new FormData(visionForm),
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const { project_id } = await res.json();
+      ta.value = "";
+      openTab({ kind: "project", refId: project_id, title: goal.slice(0, 40) });
+      document.body.dispatchEvent(new Event("refresh-projects"));
+    } catch (err) {
+      alert(tt("비전 보드를 만들지 못했습니다.") + " " + err.message);
+    } finally { btn.disabled = false; }
   });
 
   document.body.addEventListener("htmx:afterSwap", (e) => {
@@ -376,16 +574,26 @@
   (async function restoreTabs() {
     let saved = null;
     try { saved = JSON.parse(localStorage.getItem(LS_TABS) || "null"); } catch (e) { /* ignore */ }
-    if (!saved?.jobIds?.length) { renderTabbar(); return; }
+    // v1({jobIds, activeJobId}) → v2({tabs:[{kind,refId}], activeTabId}) 이관.
+    if (saved && !saved.v && Array.isArray(saved.jobIds)) {
+      saved = {
+        v: 2,
+        tabs: saved.jobIds.map((id) => ({ kind: "job", refId: id })),
+        activeTabId: saved.activeJobId != null ? tabKey("job", saved.activeJobId) : null,
+      };
+    }
+    if (!saved?.tabs?.length) { renderTabbar(); return; }
     const alive = [];
-    for (const id of saved.jobIds) {
+    for (const spec of saved.tabs) {
+      if (!LOADERS[spec.kind]) continue;
       try {
-        const res = await fetch(`/partials/job/${id}`, { method: "HEAD" });
-        if (res.ok) alive.push(id);
+        const res = await LOADERS[spec.kind].probe(spec.refId);
+        if (res.ok) alive.push(spec);
       } catch (e) { /* 네트워크 실패 시엔 복원하지 않는다 */ }
     }
-    alive.forEach((id) => openTab(id));
-    if (alive.includes(saved.activeJobId)) openTab(saved.activeJobId);
+    alive.forEach((spec) => openTab(spec));
+    const active = alive.find((s) => tabKey(s.kind, s.refId) === saved.activeTabId);
+    if (active) openTab(active);
     if (!alive.length) { renderTabbar(); saveTabs(); }
   })();
 })();

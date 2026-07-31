@@ -33,10 +33,38 @@
   let orientationRetry = false;  // 방향 불일치 재요청 중 — 재귀 재요청을 막는다
 
   // --- 조회 헬퍼 ------------------------------------------------------------
+  //
+  // 보드는 이제 한 페이지에 여러 개 있을 수 있다(홈 대시보드의 비전보드 탭).
+  // 다만 사용자가 동시에 조작하는 보드는 언제나 하나뿐이므로, 모듈 상태는 그대로
+  // 두고 "지금 활성 보드"(activeRoot)만 갈아끼운다. 카메라(viewBox)는 탭을 오갈
+  // 때 잃으면 안 되므로 프로젝트별로 따로 보관한다(CAMERAS).
+  let activeRoot = null;
+  const CAMERAS = new Map();   // projectId → {x,y,w,h}
 
-  const board = () => document.getElementById("board");
-  const canvas = () => document.querySelector("#board .graph-canvas");
-  const svg = () => document.querySelector("#board .graph-svg");
+  const rootOf = (el) => (el && el.closest ? el.closest(".orca-board-host") : null);
+  const projectOf = (r) => (r && r.dataset.projectId) || null;
+
+  // 이벤트가 다른 보드에서 났으면 그 보드를 활성으로 삼는다.
+  function focusRoot(r) {
+    if (!r || r === activeRoot) return activeRoot;
+    saveCamera();
+    activeRoot = r;
+    view = CAMERAS.get(projectOf(r)) || null;
+    selTask = null; selStatus = null; selEdge = null; linkMode = null;
+    prevNodeStatus = new Map();
+    return activeRoot;
+  }
+  function saveCamera() {
+    const pid = projectOf(activeRoot);
+    if (pid && view) CAMERAS.set(pid, { ...view });
+  }
+
+  const board = () => activeRoot;
+  const canvas = () => activeRoot && activeRoot.querySelector(".graph-canvas");
+  const svg = () => activeRoot && activeRoot.querySelector(".graph-svg");
+  // 노드 조회는 항상 활성 보드 안에서 — 다른 탭의 같은 seq 노드를 잡으면 안 된다.
+  const qs = (sel) => (activeRoot ? activeRoot.querySelector(sel) : null);
+  const qsa = (sel) => (activeRoot ? [...activeRoot.querySelectorAll(sel)] : []);
   const editable = () => { const c = canvas(); return !!c && c.dataset.editable === "1"; };
   const orientation = () => { const c = canvas(); return c ? c.dataset.orientation : "lr"; };
   const tr = (s) => (window.t ? window.t(s) : s);
@@ -185,7 +213,7 @@
   // --- 서버 왕복 -----------------------------------------------------------
 
   function flash(msg, kind) {
-    const bar = document.querySelector("#board .graph-toolbar");
+    const bar = qs(".graph-toolbar");
     if (!bar) return;
     let el = bar.querySelector(".graph-flash");
     if (!el) {
@@ -411,7 +439,7 @@
 
   async function selectTask(id) {
     selTask = id;
-    const node = document.querySelector(`.graph-node[data-task="${id}"]`);
+    const node = qs(`.graph-node[data-task="${id}"]`);
     selStatus = node ? node.dataset.status : null;
     highlightSel();
     const key = selKey();
@@ -419,7 +447,7 @@
     // 좌측 레일이 태스크 상세·편집·전용 대화로 전환한다. 중앙은 계속 캔버스다.
     document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
       detail: {
-        id, status: selStatus,
+        id, status: selStatus, projectId: projectOf(activeRoot),
         jobId: node && node.dataset.job ? +node.dataset.job : null,
       },
     }));
@@ -451,7 +479,7 @@
   document.body.addEventListener("orca-tab-activated", (e) => {
     const { kind, refId } = e.detail || {};
     if (kind !== "task" || refId === selTask) return;
-    const node = document.querySelector(`.graph-node[data-task="${refId}"]`);
+    const node = qs(`.graph-node[data-task="${refId}"]`);
     const liveStatus = node ? node.dataset.status : null;
     const panel = document.getElementById(window.OrcaWorkspace.getTaskPanelId(refId));
     selTask = refId;
@@ -464,22 +492,24 @@
     const key = selKey();
     if (key) localStorage.setItem(key, String(refId));
     document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
-      detail: { id: refId, status: liveStatus, jobId: node && node.dataset.job ? +node.dataset.job : null },
+      detail: { id: refId, status: liveStatus, projectId: projectOf(activeRoot),
+                jobId: node && node.dataset.job ? +node.dataset.job : null },
     }));
   });
 
   function highlightSel() {
-    document.querySelectorAll(".graph-node").forEach((n) =>
+    qsa(".graph-node").forEach((n) =>
       n.classList.toggle("selected", n.dataset.task == selTask));
   }
 
   // 선택한 태스크가 아직 있으면 최신 값으로 다시 그리고, 지워졌으면 패널을 비운다.
   function refreshPanel() {
     if (selTask === null) return;
-    if (document.querySelector(`.graph-node[data-task="${selTask}"]`)) {
-      const node = document.querySelector(`.graph-node[data-task="${selTask}"]`);
+    if (qs(`.graph-node[data-task="${selTask}"]`)) {
+      const node = qs(`.graph-node[data-task="${selTask}"]`);
       document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
         detail: { id: selTask, status: node?.dataset.status || null,
+          projectId: projectOf(activeRoot),
           jobId: node?.dataset.job ? +node.dataset.job : null },
       }));
     } else {
@@ -621,7 +651,7 @@
     if (!key) return;
     const saved = localStorage.getItem(key);
     if (!saved) return;
-    if (document.querySelector(`.graph-node[data-task="${saved}"]`)) {
+    if (qs(`.graph-node[data-task="${saved}"]`)) {
       selectTask(+saved);
     } else {
       localStorage.removeItem(key);
@@ -632,7 +662,7 @@
   // 흘려보내고, 직전 렌더 대비 상태가 바뀐 노드를 짧게 반짝여 "지금 여기가
   // 움직였다"를 캔버스에서도 알 수 있게 한다.
   function syncLiveState() {
-    const nodes = [...document.querySelectorAll(".graph-node")];
+    const nodes = qsa(".graph-node");
     const tasks = nodes.map((n) => ({
       id: +n.dataset.task, seq: +n.dataset.seq, title: n.dataset.title,
       status: n.dataset.status,
@@ -660,6 +690,8 @@
 
   function onPointerDown(e) {
     if (!e.target.closest || !e.target.closest(".graph-canvas")) return;
+    // 다른 보드 탭을 건드렸다면 그 보드로 활성 전환한다(카메라도 함께 교체).
+    focusRoot(rootOf(e.target));
     const s = svg();
     if (!s) return;
 
@@ -837,7 +869,7 @@
   function clearEdgeSelection() {
     if (selEdge) selEdge.el.classList.remove("selected");
     selEdge = null;
-    const btn = document.querySelector("#board .graph-toolbar .graph-edge-del");
+    const btn = qs(".graph-toolbar .graph-edge-del");
     if (btn) btn.hidden = true;
   }
 
@@ -846,7 +878,7 @@
     clearEdgeSelection();
     selEdge = { from: +g.dataset.from, to: +g.dataset.to, el: g };
     g.classList.add("selected");
-    const bar = document.querySelector("#board .graph-toolbar");
+    const bar = qs(".graph-toolbar");
     if (!bar) return;
     let btn = bar.querySelector(".graph-edge-del");
     if (!btn) {
@@ -895,7 +927,7 @@
   // --- 툴바 / 팔레트 --------------------------------------------------------
 
   function openPalette(open) {
-    const form = document.querySelector("#board .node-palette");
+    const form = qs(".node-palette");
     if (!form) return;
     paletteOpen = open;
     form.hidden = !open;
@@ -931,6 +963,8 @@
   document.addEventListener("wheel", onWheel, { passive: false });
 
   document.addEventListener("click", (e) => {
+    const inBoard = rootOf(e.target);
+    if (inBoard) focusRoot(inBoard);
     const btn = e.target.closest("[data-canvas]");
     if (btn) { onToolbar(btn.dataset.canvas); return; }
     if (e.target.closest("[data-task-close]")) { closePanel(); return; }
@@ -988,18 +1022,20 @@
   // 프로젝트를 전진시키지 않으므로 갱신할 상태 자체가 없다 — 통째로 건너뛴다.
   document.body.addEventListener("htmx:beforeRequest", (e) => {
     const elt = e.detail && e.detail.elt;
-    if (elt && elt.id === "board" && (busy || paletteOpen || editFormOpen() || editable())) {
+    if (elt && elt.classList && elt.classList.contains("orca-board-host")
+        && (busy || paletteOpen || editFormOpen() || editable())) {
       e.preventDefault();
     }
   });
 
   document.body.addEventListener("htmx:afterSwap", (e) => {
-    if (e.target.id !== "board") return;
+    if (!e.target.classList || !e.target.classList.contains("orca-board-host")) return;
+    focusRoot(e.target);
     afterBoardRender();
     // 선택한 태스크의 상태가 바뀐 순간에만 상세를 다시 불러온다
     // (매번 갈아끼우면 미디어 재생이 끊기므로)
     if (selTask !== null) {
-      const node = document.querySelector(`.graph-node[data-task="${selTask}"]`);
+      const node = qs(`.graph-node[data-task="${selTask}"]`);
       if (node && node.dataset.status !== selStatus) selectTask(selTask);
     }
   });
@@ -1079,9 +1115,10 @@
   // 핸들)에도 뷰박스를 다시 맞춘다. viewBox 자체는 SVG width/height=100%로
   // 이미 늘어나지만, 가로세로 비율이 바뀌면 fitView를 다시 돌려야 여백 없이
   // 꽉 찬다.
+  let boardResizeObserver = null;
   if (window.ResizeObserver) {
     let boardResizeTimer;
-    const boardResizeObserver = new ResizeObserver(() => {
+    boardResizeObserver = new ResizeObserver(() => {
       clearTimeout(boardResizeTimer);
       boardResizeTimer = setTimeout(() => {
         if (!canvas()) return;
@@ -1089,13 +1126,49 @@
         applyView();
       }, 120);
     });
-    const boardEl = board();
-    if (boardEl) boardResizeObserver.observe(boardEl);
   }
 
   // chat-rail에서 에이전트 메시지가 끝났다는 신호를 보내오면 2초 폴링을 기다리지
   // 않고 바로 보드를 다시 그린다 — 채팅에서의 활동이 캔버스에 즉시 반영되게 한다.
-  document.body.addEventListener("orca-refresh-board", () => {
+  // detail.projectId가 실려 오면 그 보드일 때만 다시 그린다.
+  document.body.addEventListener("orca-refresh-board", (e) => {
+    const pid = e.detail && e.detail.projectId;
+    if (pid != null && String(pid) !== String(projectOf(activeRoot))) return;
     if (!busy && !paletteOpen && !editFormOpen() && !editable()) reloadBoard();
   });
+
+  // --- 마운트 API ----------------------------------------------------------
+  //
+  // 프로젝트 상세 페이지는 보드가 하나, 홈 대시보드는 탭마다 하나씩 있을 수 있다.
+  // 두 곳 모두 이 진입점을 쓴다 — 활성 보드만 조작 대상이 되고, 탭을 오갈 때
+  // 카메라는 프로젝트별로 보관됐다가 복원된다.
+  window.mountBoardEditor = function (root) {
+    if (!root) return () => {};
+    focusRoot(root);
+    boardResizeObserver?.observe(root);
+    if (svg()) afterBoardRender();
+    return function dispose() {
+      saveCamera();
+      boardResizeObserver?.unobserve(root);
+      if (activeRoot === root) {
+        activeRoot = null;
+        view = null; selTask = null; selStatus = null; selEdge = null; linkMode = null;
+      }
+    };
+  };
+
+  // 홈 대시보드에서 보드 탭을 전환하면 그 보드를 활성으로 삼는다.
+  document.body.addEventListener("orca-tab-activated", (e) => {
+    const d = e.detail || {};
+    if (d.kind !== "project") return;
+    const root = document.querySelector(`.orca-board-host[data-project-id="${d.refId}"]`);
+    if (root && root !== activeRoot) { focusRoot(root); if (svg()) afterBoardRender(); }
+  });
+
+  // 프로젝트 상세 페이지처럼 보드가 하나뿐이고 htmx가 직접 채우는 경우를 위해
+  // 초기 1회 자동 마운트한다(홈은 home.js가 명시적으로 mountBoardEditor를 부른다).
+  const soleBoard = document.querySelector(".orca-board-host");
+  if (soleBoard && !document.getElementById("home-workspace")) {
+    window.mountBoardEditor(soleBoard);
+  }
 })();

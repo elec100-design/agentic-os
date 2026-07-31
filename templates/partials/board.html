@@ -35,15 +35,33 @@
 {% elif project['status'] == 'running' %}
 <div class="board-banner banner-info">
   <span class="spinner"></span>
+  {% if pause_reason == 'manual' %}
+  {{ '일시정지하는 중 — 실행 중인 태스크가 끝나면 멈춥니다.' | t }}
+  {% else %}
   {{ '실행 중' | t }} — {{ '완료' | t }} {{ done_n }}/{{ tasks | length }}
+  <form method="post" action="/projects/{{ project['id'] }}/pause" class="inline-form">
+    <button class="btn-ghost">{{ '⏸ 일시정지' | t }}</button>
+  </form>
+  {% endif %}
   <form method="post" action="/projects/{{ project['id'] }}/cancel" class="inline-form">
     <button class="btn-ghost">{{ '취소' | t }}</button>
   </form>
 </div>
 {% elif project['status'] == 'paused' %}
-<div class="board-banner banner-err">
+<div class="board-banner {{ 'banner-approve' if pause_reason == 'manual' else 'banner-err' }}">
+  {% if pause_reason == 'manual' %}
+  <b>{{ '일시정지됨' | t }}</b>
+  {{ '노드를 클릭해 사이드바에서 태스크를 편집한 뒤 이어서 실행하세요.' | t }}
+  {# 실패한 태스크가 남아 있으면 재개가 거부되므로(먼저 재시도해야 함) 버튼을 감춘다 #}
+  {% if not tasks | selectattr('status', 'equalto', 'failed') | list %}
+  <form method="post" action="/projects/{{ project['id'] }}/resume" class="inline-form">
+    <button class="btn-primary">{{ '▶ 이어서 실행' | t }}</button>
+  </form>
+  {% endif %}
+  {% else %}
   ⚠️ {{ project['error'] or ('일시정지됨' | t) }} —
   {{ '실패한 태스크를 클릭해 재시도하거나, 재계획하세요.' | t }}
+  {% endif %}
   <form method="post" action="/projects/{{ project['id'] }}/replan" class="inline-form">
     <button class="btn-ghost">{{ '재계획' | t }}</button>
   </form>
@@ -140,7 +158,7 @@
 {% if editable %}
 {# 팔레트 — 사용 가능한 에이전트 모듈과 태스크 타입. '＋ 태스크'가 연다. #}
 <form class="node-palette" hidden hx-post="/projects/{{ project['id'] }}/tasks"
-      hx-target="#board" hx-swap="innerHTML">
+      hx-target="#board-{{ project['id'] }}" hx-swap="innerHTML">
   <input type="hidden" name="o" value="{{ graph['orientation'] }}">
   <input type="hidden" name="x"><input type="hidden" name="y">
   <label class="pal-row">

@@ -1815,7 +1815,10 @@ h2.section-label {
     var(--bg);
   margin-bottom: 1rem;
 }
-/* 브라우저 기본 팬/줌을 끄고 포인터 이벤트로 직접 처리한다 */
+/* 브라우저 기본 팬/줌을 끄고 포인터 이벤트로 직접 처리한다.
+   SVG 밖(캔버스 여백)에서 시작한 끌기도 페이지가 아니라 다이어그램이 움직여야
+   하므로 컨테이너에도 같이 건다. */
+.graph-canvas { touch-action: none; overscroll-behavior: contain; }
 .graph-svg { display: block; touch-action: none; }
 .graph-edge {
   fill: none;
@@ -2144,7 +2147,7 @@ h2.section-label {
   .task-recover > summary { padding: 0.6rem 0; font-size: 0.86rem; }
   .task-recover .pal-foot .btn-primary { min-height: 44px; width: 100%; }
   /* 시트 위에 떠 있는 플래시 — 저장/오류 피드백이 가려지지 않게 */
-  body.task-panel-open #board .graph-flash {
+  body.task-panel-open .orca-board-host .graph-flash {
     position: fixed;
     top: max(0.75rem, env(safe-area-inset-top));
     left: 50%;
@@ -2176,10 +2179,15 @@ h2.section-label {
   cursor: pointer;
 }
 .orca-task-context-back:hover { color: var(--text); }
+/* 채팅/실행 로그 패널과 같은 레이어에 겹쳐 놓는다(.orca-rail-panel과 동일하게
+   absolute inset:0) — 흐름에 남겨 두면 레일 높이를 넘겨 버려 패널 위로 삐져나오고
+   내부 스크롤도 생기지 않는다(태스크 채팅 입력창에 닿을 수 없게 된다). */
 .orca-task-context {
-  min-height: 0;
-  flex: 1;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.8rem;
   background: var(--surface);
 }
@@ -2194,6 +2202,22 @@ h2.section-label {
   border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg); color: var(--text); font: inherit;
 }
 .orca-task-edit-form textarea { resize: vertical; min-height: 5.5rem; }
+.orca-task-edit-form select {
+  width: 100%; box-sizing: border-box; border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.5rem 0.6rem; background: var(--bg); color: var(--text); font: inherit;
+}
+.orca-task-edit-form textarea[name="extra_instruction"] { min-height: 3rem; }
+.orca-task-deps { display: flex; flex-direction: column; gap: 0.3rem; margin: 0; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.6rem; }
+.orca-task-deps legend { color: var(--muted); font-size: 0.76rem; font-weight: 600; padding: 0 0.3rem; }
+.orca-task-dep { flex-direction: row !important; align-items: center; gap: 0.4rem !important; font-size: 0.8rem; }
+.orca-task-dep input { width: auto !important; }
+.orca-task-actions { display: flex; gap: 0.45rem; align-items: center; flex-wrap: wrap; }
+.orca-task-runs { border-top: 1px solid var(--border); padding-top: 0.8rem; }
+.orca-task-runs h3 { margin: 0 0 0.55rem; color: var(--muted); font-size: 0.76rem; font-weight: 600; }
+.orca-task-run { border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.55rem; margin-bottom: 0.4rem; font-size: 0.78rem; }
+.orca-task-run summary { cursor: pointer; }
+.orca-task-run-error { margin: 0.4rem 0 0; color: var(--err); }
+.orca-task-run-output { max-height: 220px; overflow: auto; margin: 0.4rem 0 0; white-space: pre-wrap; word-break: break-word; font-size: 0.72rem; color: var(--muted); }
 .orca-task-context-top, .orca-task-meta { display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap; }
 .orca-task-artifact-link { color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .orca-task-locked, .orca-task-loading, .orca-task-error { margin: 0; color: var(--muted); font-size: 0.82rem; }
@@ -2207,11 +2231,50 @@ h2.section-label {
 .orca-task-message-content p:first-child { margin-top: 0; }
 .orca-task-message-content p:last-child { margin-bottom: 0; }
 .orca-task-suggestion { margin-top: 0.5rem; font-size: 0.72rem; }
-.orca-task-chat-form { display: flex; gap: 0.45rem; margin-top: 0.7rem; }
+/* 태스크 채팅 입력창은 스크롤 컨테이너 바닥에 붙여 둔다 — 폼이 길어져도
+   스크롤 위치와 무관하게 항상 입력할 수 있다(모바일에서 특히 중요). */
+.orca-task-chat-form {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+  padding: 0.5rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+  background: var(--surface);
+}
 .orca-task-chat-form textarea { flex: 1; min-width: 0; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem; background: var(--bg); color: var(--text); font: inherit; }
 .orca-task-chat-form .orca-rail-send { flex: 0 0 36px; align-self: flex-end; }
-@media (max-width: 1023px) {
-  .orca-task-context { min-height: 55vh; }
+
+/* 담당 에이전트·모델·추가 지시는 모바일에서 접어 둔다(chat-rail.js가 데스크톱
+   에서만 open을 붙인다) — 좁은 화면에서 작업 내용과 채팅이 먼저 보이도록. */
+.orca-task-advanced { border: 1px solid var(--border); border-radius: 8px; padding: 0.4rem 0.6rem; }
+.orca-task-advanced[open] { padding-bottom: 0.6rem; }
+.orca-task-advanced > summary {
+  cursor: pointer; color: var(--muted); font-size: 0.76rem; font-weight: 600;
+  padding: 0.2rem 0;
+}
+.orca-task-advanced > label { margin-top: 0.5rem; }
+
+@media (max-width: 767px) {
+  /* 좁은 화면에서 작업창이 폼으로만 꽉 차지 않게 여백·입력 높이를 줄인다. */
+  .orca-task-context { padding: 0.6rem; }
+  .orca-task-context-body { gap: 0.7rem; }
+  .orca-task-edit-form { gap: 0.45rem; }
+  .orca-task-edit-form textarea { min-height: 4.5rem; }
+  /* 좁은 화면에서는 대화 목록에 별도 스크롤을 두지 않는다 — 작업창 전체가
+     하나의 스크롤이고 입력창만 바닥에 붙는다(스크롤 영역이 겹치면 마지막
+     메시지가 입력창 뒤로 숨는다). */
+  .orca-task-chat { min-height: 0; flex: none; padding-top: 0.6rem; }
+  .orca-task-messages { flex: none; min-height: 0; overflow: visible; }
+  /* 전송 버튼은 모바일 터치 타깃(44px) — 레일 컴포저와 같은 크기로 맞춘다.
+     바닥에 붙는 입력창은 두 줄 높이로 줄여 작업 내용이 가려지는 면적을 줄인다. */
+  .orca-task-chat-form .orca-rail-send { flex: 0 0 44px; }
+  .orca-task-chat-form textarea { height: 3.4rem; min-height: 3.4rem; }
+  /* iOS 확대 방지 — 레일 컴포저와 같은 규칙 */
+  .orca-task-edit-form input,
+  .orca-task-edit-form textarea,
+  .orca-task-edit-form select,
+  .orca-task-chat-form textarea { font-size: 16px; }
 }
 
 /* ─── 채널: 사이드바 네비게이션 ──────────────────────────────────── */

@@ -27,8 +27,9 @@ HOME_ELEMENTS = [
     'id="home-rail-resize"',
     'id="home-rail-toggle"',
     'data-rail-tab="chat"',
+    'data-rail-tab="notes"',
     'data-rail-tab="sessions"',
-    "orca-statusbar",      # 최하단 작업 큐 상태바
+    "orca-statusbar",      # 최하단 상태바 (사용량 + 작업 상태 칩)
     'id="statusbar-toggle"',
     'id="statusbar-body"',
 ]
@@ -70,6 +71,59 @@ def test_job_queue_starts_collapsed(completed_setup):
         assert 'aria-expanded="false"' in body
         # 접혀 있어도 큐 자체는 계속 폴링돼야 카운트·말풍선이 갱신된다.
         assert 'hx-get="/partials/jobs"' in body
+
+
+def _sidebar(body):
+    return body[body.index('<aside class="sidebar">'):body.index("</aside>")]
+
+
+def test_notes_moved_from_sidebar_to_rail(completed_setup):
+    """메모리·노트 검색·노트 목록은 우측 레일의 '노트' 탭에 있다."""
+    with _client() as client:
+        body = client.get("/").text
+        assert 'data-rail-panel="notes"' in body
+        assert body.index('id="memory"') > body.index("orca-side-rail")
+        assert 'id="memory"' not in _sidebar(body)
+        # 노트 갱신 트리거(작업 삭제 시 HX-Trigger)는 이사해도 그대로여야 한다.
+        assert 'hx-trigger="load, refresh-memory from:body"' in body
+
+
+def test_usage_moved_from_sidebar_to_statusbar(completed_setup):
+    """사용량은 좌측 사이드바가 아니라 하단 상태바에 있다."""
+    with _client() as client:
+        body = client.get("/").text
+        assert body.index('id="usage"') > body.index('id="home-statusbar"')
+        assert 'id="usage"' not in _sidebar(body)
+        assert 'hx-get="/partials/usage"' in body and "every 15s" in body
+        # app.js의 aos-usage-open 토글과 style.css 규칙이 이 클래스에 걸려 있다.
+        assert 'class="side-usage orca-usagebar"' in body
+
+
+def test_sidebar_has_projects_inspector_and_vision_composer(completed_setup):
+    """좌측은 비전보드 세계 — 프로젝트 목록 · 태스크 인스펙터 자리 · 비전보드 채팅."""
+    with _client() as client:
+        sidebar = _sidebar(client.get("/").text)
+        for needle in ['id="projects"', 'hx-get="/partials/projects"',
+                       'id="home-task-inspector"', 'id="home-task-context-body"',
+                       'id="vision-composer"', 'name="goal"']:
+            assert needle in sidebar, f"sidebar missing {needle}"
+
+
+def test_right_rail_composer_ids_stay_unique(completed_setup):
+    """좌측 비전보드 컴포저가 app.js의 전역 컴포저 id를 훔치면 안 된다."""
+    with _client() as client:
+        body = client.get("/").text
+        for needle in COMPOSER_IDS:
+            assert body.count(needle) == 1, f"{needle} duplicated across composers"
+
+
+def test_statusbar_keeps_job_poll_as_data_source(completed_setup):
+    """작업 큐 UI는 칩으로 접혔지만 폴링은 살아 있어야 한다 —
+    칩·채팅 말풍선·탭 상태점이 전부 이 조각에서 나온다."""
+    with _client() as client:
+        body = client.get("/").text
+        assert 'hx-get="/partials/jobs"' in body and "every 3s" in body
+        assert 'id="statusbar-counts"' in body
 
 
 def test_sessions_moved_from_sidebar_to_rail(completed_setup):
@@ -120,10 +174,14 @@ def test_job_view_shows_conversation_and_follow_up(completed_setup):
             ("user", "첫 질문"), ("assistant", "첫 답변")]
         # 이번 작업 자신의 턴은 노트에서 잘라내 중복되지 않는다(프롬프트 말풍선 한 번).
         assert body.count("둘째 질문") == 1
-        # 세션 재개가 가능한 에이전트라 세션을 이어받는 컴포저가 붙는다.
-        assert 'class="composer job-followup"' in body
-        assert 'name="session_id" value="sess-2"' in body
-        assert 'name="origin_note"' in body
+        # 중앙 탭은 결과·로그 전용 — 후속 지시는 우측 레일 조각으로 따로 온다.
+        assert "job-followup" not in body
+        followup = client.get(f"/partials/job/{job_id}/followup").text
+        assert 'class="composer job-followup"' in followup
+        assert 'name="session_id" value="sess-2"' in followup
+        assert 'name="origin_note"' in followup
+        # 단독 작업 페이지는 지금처럼 본문 안에 그대로 품는다.
+        assert 'class="composer job-followup"' in client.get(f"/jobs/{job_id}").text
 
 
 def test_running_job_has_no_follow_up(completed_setup):
@@ -132,6 +190,18 @@ def test_running_job_has_no_follow_up(completed_setup):
     db.update_job(conn, job_id, status="running")
     with _client() as client:
         assert "job-followup" not in client.get(f"/partials/job/{job_id}").text
+        # 레일 조각도 아직 이어갈 게 없으므로 비어 있다.
+        assert "job-followup" not in client.get(f"/partials/job/{job_id}/followup").text
+
+
+def test_job_inspector_lives_in_right_rail(completed_setup):
+    """일반 작업의 편집(후속 지시)은 우측 레일 패널에서 한다."""
+    with _client() as client:
+        body = client.get("/").text
+        assert 'data-rail-panel="job"' in body
+        assert 'id="home-job-inspector"' in body
+    home = Path("static/home.js").read_text(encoding="utf-8")
+    assert "/followup" in home and "wireJobFollowUp" in home
 
 
 def test_unresumable_job_follows_up_with_note_context(completed_setup):
@@ -143,7 +213,7 @@ def test_unresumable_job_follows_up_with_note_context(completed_setup):
                            note_path=str(note.resolve()))
     db.update_job(conn, job_id, status="done", output="답변")
     with _client() as client:
-        body = client.get(f"/partials/job/{job_id}").text
+        body = client.get(f"/partials/job/{job_id}/followup").text
         assert 'name="context_note"' in body
         assert 'name="session_id"' not in body
 

@@ -51,9 +51,34 @@
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8h-11M6.5 4l-4 4 4 4"/></svg>
     </button>
   </div>
-  <a class="side-nav-link" href="/board">🗂 {{ '비전 보드' | t }}</a>
-  <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
-  <section class="side-usage" id="usage" hx-get="/partials/usage" hx-trigger="load, every 15s"></section>
+  <!-- 좌측 = 비전보드 세계: 프로젝트 목록 → (노드 선택 시) 태스크 인스펙터 → 비전보드 채팅 -->
+  <section class="side-projects" id="projects" hx-get="/partials/projects"
+           hx-trigger="load, every 5s, refresh-projects from:body"></section>
+
+  <!-- 중앙 워크플로우에서 태스크를 클릭하면 여기가 인스펙터로 채워진다(task-inspector.js) -->
+  <section class="side-task-inspector" id="home-task-inspector" hidden aria-live="polite">
+    <div class="side-inspector-head">
+      <button type="button" class="orca-task-context-back" id="home-inspector-back">← {{ '프로젝트' | t }}</button>
+    </div>
+    <div class="orca-task-context" id="home-task-context">
+      <div class="orca-task-context-body" id="home-task-context-body"></div>
+    </div>
+  </section>
+
+  <!-- 비전보드 전용 채팅 — 목표를 보내면 중앙에 비전보드 탭이 열린다 -->
+  <form class="composer vision-composer" id="vision-composer" method="post" action="/projects">
+    <textarea name="goal" id="goal" rows="2" required placeholder="{{ '비전 보드로 만들 목표를 적어 주세요…' | t }}"></textarea>
+    <div class="composer-bar">
+      <a class="side-nav-link" href="/board">🗂 {{ '전체 보드' | t }}</a>
+      <span class="spacer"></span>
+      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+        </svg>
+      </button>
+    </div>
+  </form>
+
   <div class="side-foot">
     <a class="side-settings" href="/setup" title="{{ '에이전트 활성화·설치 상태 재설정' | t }}">{{ '⚙︎ 에이전트 설정' | t }}</a>
     <div class="side-foot-btns">
@@ -104,6 +129,7 @@
 
   <div class="orca-rail-tabs">
     <button type="button" class="orca-rail-tab active" data-rail-tab="chat">{{ '채팅' | t }}</button>
+    <button type="button" class="orca-rail-tab" data-rail-tab="notes">{{ '노트' | t }}</button>
     <button type="button" class="orca-rail-tab" data-rail-tab="sessions">{{ '세션' | t }}</button>
   </div>
 
@@ -178,6 +204,19 @@
       </form>
     </section>
 
+    <!-- 작업 인스펙터 — 중앙에서 연 작업 탭의 후속 지시를 여기서 보낸다.
+         탭 버튼 없이 프로그램적으로만 전환된다(home.js). -->
+    <section class="orca-rail-panel" data-rail-panel="job" hidden>
+      <div class="orca-rail-scroll" id="home-job-inspector"></div>
+    </section>
+
+    <!-- 노트 탭 — 메모리(노트 검색 + 노트 목록). .orca-rail-panel이 이미
+         absolute inset:0 flex 컬럼이라 .side-memory가 가정하는 문맥과 같다
+         (.orca-rail-scroll로 한 번 더 감싸면 스크롤 컨테이너가 이중이 된다). -->
+    <section class="orca-rail-panel" data-rail-panel="notes" hidden>
+      <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
+    </section>
+
     <!-- 세션 탭 — 주제별 채널 목록 -->
     <section class="orca-rail-panel" data-rail-panel="sessions" hidden>
       <div class="orca-rail-scroll">
@@ -189,14 +228,19 @@
 
 </div><!-- /.orca-home-row -->
 
-<!-- ══ 최하단 작업 큐 상태바 — 기본은 접힘, 클릭하면 펼쳐진다 ══════════ -->
+<!-- ══ 최하단 상태바 — 좌: 사용량, 우: 작업 상태 칩(누르면 큐 목록이 펼쳐진다) ══
+     #jobs는 접힌 채로도 계속 폴링돼야 한다 — 칩·채팅 말풍선·탭 상태점이 전부
+     이 조각에서 파생된다(home.js readJobs/syncFromJobsTable). -->
 <div class="orca-statusbar" id="home-statusbar">
-  <button type="button" class="orca-statusbar-bar" id="statusbar-toggle"
-          aria-expanded="false" aria-controls="statusbar-body">
-    <svg class="orca-statusbar-caret" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg>
-    <span class="orca-statusbar-label">{{ '작업 큐' | t }}</span>
-    <span class="orca-statusbar-counts" id="statusbar-counts"></span>
-  </button>
+  <div class="orca-statusbar-bar">
+    <section class="side-usage orca-usagebar" id="usage" hx-get="/partials/usage" hx-trigger="load, every 15s"></section>
+    <span class="spacer"></span>
+    <button type="button" class="orca-statusbar-jobs-btn" id="statusbar-toggle"
+            aria-expanded="false" aria-controls="statusbar-body">
+      <span class="orca-statusbar-counts" id="statusbar-counts"></span>
+      <svg class="orca-statusbar-caret" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg>
+    </button>
+  </div>
   <div class="orca-statusbar-body" id="statusbar-body" hidden>
     <section class="panel" id="jobs" hx-get="/partials/jobs" hx-trigger="load, every 3s, refresh-jobs from:body"></section>
   </div>
@@ -258,6 +302,10 @@ const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
 <script src="/static/job-view.js?v={{ asset_v() }}"></script>
+<!-- 중앙 비전보드 탭의 다이어그램 조작 — home.js가 mountBoardEditor로 붙인다 -->
+<script src="/static/board-editor.js?v={{ asset_v() }}"></script>
+<!-- 노드를 클릭하면 좌측 사이드바가 태스크 편집·채팅으로 바뀐다 -->
+<script src="/static/task-inspector.js?v={{ asset_v() }}"></script>
 <script src="/static/home.js?v={{ asset_v() }}"></script>
 </body>
 </html>

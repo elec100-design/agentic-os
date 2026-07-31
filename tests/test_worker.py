@@ -157,6 +157,41 @@ async def test_run_job_runs_in_workdir(tmp_env, tmp_path):
     assert db.get_job(conn, job["id"])["output"].endswith(str(workdir.name))
 
 
+class PromptSpyProvider(FakeProvider):
+    """실제로 CLI에 넘어간 프롬프트를 기록한다."""
+
+    def __init__(self):
+        super().__init__(["sh", "-c", "echo ok"])
+        self.sent = None
+
+    def build_command(self, prompt, session_id=None, model=None):
+        self.sent = prompt
+        return self.cmd
+
+
+async def test_rerun_after_interruption_continues_session(tmp_env):
+    """서버가 죽어 재큐잉된 잡(attempts>1)은 처음부터가 아니라 이어서 실행한다."""
+    from app.providers import CONTINUE_PROMPT
+    p = PromptSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "원래 프롬프트", "fake")
+    job = db.claim_next_job(conn)
+    db.update_job(conn, job["id"], session_id="s1")
+    db.recover_running(conn)          # 서버 재시작 복구 → queued로 되돌림
+    job = db.claim_next_job(conn)     # attempts = 2
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+    assert p.sent == CONTINUE_PROMPT
+
+
+async def test_first_attempt_sends_original_prompt(tmp_env):
+    p = PromptSpyProvider()
+    conn, job, providers = _setup(tmp_env, p)
+    db.update_job(conn, job["id"], session_id="s1")
+    job = db.get_job(conn, job["id"])
+    await worker.run_job(conn, job, providers=providers, save=False)
+    assert p.sent == "테스트"
+
+
 async def test_worker_loop_fails_job_over_max_attempts(tmp_env):
     conn = db.get_conn(config.DB_PATH)
     job_id = db.create_job(conn, "p", "fake")

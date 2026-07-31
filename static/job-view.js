@@ -66,6 +66,9 @@ function renderThread(root) {
 
 // "이어서 작업" 컴포저 — 페이지를 떠나지 않고 후속 작업을 만든다. 홈에서는
 // 새 작업이 곧바로 탭으로 열리고(openJobTab), 단독 페이지에서는 이동한다.
+// 홈 우측 레일은 이 컴포저만 따로 받아 붙이므로 전역으로도 노출한다.
+window.wireJobFollowUp = function (root, jobId) { wireFollowUp(root, jobId); };
+
 function wireFollowUp(root, jobId) {
   const form = root.querySelector(".job-followup");
   if (!form) return;

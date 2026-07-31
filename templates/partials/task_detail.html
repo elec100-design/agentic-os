@@ -16,7 +16,7 @@
     <button type="button" class="btn-ghost" data-task-link data-seq="{{ task['seq'] }}">{{ '연결' | t }}</button>
     <button type="button" class="btn-ghost btn-del"
             hx-post="/tasks/{{ task['id'] }}/delete"
-            hx-target="#board" hx-swap="innerHTML"
+            hx-target="#board-{{ project['id'] }}" hx-swap="innerHTML"
             hx-vals='js:{o: boardOrientation()}'
             hx-confirm="{{ '이 태스크를 삭제할까요? 연결도 함께 끊어집니다.' | t }}">
       {{ '삭제' | t }}
@@ -52,7 +52,7 @@
   {% if editable %}
   {# 편집 폼 — '편집' 버튼이 토글한다. 저장하면 보드 조각이 통째로 갱신된다. #}
   <form class="task-edit" hidden hx-post="/tasks/{{ task['id'] }}/edit"
-        hx-target="#board" hx-swap="innerHTML"
+        hx-target="#board-{{ project['id'] }}" hx-swap="innerHTML"
         hx-vals='js:{o: boardOrientation()}'>
     <label class="pal-row">
       <span>{{ '제목' | t }}</span>

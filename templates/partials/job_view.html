@@ -49,36 +49,7 @@
   </div>
   {% endif %}
 
-  {% if can_follow_up %}
-  <!-- 이어서 작업 — 같은 에이전트로 후속 프롬프트를 보낸다. 세션 재개가 가능한
-       CLI면 세션을 이어받고, 아니면 이 대화 노트를 컨텍스트로 붙여 이어간다. -->
-  <form class="composer job-followup" method="post" action="/jobs" enctype="multipart/form-data">
-    <textarea name="prompt" rows="2" required placeholder="{{ '이어서 무엇을 할까요?' | t }}"></textarea>
-    <input type="hidden" name="provider" value="{{ job['provider'] }}">
-    <input type="hidden" name="model" value="{{ job['model'] or '' }}">
-    {% if job['workdir'] %}<input type="hidden" name="workdir" value="{{ job['workdir'] }}">{% endif %}
-    {% if can_resume %}
-    <input type="hidden" name="session_id" value="{{ job['session_id'] }}">
-    <input type="hidden" name="resume_provider" value="{{ job['provider'] }}">
-    <input type="hidden" name="origin_note" value="{{ job['note_path'] or '' }}">
-    {% else %}
-    <input type="hidden" name="context_note" value="{{ job['note_path'] or '' }}">
-    {% endif %}
-    <div class="composer-bar">
-      <span class="resume-note">
-        {% if can_resume %}{{ '이 세션을 이어받아 같은 에이전트로 진행합니다' | t }}
-        {% else %}{{ '이 대화를 컨텍스트로 붙여 같은 에이전트로 진행합니다' | t }}{% endif %}
-      </span>
-      <span class="spacer"></span>
-      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
-        </svg>
-      </button>
-    </div>
-    <p class="followup-error" hidden></p>
-  </form>
-  {% endif %}
+  {% if embed_followup %}{% include 'partials/job_followup.html' %}{% endif %}
 
   <pre class="job-src" hidden>{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>
 </div>
