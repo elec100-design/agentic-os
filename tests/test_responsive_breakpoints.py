@@ -24,8 +24,6 @@ REQUIRED_ELEMENTS = [
     "orca-rail-scrim",
     "orca-project-main",
     "orca-workspace",
-    "orca-ws-header",
-    "orca-ws-back",
     "orca-tabbar",
     "orca-tabbar-scroll",
     "orca-rail-composer-bar",
@@ -110,8 +108,6 @@ def test_breakpoint_tier_matches_spec(css_blocks, w, h, tier):
             "resize handle must stay active on desktop"
         assert "--orca-segctl-h" not in body, \
             "desktop must not pick up the mobile segment-control block"
-        assert not re.search(r"\.orca-ws-header\s*\{[^}]*display:\s*flex", body), \
-            "desktop must not show the mobile back-header"
 
     elif tier == "tablet":
         # 사이드바는 오프캔버스(오버레이) + 스크림, 리사이즈 핸들 비활성, 메인 전체 폭
@@ -139,8 +135,10 @@ def test_breakpoint_tier_matches_spec(css_blocks, w, h, tier):
         assert (".orca-mobile-segctl {\n    display: flex" in body
                 or re.search(r"\.orca-mobile-segctl\s*\{\s*display:\s*flex", body)), \
             "mobile must show the bottom segmented control"
-        assert re.search(r"\.orca-ws-header\s*\{[^}]*display:\s*flex", body), \
-            "mobile must show the workspace back-header"
+        # 채팅 복귀는 하단 세그먼트 컨트롤이 유일한 진입점이다 — 같은 일을 하는
+        # 상단 헤더 줄을 다시 두면 세로 공간만 먹는다.
+        assert ".orca-ws-header" not in body, \
+            "mobile must not reintroduce a redundant workspace back-header"
         assert (".orca-rail-mobile-toggle,\n" not in body
                 and "display: none" in re.search(
                     r"\.orca-rail-collapse-btn\s*\{[^}]*\}", body).group()), \

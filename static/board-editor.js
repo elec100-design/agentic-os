@@ -10,8 +10,14 @@
 (function () {
   "use strict";
 
-  const NARROW = 700;        // 이 폭 미만이면 세로 흐름(tb)으로 재정렬한다
+  const NARROW = 768;        // 이 폭 미만이면 세로 흐름(tb)으로 재정렬한다
   const DRAG_SLOP = 4;       // 이보다 덜 움직이면 클릭(=선택)으로 본다
+
+  // 폭 판정은 CSS 미디어쿼리와 같은 레이아웃 뷰포트에서 재야 한다.
+  // window.innerWidth는 iOS Safari에서 핀치 줌을 따라 커진다 — 폰에서 다이어그램을
+  // 읽으려고 화면을 벌리는 순간 경계를 넘겨, CSS는 모바일인데 그래프만 데스크톱
+  // 가로 배치(lr)로 다시 그려지는 상태가 됐다. 경계값도 CSS 모바일 티어와 맞춘다.
+  const vpWidth = () => document.documentElement.clientWidth || window.innerWidth;
 
   let view = null;           // {x, y, w, h} — null이면 다음 렌더에서 화면 맞춤
   let lastOrientation = null;
@@ -22,6 +28,7 @@
   const pointers = new Map();
   let prevNodeStatus = new Map(); // task id → 직전 렌더에서의 status, 변화 감지용
   let restoredSelection = false; // 새로고침 직후 localStorage에서 선택 복원을 1회만 시도
+  let orientationRetry = false;  // 방향 불일치 재요청 중 — 재귀 재요청을 막는다
 
   // --- 조회 헬퍼 ------------------------------------------------------------
 
@@ -34,7 +41,7 @@
 
   // 서버에 어떤 방향으로 그려 달라고 할지 — htmx의 hx-vals가 이 함수를 부른다.
   function boardOrientation() {
-    return window.innerWidth < NARROW ? "tb" : "lr";
+    return vpWidth() < NARROW ? "tb" : "lr";
   }
   window.boardOrientation = boardOrientation;
 
@@ -51,9 +58,17 @@
     let vw = w, vh = h;
     if (vw / vh > ar) vh = vw / ar; else vw = vh * ar;
     vw *= 1.04; vh *= 1.04;
-    // 1:1보다 크게는 확대하지 않는다 — 노드 두어 개짜리 그래프가 우스꽝스럽게
-    // 부풀지 않도록. (축소는 그대로 허용 — 큰 그래프는 다 들어와야 한다)
-    if (box.width > 0 && vw < box.width) {
+    // 좁은 화면에서는 "전체가 다 들어오게"를 포기한다 — 세로로 긴 흐름을 다
+    // 넣으려면 0.4배쯤 축소돼 노드 글자가 5px 수준으로 짜부라진다. 대신 모바일
+    // 레이아웃(한 줄 세로 스택)은 캔버스 폭 자체가 폰 화면에 맞춰 나오므로,
+    // 폭에 딱 맞추면 노드 글자가 1:1보다 크게 보여 확대 없이 읽힌다. 세로는
+    // 팬으로 따라가고, 전체 조망은 축소 버튼/핀치로 사용자가 고르게 한다.
+    if (box.width > 0 && vpWidth() < NARROW) {
+      vw = w;
+      vh = vw / ar;
+    } else if (box.width > 0 && vw < box.width) {
+      // 1:1보다 크게는 확대하지 않는다 — 노드 두어 개짜리 그래프가 우스꽝스럽게
+      // 부풀지 않도록. (축소는 그대로 허용 — 큰 그래프는 다 들어와야 한다)
       vh *= box.width / vw;
       vw = box.width;
     }
@@ -91,6 +106,16 @@
   }
 
   const viewCenter = () => ({ x: view.x + view.w / 2, y: view.y + view.h / 2 });
+
+  // 제스처 시작 시점(d.startX/vx)을 기준으로 카메라를 끌고 다닌다.
+  function panBy(d, e) {
+    if (!view) return;
+    const box = canvas().getBoundingClientRect();
+    const scale = box.width > 0 ? view.w / box.width : 1;
+    view.x = d.vx - (e.clientX - d.startX) * scale;
+    view.y = d.vy - (e.clientY - d.startY) * scale;
+    applyView();
+  }
 
   // --- 노드·엣지 기하 (서버의 layout_graph와 같은 공식) ----------------------
 
@@ -550,6 +575,14 @@
     paletteOpen = false;
     if (!c) { prevNodeStatus = new Map(); return; }
     if (window.htmx) window.htmx.process(c.parentElement || c);
+    // 서버가 이 폭에 맞지 않는 방향으로 그려 보냈으면(o 파라미터가 빠졌거나
+    // 폭 판정이 요청 사이에 바뀌었거나) 한 번 다시 받아 온다. 폰에 데스크톱
+    // 가로 배치가 눌러앉는 상태를 방향 판정 경로와 무관하게 끊어 준다.
+    if (c.dataset.orientation !== boardOrientation() && !orientationRetry) {
+      orientationRetry = true;
+      reloadBoard().finally(() => { orientationRetry = false; });
+      return;
+    }
     // 방향이 바뀌었으면(회전·창 크기) 이전 카메라는 의미가 없다 — 다시 맞춘다
     if (c.dataset.orientation !== lastOrientation) {
       view = null;
@@ -629,7 +662,11 @@
         kind: "node", el: node, id: +node.dataset.task,
         ox: +node.dataset.x, oy: +node.dataset.y,
         grabX: p.x, grabY: p.y, moved: false,
-        movable: node.dataset.editable === "1",
+        // 모바일(tb)은 서버가 항상 한 줄 스택으로 다시 쌓으므로 옮겨도 제자리로
+        // 돌아온다 — 끌기는 화면 이동에만 쓰고, 탭은 그대로 선택으로 둔다.
+        movable: node.dataset.editable === "1" && orientation() !== "tb",
+        startX: e.clientX, startY: e.clientY,
+        vx: view ? view.x : 0, vy: view ? view.y : 0,
       };
     } else if (edge && editable()) {
       drag = { kind: "edge", from: +edge.dataset.from, to: +edge.dataset.to };
@@ -649,7 +686,15 @@
     if (!drag || !svg()) return;
 
     if (drag.kind === "node") {
-      if (!drag.movable) return;
+      // 옮길 수 없는 노드(실행 완료·모바일) 위에서 시작한 끌기는 화면 이동으로
+      // 넘긴다 — 모바일은 캔버스 대부분이 노드라 그러지 않으면 팬이 막힌다.
+      if (!drag.movable) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > DRAG_SLOP) {
+          drag.moved = true;
+        }
+        panBy(drag, e);
+        return;
+      }
       const p = toSvg(e);
       const nx = Math.max(0, drag.ox + (p.x - drag.grabX));
       const ny = Math.max(0, drag.oy + (p.y - drag.grabY));
@@ -662,12 +707,8 @@
       if (!rubber) return;
       rubber.classList.add("active");
       rubber.setAttribute("d", edgePath(anchor(drag.from, "out"), toSvg(e)));
-    } else if (drag.kind === "pan" && view) {
-      const box = canvas().getBoundingClientRect();
-      const scale = box.width > 0 ? view.w / box.width : 1;
-      view.x = drag.vx - (e.clientX - drag.startX) * scale;
-      view.y = drag.vy - (e.clientY - drag.startY) * scale;
-      applyView();
+    } else if (drag.kind === "pan") {
+      panBy(drag, e);
     }
   }
 
@@ -682,7 +723,9 @@
     if (!d) { busy = false; return; }
     try {
       if (d.kind === "node") {
-        if (d.moved) {
+        if (d.moved && !d.movable) {
+          /* 화면만 움직였다 — 저장할 것도, 열 것도 없다 */
+        } else if (d.moved) {
           d.el.dataset.x = d.nx;
           d.el.dataset.y = d.ny;
           await post(`/tasks/${d.id}/move`,

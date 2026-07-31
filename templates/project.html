@@ -17,30 +17,31 @@
 
   <main class="orca-project-main page page-wide">
     <a class="back-link" href="/board">{{ '← 비전 보드' | t }}</a>
-    <h1 class="job-title">
-      {{ project['title'] or project['goal'][:60] }}
-      <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
-            onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
-        <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
-      </form>
-    </h1>
-    <p class="project-goal-full">{{ project['goal'] }}</p>
-    {% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
+    <!-- 프로젝트 개요 — 항상 보일 필요가 없는 목표·작업 위치·삭제는 접었다 펴는
+         드롭다운에 넣는다. 데스크톱은 펼친 채 시작하고(open), 모바일에서는
+         board-workspace.js가 접어서 워크스페이스가 화면을 최대한 쓰게 한다. -->
+    <details class="project-brief" id="project-brief" open>
+      <summary class="project-brief-summary">
+        <h1 class="job-title">{{ project['title'] or project['goal'][:60] }}</h1>
+        <span class="project-brief-chev" aria-hidden="true">▾</span>
+      </summary>
+      <div class="project-brief-body">
+        <p class="project-goal-full">{{ project['goal'] }}</p>
+        {% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
+        <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
+              onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
+          <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
+        </form>
+      </div>
+    </details>
 
     <!-- 워크스페이스 셸 — 상단 탭바 + 탭 콘텐츠 패널. 폭과 무관하게 항상 같은
          DOM/탭 상태를 쓰고, CSS가 폭별로 모양만 바꾼다: ≥1024px 데스크톱은
          사이드바 옆 가로 탭바, 768~1023px 태블릿은 전체 폭 가로 탭바(사이드바는
          오프캔버스), <768px 모바일은 하단 세그먼트 컨트롤 뒤 칩 스트립 탭바. -->
     <div class="orca-workspace" id="orca-workspace" data-board-id="{{ project['id'] }}">
-      <!-- 모바일(<768px) 전용 sticky 헤더 — 채팅 복귀 버튼 + 활성 탭 제목.
-           board-workspace.js가 활성 탭이 바뀔 때마다 제목을 채운다. -->
-      <div class="orca-ws-header" id="orca-ws-header">
-        <button type="button" class="orca-ws-back" id="orca-ws-back" aria-label="{{ '채팅으로 돌아가기' | t }}">
-          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>
-          <span>{{ '채팅' | t }}</span>
-        </button>
-        <span class="orca-ws-header-title" id="orca-ws-header-title"></span>
-      </div>
+      <!-- 모바일 채팅 복귀는 하단 세그먼트 컨트롤(채팅)이 담당하고, 활성 탭 이름은
+           탭 칩이 그대로 보여 준다 — 별도 상단 헤더 줄을 두지 않는다(세로 공간 절약). -->
       <header class="orca-tabbar" id="orca-tabbar">
         <button type="button" class="orca-tabbar-navbtn" data-tabbar-nav="prev"
                 aria-label="{{ '이전 탭' | t }}" hidden>‹</button>

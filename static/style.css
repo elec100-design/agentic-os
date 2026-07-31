@@ -118,6 +118,22 @@ body.with-sidebar main {
   text-decoration: none;
 }
 
+/* 서랍으로 열린 사이드바를 다시 왼쪽으로 밀어 넣는 버튼 — 좁은 화면 전용 */
+.side-close-btn {
+  display: none;
+  margin-left: auto;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.side-close-btn:hover { background: var(--surface); color: var(--text); }
+
 .sidebar h2 {
   font-family: var(--font-display);
   font-size: 0.95rem;
@@ -169,6 +185,7 @@ body.with-sidebar main {
     box-shadow: 0 0 32px rgba(31, 30, 29, 0.25);
   }
   #nav-toggle { display: inline-flex; }
+  .side-close-btn { display: inline-flex; }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar { transition: none; }
@@ -1548,6 +1565,22 @@ h2.section-label {
 @media (max-width: 640px) {
   .chat-turn { max-width: 100%; }
 }
+/* 프롬프트는 말풍선 안에서 원문 줄바꿈을 유지하면서 폭에 맞게 접힌다. */
+.chat-bubble .prompt-block {
+  margin: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- 작업 뷰의 "이어서 작업" 컴포저 (단독 페이지·홈 탭 공용) ---- */
+.job-followup { margin-top: 1rem; }
+.job-followup textarea { min-height: 2.6rem; }
+.followup-error { color: var(--err); font-size: 0.8rem; margin: 0.4rem 0 0; }
+.followup-error[hidden] { display: none; }
 
 /* ---- 메시지 호버 시 "쓰레드로 답장하기" 버튼 ---- */
 .chat-bubble-wrap { position: relative; }
@@ -1634,6 +1667,26 @@ h2.section-label {
 .project-title { font-size: 0.95rem; }
 .project-goal { color: var(--muted); font-size: 0.83rem; margin: 0.3rem 0 0.45rem; }
 .project-goal-full { color: var(--muted); font-size: 0.9rem; margin: 0.2rem 0 0.8rem; }
+
+/* 프로젝트 개요 드롭다운 — 제목 줄(summary)을 눌러 목표·작업 위치·삭제를 펼친다. */
+.project-brief { margin: 0; }
+.project-brief-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  list-style: none;
+}
+.project-brief-summary::-webkit-details-marker { display: none; }
+.project-brief-summary .job-title { flex: 1; min-width: 0; }
+.project-brief-chev {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  transition: transform 0.15s ease;
+}
+.project-brief[open] .project-brief-chev { transform: rotate(180deg); }
+.project-brief-body { display: flow-root; }
 .project-card-foot {
   display: flex;
   align-items: center;
@@ -1796,10 +1849,12 @@ h2.section-label {
 .graph-node.st-failed .node-box { stroke: var(--err); stroke-width: 2; }
 /* '완료'지만 결과가 오류 안내문인 노드 — 상태색은 완료(초록)라서 테두리로 알린다 */
 .graph-node.has-warn .node-box { stroke: var(--warn); stroke-width: 2; }
-.node-warn { fill: var(--warn); font-size: 0.8rem; }
-.node-title { fill: var(--text); font-size: 0.8rem; font-weight: 600; }
-.node-meta { fill: var(--muted); font-size: 0.72rem; }
-.node-status { fill: var(--muted); font-size: 0.72rem; }
+/* 노드 글자 — 모바일에서 확대 없이 읽히도록 키웠다(박스 크기는 orchestrator의
+   NODE_W/NODE_H, 줄바꿈 글자 수는 partials/board.html이 함께 맞춰 둔다). */
+.node-warn { fill: var(--warn); font-size: 0.95rem; }
+.node-title { fill: var(--text); font-size: 0.95rem; font-weight: 600; }
+.node-meta { fill: var(--muted); font-size: 0.82rem; }
+.node-status { fill: var(--muted); font-size: 0.82rem; }
 .graph-node.st-running .node-status { fill: var(--warn); }
 .graph-node.st-done .node-status { fill: var(--ok); }
 .graph-node.st-failed .node-status { fill: var(--err); }

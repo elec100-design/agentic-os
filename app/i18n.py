@@ -114,6 +114,7 @@ EN = {
     "첨부·도구": "Attach / tools",
     "전송": "Send",
     "사이드바 열기/닫기": "Toggle sidebar",
+    "사이드바 닫기": "Close sidebar",
     "라이트/다크 테마 전환": "Toggle light/dark theme",
     "테마 전환": "Toggle theme",
     "언어 전환 (한국어/English)": "Switch language (English/한국어)",
@@ -400,4 +401,31 @@ EN = {
     "쓰레드로 답장하기": "Reply in thread",
     "쓰레드": "Thread",
     "개 답장": " replies",
+    # --- 홈 Orca 셸: 우측 채팅·세션 레일 / 중앙 탭 / 작업 큐 상태바 ---
+    # (레일·탭바 공통 문구는 프로젝트 상세 화면도 함께 쓴다)
+    "채팅": "Chat",
+    "채팅 열기": "Open chat",
+    "채팅 열기/닫기": "Toggle chat",
+    "다시 시도": "Retry",
+    "작업이 삭제되었거나 서버가 아직 이 화면을 모릅니다(재시작 필요).":
+        "The job was deleted, or the server hasn't picked up this view yet (restart needed).",
+    "보낼 수 없습니다.": "Couldn't send.",
+    "이 세션을 이어받아 같은 에이전트로 진행합니다":
+        "Continues this session with the same agent",
+    "이 대화를 컨텍스트로 붙여 같은 에이전트로 진행합니다":
+        "Continues with the same agent, attaching this conversation as context",
+    "세션": "Sessions",
+    "접기/펼치기": "Collapse/expand",
+    "패널 너비 조절": "Resize panel",
+    "작업 탭": "Job tabs",
+    "이전 탭": "Previous tab",
+    "다음 탭": "Next tab",
+    "작업": "Job",
+    "작업 없음": "No jobs",
+    "실행": "Running",
+    "불러올 수 없습니다.": "Couldn't load.",
+    "오른쪽에서 작업을 보내면 진행과정이 여기 탭으로 열립니다.":
+        "Send a job from the right and its progress opens here as a tab.",
+    "아직 작업이 없습니다. 아래에서 첫 작업을 보내 보세요.":
+        "No jobs yet. Send your first one below.",
 }

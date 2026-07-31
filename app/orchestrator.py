@@ -739,10 +739,28 @@ def reset_layout(conn, project_id):
 
 # --- 그래프 레이아웃 (n8n식 DAG, 서버 렌더링 SVG용) --------------------------
 
-NODE_W, NODE_H = 190, 72
+# 노드 글자를 키우고 제목을 두 줄까지 보여주기 위해 박스도 그만큼 키웠다
+# (텍스트 좌표는 templates/partials/board.html이 이 크기에 맞춰 둔다).
+NODE_W, NODE_H = 232, 86
 GAP_X, GAP_Y = 80, 28
 PAD = 24
 ORIENTATIONS = ("lr", "tb")
+
+# 모바일(tb)은 데스크톱 배치를 세로로 돌린 게 아니라 아예 다른 그림이다.
+# 노드를 한 줄 세로 스택으로 쌓고(가로 스크롤 0), 캔버스 폭을 폰 화면 폭에
+# 맞춰 두므로 화면 맞춤만 해도 노드가 1:1 크기로 읽힌다. 대신 폭이 남으므로
+# 박스를 넓혀 제목을 세 줄까지 흘리고, 한 칸 건너뛰는 연결선은 왼쪽 레일로
+# 빼서 노드 위를 지나가지 않게 한다.
+MOBILE_NODE_W, MOBILE_NODE_H = 272, 108
+MOBILE_GAP_Y = 34
+LANE_W = 16   # 레일 한 칸 폭 (레일 4칸까지는 폰 화면 폭 안에 들어간다)
+# 레일로 꺾일 때의 곡선 반경. 꺾임 한 번이 노드 사이 간격(2r) 안에서 끝나야
+# 곡선이 아래 노드 박스 위를 지나가지 않는다.
+LANE_R = MOBILE_GAP_Y // 2
+
+# 제목 줄바꿈 — (첫 줄, 나머지 줄, 최대 줄 수). 첫 줄은 아이콘과 오른쪽 ⚠
+# 자리를 비워 두므로 짧다. 글자 수는 .node-title(15px)과 박스 폭에서 왔다.
+TITLE_WRAP = {"lr": (10, 12, 2), "tb": (13, 15, 3)}
 
 
 def _saved_pos(task):
@@ -754,21 +772,24 @@ def _saved_pos(task):
     return None if x is None or y is None else (float(x), float(y))
 
 
-def layout_graph(tasks, orientation="lr"):
-    """태스크 목록 → SVG 좌표. 순수 함수.
+def _title_lines(title, orientation):
+    """제목을 노드 박스 폭에 맞춰 잘라 줄 목록으로. 넘치면 마지막 줄에 말줄임."""
+    first, rest, max_lines = TITLE_WRAP[orientation]
+    lines, i = [], 0
+    for k in range(max_lines):
+        chunk = title[i:i + (first if k == 0 else rest)]
+        if not chunk:
+            break
+        i += len(chunk)
+        lines.append(chunk)
+    if lines and len(title) > i:
+        lines[-1] += "…"
+    return lines or [""]
 
-    orientation="lr" (데스크톱): 레이어 = 의존성 위상 깊이(왼→오), 레이어 안에서는
-    seq 순 세로 배치. 사용자가 옮긴 노드(pos_x/pos_y)는 그 좌표를 그대로 쓴다.
-    orientation="tb" (모바일): 깊이를 위→아래로 쌓는 세로 흐름. 좁은 화면에서
-    가로 스크롤을 없애는 게 목적이므로 저장된 좌표는 무시하고 항상 재정렬한다.
 
-    반환: {"nodes": [{...task fields, x, y, w, h, in_x, in_y, out_x, out_y}],
-           "edges": [{"from": seq, "to": seq, "path": "M..C..", "done": bool}],
-           "width": int, "height": int, "orientation": str}
-    """
-    vertical = orientation == "tb"
+def _layers(tasks):
+    """의존성 위상 깊이 → 그 깊이의 태스크들(seq 순)."""
     by_seq = {t["seq"]: t for t in tasks}
-
     depth_cache = {}
 
     def depth(seq, trail=()):
@@ -776,8 +797,7 @@ def layout_graph(tasks, orientation="lr"):
             return depth_cache[seq]
         if seq in trail:  # 순환은 parse_plan/set_task_deps에서 걸러지지만 방어
             return 0
-        task = by_seq[seq]
-        deps = [d for d in _deps(task) if d in by_seq]
+        deps = [d for d in _deps(by_seq[seq]) if d in by_seq]
         d = 0 if not deps else 1 + max(depth(p, trail + (seq,)) for p in deps)
         depth_cache[seq] = d
         return d
@@ -785,47 +805,121 @@ def layout_graph(tasks, orientation="lr"):
     layers = {}
     for t in tasks:
         layers.setdefault(depth(t["seq"]), []).append(t)
+    return {k: sorted(v, key=lambda t: t["seq"]) for k, v in sorted(layers.items())}
 
+
+def _node(task, x, y, w, h, orientation):
+    node = {**dict(task), "x": x, "y": y, "w": w, "h": h,
+            "lines": _title_lines(task["title"], orientation)}
+    # 연결 핸들(포트) 좌표 — 흐름 방향에 따라 좌↔우 또는 위↔아래
+    if orientation == "tb":
+        node["in_x"], node["in_y"] = x + w / 2, y
+        node["out_x"], node["out_y"] = x + w / 2, y + h
+    else:
+        node["in_x"], node["in_y"] = x, y + h / 2
+        node["out_x"], node["out_y"] = x + w, y + h / 2
+    return node
+
+
+def _layout_desktop(tasks):
     nodes = {}
-    for layer_idx in sorted(layers):
-        line = sorted(layers[layer_idx], key=lambda t: t["seq"])
+    for layer_idx, line in _layers(tasks).items():
         for row_idx, t in enumerate(line):
-            if vertical:
-                x = PAD + row_idx * (NODE_W + GAP_X)
-                y = PAD + layer_idx * (NODE_H + GAP_Y)
-            else:
-                x = PAD + layer_idx * (NODE_W + GAP_X)
-                y = PAD + row_idx * (NODE_H + GAP_Y)
-                saved = _saved_pos(t)
-                if saved:
-                    x, y = saved
-            node = {**dict(t), "x": x, "y": y, "w": NODE_W, "h": NODE_H}
-            # 연결 핸들(포트) 좌표 — 흐름 방향에 따라 좌↔우 또는 위↔아래
-            if vertical:
-                node["in_x"], node["in_y"] = x + NODE_W / 2, y
-                node["out_x"], node["out_y"] = x + NODE_W / 2, y + NODE_H
-            else:
-                node["in_x"], node["in_y"] = x, y + NODE_H / 2
-                node["out_x"], node["out_y"] = x + NODE_W, y + NODE_H / 2
-            nodes[t["seq"]] = node
+            x = PAD + layer_idx * (NODE_W + GAP_X)
+            y = PAD + row_idx * (NODE_H + GAP_Y)
+            saved = _saved_pos(t)
+            if saved:
+                x, y = saved
+            nodes[t["seq"]] = _node(t, x, y, NODE_W, NODE_H, "lr")
 
+    edges = []
+    for seq, child in nodes.items():
+        for d in _deps(nodes[seq]):
+            parent = nodes.get(d)
+            if not parent:
+                continue
+            x1, y1 = parent["out_x"], parent["out_y"]
+            x2, y2 = child["in_x"], child["in_y"]
+            mx = (x1 + x2) / 2
+            edges.append({"from": d, "to": seq, "done": parent["status"] == "done",
+                          "path": f"M {x1} {y1} C {mx} {y1}, {mx} {y2}, {x2} {y2}"})
+    return nodes, edges
+
+
+def _rail_path(x1, y1, x2, y2, gx):
+    """부모 아래 → 왼쪽 레일 → 자식 위로 도는 연결선(모서리는 둥글게)."""
+    r = min(LANE_R, (y2 - y1) / 4)
+    return (f"M {x1} {y1} "
+            f"C {x1} {y1 + r}, {gx} {y1 + r}, {gx} {y1 + 2 * r} "
+            f"L {gx} {y2 - 2 * r} "
+            f"C {gx} {y2 - r}, {x2} {y2 - r}, {x2} {y2}")
+
+
+def _layout_mobile(tasks):
+    """한 줄 세로 스택 + 왼쪽 레일 배선. 저장된 좌표는 무시한다 —
+    폰에서는 '읽고 따라가는 순서'가 '어디에 놓였는지'보다 중요하다."""
+    order = [t for line in _layers(tasks).values() for t in line]
+    rank = {t["seq"]: i for i, t in enumerate(order)}
+    ys = {t["seq"]: PAD + i * (MOBILE_NODE_H + MOBILE_GAP_Y)
+          for i, t in enumerate(order)}
+
+    # 바로 아래 노드로 잇는 선은 그냥 내려 긋는다. 한 칸 이상 건너뛰는 선만
+    # 왼쪽 레일로 빼고, 세로 구간이 겹치는 것끼리는 레인을 한 칸씩 더 왼쪽으로
+    # 밀어 선이 포개지지 않게 한다.
+    jumps, lane_of, lane_end = [], {}, []
+    for t in tasks:
+        for d in _deps(t):
+            if d in rank and rank[t["seq"]] - rank[d] > 1:
+                jumps.append((d, t["seq"]))
+    for e in sorted(jumps, key=lambda e: ys[e[0]]):
+        top, bottom = ys[e[0]] + MOBILE_NODE_H, ys[e[1]]
+        lane = next((i for i, end in enumerate(lane_end) if end <= top),
+                    len(lane_end))
+        if lane == len(lane_end):
+            lane_end.append(bottom)
+        else:
+            lane_end[lane] = bottom
+        lane_of[e] = lane
+    x = PAD + len(lane_end) * LANE_W
+    # 레인 0이 노드에 가장 가깝고, 번호가 커질수록 왼쪽으로 나간다
+    lane_x = {e: x - (lane_of[e] + 0.5) * LANE_W for e in lane_of}
+
+    nodes = {t["seq"]: _node(t, x, ys[t["seq"]], MOBILE_NODE_W, MOBILE_NODE_H, "tb")
+             for t in order}
     edges = []
     for t in tasks:
         child = nodes[t["seq"]]
         for d in _deps(t):
-            if d not in nodes:
+            parent = nodes.get(d)
+            if not parent:
                 continue
-            parent = nodes[d]
             x1, y1 = parent["out_x"], parent["out_y"]
             x2, y2 = child["in_x"], child["in_y"]
-            if vertical:
+            e = (d, t["seq"])
+            if e in lane_x:
+                path = _rail_path(x1, y1, x2, y2, lane_x[e])
+            else:
                 my = (y1 + y2) / 2
                 path = f"M {x1} {y1} C {x1} {my}, {x2} {my}, {x2} {y2}"
-            else:
-                mx = (x1 + x2) / 2
-                path = f"M {x1} {y1} C {mx} {y1}, {mx} {y2}, {x2} {y2}"
             edges.append({"from": d, "to": t["seq"], "path": path,
                           "done": parent["status"] == "done"})
+    return nodes, edges
+
+
+def layout_graph(tasks, orientation="lr"):
+    """태스크 목록 → SVG 좌표. 순수 함수.
+
+    orientation="lr" (데스크톱): 레이어 = 의존성 위상 깊이(왼→오), 레이어 안에서는
+    seq 순 세로 배치. 사용자가 옮긴 노드(pos_x/pos_y)는 그 좌표를 그대로 쓴다.
+    orientation="tb" (모바일): 노드 한 줄 세로 스택 + 왼쪽 레일 배선. 폰 화면
+    폭에 맞춘 캔버스라 확대 없이 읽히고, 저장된 좌표는 무시한다.
+
+    반환: {"nodes": [{...task fields, x, y, w, h, lines, in_x, in_y, out_x, out_y}],
+           "edges": [{"from": seq, "to": seq, "path": "M..C..", "done": bool}],
+           "width": int, "height": int, "orientation": str}
+    """
+    vertical = orientation == "tb"
+    nodes, edges = _layout_mobile(tasks) if vertical else _layout_desktop(tasks)
 
     # 캔버스는 자동 격자가 아니라 실제 노드 경계에서 잰다 — 사용자가 노드를
     # 바깥으로 끌면 캔버스도 따라 넓어져야 한다.

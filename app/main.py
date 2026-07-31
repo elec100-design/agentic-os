@@ -300,6 +300,7 @@ async def _save_uploads(files):
 
 @app.post("/jobs")
 async def create_job(
+    request: Request,
     prompt: str = Form(...),
     provider: str = Form("auto"),
     model: str = Form(""),
@@ -370,13 +371,18 @@ async def create_job(
         prompt += "\n\n첨부 파일 (로컬 경로에서 읽을 것):\n" + "\n".join(
             f"- {p}" for p in uploads
         )
-    db.create_job(conn, prompt, provider,
-                  timeout_sec=timeout_min * 60 if timeout_min else None,
-                  session_id=session_id.strip() or None,
-                  model=model or None,
-                  workdir=workdir or None,
-                  note_path=str(Path(origin_note).resolve()) if origin_note else None,
-                  route_reason=route_reason)
+    job_id = db.create_job(
+        conn, prompt, provider,
+        timeout_sec=timeout_min * 60 if timeout_min else None,
+        session_id=session_id.strip() or None,
+        model=model or None,
+        workdir=workdir or None,
+        note_path=str(Path(origin_note).resolve()) if origin_note else None,
+        route_reason=route_reason)
+    # 탭 안에서 이어 보낸 후속 작업은 페이지를 떠나지 않는다 — 새 작업 id만 받아
+    # 그 자리에서 새 탭으로 연다.
+    if "application/json" in (request.headers.get("accept") or ""):
+        return {"job_id": job_id}
     return RedirectResponse("/", status_code=303)
 
 
@@ -739,13 +745,45 @@ def note_view(request: Request, path: str):
     )
 
 
+def _job_view_ctx(job):
+    """작업 상세 뷰(단독 페이지·홈 탭 공용)의 렌더 컨텍스트.
+
+    thread: 이 작업 '이전'의 대화 턴들 — 연결된 스레드 노트에서 읽는다. 노트는
+    작업이 끝난 뒤에 기록되므로, 끝난 작업이면 노트의 마지막 한 쌍이 이 작업
+    자신이라 잘라낸다(프롬프트로 확인).
+    can_resume: 같은 세션을 이어받아 후속 작업을 보낼 수 있는지.
+    """
+    thread = []
+    if job["note_path"]:
+        note = memory.read_note(job["note_path"])
+        if note:
+            thread = memory.parse_thread(note["body"])
+            if (len(thread) >= 2 and thread[-2]["role"] == "user"
+                    and thread[-2]["content"].strip() == (job["prompt"] or "").strip()):
+                thread = thread[:-2]
+    # note_view와 같은 기준 — hermes(무상태)·antigravity/gemini(UUID 재개 불가)는
+    # 세션을 이어받을 수 없어 노트를 컨텍스트로 붙이는 폴백만 제공한다.
+    can_resume = bool(
+        job["status"] in ("done", "failed")
+        and job["session_id"] and job["provider"] in PROVIDERS
+        and job["provider"] not in ("hermes", "antigravity", "gemini")
+    )
+    can_follow_up = bool(
+        job["status"] in ("done", "failed")
+        and job["provider"] in PROVIDERS
+        and (can_resume or job["note_path"])
+    )
+    return {"job": job, "thread": thread,
+            "can_resume": can_resume, "can_follow_up": can_follow_up}
+
+
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 def job_detail(request: Request, job_id: int):
     conn = db.get_conn()
     job = db.get_job(conn, job_id)
     if job is None:
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse(request, "job.html", {"job": job})
+    return templates.TemplateResponse(request, "job.html", _job_view_ctx(job))
 
 
 @app.post("/jobs/{job_id}/cancel")
@@ -817,6 +855,20 @@ def delete_job_endpoint(request: Request, job_id: int):
     )
     resp.headers["HX-Trigger"] = "refresh-memory"   # 사이드바 메모리도 갱신
     return resp
+
+
+@app.api_route("/partials/job/{job_id}", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def partial_job(request: Request, job_id: int):
+    """작업 상세 조각 — 홈 중앙 워크스페이스가 탭 내용으로 불러온다.
+
+    HEAD도 받는다 — home.js가 새로고침 후 탭을 복원할 때 작업이 아직 존재하는지
+    본문 없이 확인한다(partial_task와 같은 계약)."""
+    conn = db.get_conn()
+    job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/job_view.html", _job_view_ctx(job))
 
 
 @app.get("/partials/jobs", response_class=HTMLResponse)

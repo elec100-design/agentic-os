@@ -34,8 +34,11 @@
   };
   function tt(s) { return (typeof t === "function") ? t(s) : s; }
 
-  function isDesktop() { return window.innerWidth >= 1024; }
-  function isMobile() { return window.innerWidth < 768; }
+  // CSS 미디어쿼리와 같은 레이아웃 뷰포트로 잰다 — window.innerWidth는 iOS
+  // Safari에서 핀치 줌에 따라 변해, 화면을 벌린 사이에만 티어가 뒤집힌다.
+  const vpWidth = () => document.documentElement.clientWidth || window.innerWidth;
+  function isDesktop() { return vpWidth() >= 1024; }
+  function isMobile() { return vpWidth() < 768; }
 
   // tabs: [{ tabId: "canvas"|"task-42", kind, refId, title, status, closable, apiId }]
   let tabs = [];
@@ -130,7 +133,6 @@
     });
     updateNavButtons();
     updateMobileSegCtl();
-    updateWsHeaderTitle();
   }
 
   function updateNavButtons() {
@@ -466,15 +468,6 @@
   const segDot = segCtl?.querySelector(".orca-mobile-segctl-dot");
   const segBadge = segCtl?.querySelector(".orca-mobile-segctl-badge");
   const segCount = segCtl?.querySelector(".orca-mobile-segctl-count");
-  const wsHeaderTitle = document.getElementById("orca-ws-header-title");
-  const wsBackBtn = document.getElementById("orca-ws-back");
-
-  function updateWsHeaderTitle() {
-    if (!wsHeaderTitle) return;
-    const tb = findTab(activeTabId);
-    wsHeaderTitle.textContent = tb ? tb.title : "";
-  }
-
   // 뷰만 바꾼다 — 히스토리는 건드리지 않는다(popstate 핸들러와 goTo*()가 담당).
   function applyMobileView(view) {
     document.body.dataset.orcaMobileView = view;
@@ -483,7 +476,6 @@
       b.classList.toggle("active", active);
       b.setAttribute("aria-selected", active ? "true" : "false");
     });
-    updateWsHeaderTitle();
   }
 
   // 채팅 → 워크스페이스: 히스토리 엔트리 1개 추가(뒤로가기로 채팅 복귀 가능하도록).
@@ -507,8 +499,20 @@
     if (b.dataset.seg === "workspace") goToWorkspace();
     else goToChat();
   }));
-  wsBackBtn?.addEventListener("click", goToChat);
   applyMobileView("chat");
+
+  // 프로젝트 개요(목표·작업 위치·삭제)는 모바일에서 접어 둔다 — 제목 한 줄만
+  // 남겨 워크스페이스가 화면을 최대한 쓰게 한다. 데스크톱은 펼친 채(open) 둔다.
+  const brief = document.getElementById("project-brief");
+  if (brief && isMobile()) brief.open = false;
+  // 폭이 모바일 구간으로 들어올 때만 한 번 접는다 — 키보드 등으로 resize가
+  // 연달아 떠도 사용자가 방금 펼친 개요를 다시 닫아 버리지 않게.
+  let briefWasMobile = isMobile();
+  window.addEventListener("resize", () => {
+    const m = isMobile();
+    if (brief && m && !briefWasMobile) brief.open = false;
+    briefWasMobile = m;
+  });
 
   window.addEventListener("popstate", (e) => {
     if (!isMobile()) return;

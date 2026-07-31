@@ -107,22 +107,29 @@
      data-job="{{ n['job_id'] or '' }}"
      transform="translate({{ n['x'] }}, {{ n['y'] }})">
     <rect class="node-box" width="{{ n['w'] }}" height="{{ n['h'] }}" rx="10"/>
-    <text class="node-title" x="12" y="24">{{ ICON[n['task_type']] }} {{ n['title'][:18] }}{% if n['title'] | length > 18 %}…{% endif %}</text>
-    <text class="node-meta" x="12" y="48">{{ n['provider'] }}</text>
-    <text class="node-status" x="{{ n['w'] - 12 }}" y="48" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
+    {# 제목 줄바꿈은 서버(orchestrator.TITLE_WRAP)가 박스 폭에 맞춰 잘라 준다 —
+       데스크톱은 두 줄, 모바일은 더 넓은 박스에 세 줄. #}
+    {% for line in n['lines'] %}
+    <text class="node-title" x="12" y="{{ 26 + 22 * loop.index0 }}">
+      {%- if loop.first %}{{ ICON[n['task_type']] }} {% endif %}{{ line }}</text>
+    {% endfor %}
+    <text class="node-meta" x="12" y="{{ n['h'] - 14 }}">{{ n['provider'] }}</text>
+    <text class="node-status" x="{{ n['w'] - 12 }}" y="{{ n['h'] - 14 }}" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
     {% if n['id'] in warn_ids %}
-    <text class="node-warn" x="{{ n['w'] - 12 }}" y="24" text-anchor="end">⚠</text>
+    <text class="node-warn" x="{{ n['w'] - 12 }}" y="26" text-anchor="end">⚠</text>
     {% endif %}
     {% if n['artifact_path'] and n['task_type'] == 'image' %}
     <image href="/artifacts/{{ project['id'] }}/{{ n['artifact_path'].split('/')[-1] }}"
            x="{{ n['w'] - 40 }}" y="8" width="28" height="28" preserveAspectRatio="xMidYMid slice"/>
     {% endif %}
     {% if editable %}
-    {# 포트 좌표는 노드 로컬 기준 — <g>가 이미 (x, y)로 이동돼 있다 #}
+    {# 포트 좌표는 노드 로컬 기준 — <g>가 이미 (x, y)로 이동돼 있다.
+       모바일은 손가락으로 집어야 하므로 반지름을 키운다. #}
+    {% set _pr = 10 if graph['orientation'] == 'tb' else 6 %}
     <circle class="node-port port-in" data-port="in"
-            cx="{{ n['in_x'] - n['x'] }}" cy="{{ n['in_y'] - n['y'] }}" r="6"/>
+            cx="{{ n['in_x'] - n['x'] }}" cy="{{ n['in_y'] - n['y'] }}" r="{{ _pr }}"/>
     <circle class="node-port port-out" data-port="out"
-            cx="{{ n['out_x'] - n['x'] }}" cy="{{ n['out_y'] - n['y'] }}" r="6"/>
+            cx="{{ n['out_x'] - n['x'] }}" cy="{{ n['out_y'] - n['y'] }}" r="{{ _pr }}"/>
     {% endif %}
   </g>
   {% endfor %}

@@ -19,36 +19,45 @@
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700&display=swap");
 
+/* 팔레트는 style.css의 Claude Desktop 토큰(--bg/--surface/--text/--accent…)을
+   단일 진실로 삼고 파생만 한다. 색 값을 여기서 새로 정의하면 두 팔레트가
+   따로 놀아 — 실제로 그랬다 — 밤/낮 토글이 한쪽에만 먹고 크림색 배경 위에
+   흰 글씨 같은 조합이 나온다. 파생만 하면 토글은 자동으로 따라온다.
+   (이전 구조의 버그: data-theme은 <html>에 붙는데 .orca는 <body>에 있어
+    `.orca[data-theme="light"]` 규칙이 한 번도 매치되지 않았다.) */
 .orca {
   --orca-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --orca-font-display: "Inter Tight", "Inter", -apple-system, sans-serif;
   --orca-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  /* 베이스 팔레트 — 딥 네이비/차콜, 라이트 변형은 부가적으로만 지원 */
-  --orca-bg: #0B0D14;
+  --orca-bg: var(--bg);
+  /* 아주 옅은 테라코타 글로우만 얹은 평면 배경 — Claude 앱의 차분한 톤을 따른다.
+     .orca-canvas가 이 값을 background-image 목록에 넣으므로 색이 아닌
+     그라데이션 형태를 유지해야 한다. */
   --orca-bg-gradient:
-    radial-gradient(1200px 700px at 12% -10%, rgba(122, 130, 255, 0.16), transparent 60%),
-    radial-gradient(900px 600px at 100% 0%, rgba(217, 119, 87, 0.10), transparent 55%),
-    linear-gradient(180deg, #0B0D14 0%, #0A0B11 100%);
-  --orca-surface: rgba(255, 255, 255, 0.045);
-  --orca-surface-hover: rgba(255, 255, 255, 0.075);
-  --orca-surface-2: rgba(255, 255, 255, 0.03);
-  --orca-border: rgba(255, 255, 255, 0.09);
-  --orca-border-strong: rgba(255, 255, 255, 0.16);
-  --orca-text: #EDEEF3;
-  --orca-muted: #8B8FA3;
-  --orca-muted-soft: #5E6178;
+    radial-gradient(1200px 700px at 12% -10%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 60%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg) 100%);
+  --orca-surface: var(--surface);
+  --orca-surface-hover: color-mix(in srgb, var(--text) 7%, var(--surface));
+  --orca-surface-2: var(--surface-2);
+  --orca-border: var(--border);
+  --orca-border-strong: color-mix(in srgb, var(--text) 20%, var(--border));
+  --orca-text: var(--text);
+  --orca-muted: var(--muted);
+  --orca-muted-soft: color-mix(in srgb, var(--muted) 55%, var(--bg));
 
-  --orca-accent: #7A82FF;
-  --orca-accent-2: #D97757;
-  --orca-accent-soft: rgba(122, 130, 255, 0.14);
-  --orca-accent-glow: rgba(122, 130, 255, 0.35);
-  --orca-ok: #5FD196;
-  --orca-warn: #E3B15C;
-  --orca-err: #F0736E;
-  --orca-ok-soft: rgba(95, 209, 150, 0.14);
-  --orca-warn-soft: rgba(227, 177, 92, 0.14);
-  --orca-err-soft: rgba(240, 115, 110, 0.14);
+  --orca-accent: var(--accent);
+  --orca-accent-2: var(--accent-hover);
+  --orca-accent-soft: var(--accent-soft);
+  --orca-accent-glow: color-mix(in srgb, var(--accent) 30%, transparent);
+  --orca-ok: var(--ok);
+  --orca-warn: var(--warn);
+  --orca-err: var(--err);
+  /* 10%가 --ok 글자와의 대비가 가장 좋다(라이트 4.2:1 / 다크 5.3:1) —
+     베이스 팔레트에 --ok-bg 가 없어 여기서만 파생한다. */
+  --orca-ok-soft: color-mix(in srgb, var(--ok) 10%, var(--bg));
+  --orca-warn-soft: var(--warn-bg);
+  --orca-err-soft: var(--err-bg);
 
   /* 글래스 블러 강도 — 레일/캔버스/인스펙터가 각각 다른 깊이감을 갖도록 3단계 */
   --orca-blur-sm: blur(10px);
@@ -58,32 +67,28 @@
   --orca-radius-sm: 8px;
   --orca-radius-md: 12px;
   --orca-radius-lg: 18px;
-  --orca-shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  --orca-shadow-float: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --orca-shadow-panel: 0 6px 24px rgba(31, 30, 29, 0.07);
+  --orca-shadow-float: 0 18px 48px rgba(31, 30, 29, 0.13);
 
-  color-scheme: dark;
+  color-scheme: light;
   background: var(--orca-bg-gradient);
   color: var(--orca-text);
   font-family: var(--orca-font-ui);
 }
 
-/* 라이트 보조 팔레트 — data-theme="light"일 때만, 다크가 기본값이라는 원칙은 유지 */
-.orca[data-theme="light"] {
-  --orca-bg: #F4F5FA;
-  --orca-bg-gradient:
-    radial-gradient(1200px 700px at 12% -10%, rgba(122, 130, 255, 0.10), transparent 60%),
-    linear-gradient(180deg, #F7F8FC 0%, #EEF0F7 100%);
-  --orca-surface: rgba(255, 255, 255, 0.65);
-  --orca-surface-hover: rgba(255, 255, 255, 0.85);
-  --orca-surface-2: rgba(255, 255, 255, 0.45);
-  --orca-border: rgba(15, 17, 32, 0.09);
-  --orca-border-strong: rgba(15, 17, 32, 0.16);
-  --orca-text: #14162A;
-  --orca-muted: #5B5E75;
-  --orca-muted-soft: #8A8CA0;
-  --orca-shadow-panel: 0 8px 32px rgba(15, 17, 32, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  --orca-shadow-float: 0 20px 60px rgba(15, 17, 32, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.7);
-  color-scheme: light;
+/* 다크에서만 달라지는 값(그림자·color-scheme). 조건은 style.css의 다크 팔레트와
+   똑같이 두 가지다: OS가 다크인데 라이트를 명시하지 않았거나, 다크를 명시했거나. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .orca {
+    --orca-shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --orca-shadow-float: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] .orca {
+  --orca-shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --orca-shadow-float: 0 20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color-scheme: dark;
 }
 
 /* ── 글래스 표면 유틸리티 ─────────────────────────────────────────── */
@@ -355,6 +360,8 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* 레일 끝까지 스크롤해도 뒤의 메인뷰로 스크롤이 옮겨가지 않게 막는다 */
+  overscroll-behavior: contain;
   padding: 0.75rem;
   display: flex;
   flex-direction: column;
@@ -388,9 +395,12 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
 }
 .orca-msg-bubble > *:first-child { margin-top: 0; }
 .orca-msg-bubble > *:last-child { margin-bottom: 0; }
+/* 액센트 위 흰 글씨는 테라코타(#C96442/#D97757) 기준 대비가 3~4:1 밖에 안 나온다.
+   style.css의 .chat-bubble과 같은 처리(연한 액센트 배경 + 본문색)로 맞춘다. */
 .orca-msg.user .orca-msg-bubble {
-  background: linear-gradient(135deg, var(--orca-accent), color-mix(in srgb, var(--orca-accent) 70%, var(--orca-accent-2)));
-  color: #fff;
+  background: var(--orca-accent-soft);
+  border: 1px solid transparent;
+  color: var(--orca-text);
 }
 .orca-msg.assistant .orca-msg-bubble {
   background: var(--orca-surface-2);
@@ -956,6 +966,44 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
    .orca-tab-panel의 기본 패딩과 겹치지 않게 비운다. */
 .orca-tab-panel[data-tab-kind="flow"] { padding: 0; }
 
+/* kind="workflow"(다이어그램 캔버스)는 패널 높이를 그대로 채운다. 캔버스가
+   고정 vh 높이를 쓰면 패널이 이중 스크롤되고, fitView가 남는 여백까지 맞추려고
+   그래프를 과하게 축소해 노드 글자가 읽히지 않는다. */
+.orca-tab-panel[data-tab-kind="workflow"] {
+  padding: 0.6rem 0.7rem;
+  overflow: hidden;
+}
+.orca-tab-panel[data-tab-kind="workflow"].active { display: flex; flex-direction: column; }
+.orca-tab-panel[data-tab-kind="workflow"] > #board {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+#board .graph-canvas {
+  flex: 1;
+  height: auto;
+  min-height: 180px;
+  max-height: none;
+  margin-bottom: 0;
+}
+/* 툴바는 한 줄 스크롤 — 좁은 화면에서 두 줄로 접히며 캔버스 높이를 먹지 않게. */
+#board .graph-toolbar {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+#board .graph-toolbar::-webkit-scrollbar { display: none; }
+#board .graph-toolbar .btn-ghost { white-space: nowrap; flex-shrink: 0; }
+/* 폭이 모자라면 버튼이 아니라 힌트 문구가 먼저 줄어든다. */
+#board .graph-hint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .orca-tab-empty {
   display: none;
   position: absolute;
@@ -990,10 +1038,14 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     min-width: 0;
   }
   .orca-project-main > .back-link,
-  .orca-project-main > .job-title,
-  .orca-project-main > .project-goal-full,
+  .orca-project-main > .project-brief,
   .orca-project-main > .job-meta {
     flex-shrink: 0;
+  }
+  /* 개요를 펼쳐도 워크스페이스를 밀어내지 않게 목표 본문만 안에서 스크롤한다. */
+  .orca-project-main > .project-brief .project-brief-body {
+    max-height: 28vh;
+    overflow-y: auto;
   }
 
   .orca-workspace {
@@ -1008,14 +1060,13 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
    보이기만 바꿔서, 대화 스크롤 위치·입력 중이던 초안이 그대로 유지된다).
    진행 중 표시는 board-workspace.js가 #orca-mobile-segctl의 배지/점을 채운다. ═══ */
 .orca-mobile-segctl { display: none; }
-.orca-ws-header { display: none; }
 
 @media (max-width: 767px) {
   :root {
     /* 하단 세그먼트 컨트롤의 실제 렌더 높이(콘텐츠+패딩+테두리+세이프에어리어).
        .orca-mobile-segctl 자신의 padding과 .orca-chat-rail/.orca-project-main의
        하단 여백이 모두 이 값을 공유해 어긋나지 않게 한다. */
-    --orca-segctl-h: calc(44px + 0.8rem + 1px + env(safe-area-inset-bottom));
+    --orca-segctl-h: calc(38px + 0.5rem + 1px + env(safe-area-inset-bottom));
   }
 
   /* .orca-rail-mobile-toggle/.orca-rail-scrim는 이제 768~1023px 전용 블록에서만
@@ -1045,17 +1096,20 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     display: none;
     padding-bottom: var(--orca-segctl-h);
   }
+  /* 워크스페이스 뷰에서는 페이지 자체가 스크롤되지 않는다 — 헤더(뒤로·개요)는
+     최소 높이만 쓰고 남은 높이를 전부 워크스페이스에 넘겨서, 다이어그램이
+     화면 아래쪽 좁은 띠에 갇히지 않게 한다. */
   body[data-orca-mobile-view="workspace"] .orca-project-main {
     display: flex;
     flex-direction: column;
     height: 100dvh;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden;
     box-sizing: border-box;
+    padding-left: 0.6rem;
+    padding-right: 0.6rem;
   }
   body[data-orca-mobile-view="workspace"] .orca-project-main > .back-link,
-  body[data-orca-mobile-view="workspace"] .orca-project-main > .job-title,
-  body[data-orca-mobile-view="workspace"] .orca-project-main > .project-goal-full,
+  body[data-orca-mobile-view="workspace"] .orca-project-main > .project-brief,
   body[data-orca-mobile-view="workspace"] .orca-project-main > .job-meta {
     flex-shrink: 0;
   }
@@ -1063,60 +1117,65 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     flex: 1;
     min-height: 0;
     height: auto;
-    margin-top: 0.5rem;
+    margin-top: 0.4rem;
   }
 
-  /* ── 워크스페이스 sticky 헤더: 채팅 복귀 + 활성 탭 제목 ───────────── */
-  .orca-ws-header {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    flex-shrink: 0;
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    min-height: 44px;
-    padding: 0.3rem 0.6rem;
-    background: var(--orca-surface-2);
-    border-bottom: 1px solid var(--orca-border);
-  }
-  .orca-ws-back {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    flex-shrink: 0;
-    min-height: 44px;
-    min-width: 44px;
-    padding: 0 0.5rem;
-    border: none;
-    border-radius: var(--orca-radius-sm);
-    background: transparent;
-    color: var(--orca-accent);
-    font: inherit;
-    font-weight: 500;
-    cursor: pointer;
-  }
-  .orca-ws-back:hover, .orca-ws-back:active { background: var(--orca-surface-hover); }
-  .orca-ws-header-title {
-    flex: 1;
-    min-width: 0;
+  /* 헤더 크롬(뒤로가기·제목)은 거의 보지 않는 영역이라 한 줄 최소 높이로 눌러
+     둔다 — 접힌 개요는 34px 한 줄 탭 타깃, 펼치면 화면 절반까지만 차지하고
+     안에서 스크롤한다(펼친 채로도 워크스페이스가 남는다). */
+  .orca-project-main > .back-link { margin: 0.25rem 0 0; font-size: 0.72rem; }
+  .project-brief-summary { min-height: 34px; }
+  .project-brief-summary .job-title {
+    font-size: 0.88rem;
+    margin: 0;
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-align: center;
-    padding-right: 44px;
-    font-weight: 600;
-    color: var(--orca-text);
-    font-size: 0.9rem;
+  }
+  .project-brief[open] .project-brief-summary .job-title { white-space: normal; }
+  .project-brief-body {
+    max-height: 42vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
+  /* 다이어그램 툴바 — 힌트 문구는 접어 두고 버튼만 한 줄로 스크롤한다.
+     버튼은 자주 쓰지 않으므로 32px 높이로 줄여 캔버스에 높이를 넘긴다
+     (style.css의 700px 블록이 지정한 44px를 id 선택자로 덮는다). */
+  #board .graph-hint { display: none; }
+  #board .graph-toolbar { gap: 0.25rem; margin-bottom: 0.3rem; }
+  #board .graph-toolbar .btn-ghost {
+    min-height: 32px;
+    min-width: 32px;
+    padding: 0 0.5rem;
+    font-size: 0.75rem;
+  }
+  /* 상태 배너도 한 줄 알림 수준으로 — 내용은 그대로 두고 여백만 걷어낸다. */
+  #board .board-banner {
+    gap: 0.4rem;
+    padding: 0.3rem 0.55rem;
+    border-radius: 8px;
+    font-size: 0.76rem;
+    margin-bottom: 0.35rem;
+  }
+  #board .board-banner .btn-ghost,
+  #board .board-banner .btn-primary {
+    min-height: 30px;
+    padding: 0.1rem 0.6rem;
+    font-size: 0.76rem;
+  }
+  .orca-tab-panel[data-tab-kind="workflow"] { padding: 0.3rem 0.3rem 0.4rem; }
+
   /* ── 탭바를 스와이프 가능한 칩 스트립으로 ─────────────────────────── */
-  .orca-tabbar { height: auto; padding: 0.4rem; gap: 0.35rem; }
+  .orca-tabbar { height: auto; padding: 0.25rem; gap: 0.25rem; }
   .orca-tabbar-navbtn { display: none; }
-  .orca-tabbar-scroll { gap: 0.35rem; scroll-snap-type: x proximity; }
+  .orca-tabbar-scroll { gap: 0.25rem; scroll-snap-type: x proximity; }
   .orca-tab {
-    max-width: 160px;
-    min-height: 44px;
+    max-width: 150px;
+    min-height: 34px;
+    padding: 0 0.5rem;
+    font-size: 0.76rem;
     border-right: none;
     border: 1px solid var(--orca-border);
     border-radius: 999px;
@@ -1124,7 +1183,7 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
   }
   .orca-tab.active { border-color: var(--orca-accent); }
   .orca-tab.active::after { display: none; }
-  .orca-tab-close { width: 22px; height: 22px; }
+  .orca-tab-close { width: 20px; height: 20px; }
 
   /* ── 하단 세그먼트 컨트롤 ──────────────────────────────────────────── */
   .orca-mobile-segctl {
@@ -1133,8 +1192,8 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     left: 0; right: 0;
     bottom: var(--orca-vv-offset, 0px);
     z-index: 45;
-    gap: 0.4rem;
-    padding: 0.4rem calc(0.6rem + env(safe-area-inset-left)) calc(0.4rem + env(safe-area-inset-bottom)) calc(0.6rem + env(safe-area-inset-right));
+    gap: 0.3rem;
+    padding: 0.25rem calc(0.5rem + env(safe-area-inset-left)) calc(0.25rem + env(safe-area-inset-bottom)) calc(0.5rem + env(safe-area-inset-right));
     background: var(--orca-surface);
     backdrop-filter: var(--orca-blur-md) saturate(140%);
     -webkit-backdrop-filter: var(--orca-blur-md) saturate(140%);
@@ -1146,13 +1205,13 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     align-items: center;
     justify-content: center;
     gap: 0.35rem;
-    min-height: 44px;
+    min-height: 38px;
     border-radius: var(--orca-radius-sm);
     border: 1px solid transparent;
     background: transparent;
     color: var(--orca-muted);
     font: inherit;
-    font-size: 0.86rem;
+    font-size: 0.82rem;
     font-weight: 500;
     cursor: pointer;
   }
@@ -1211,4 +1270,313 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
 @keyframes orca-live-flash {
   0% { box-shadow: 0 0 0 3px var(--orca-accent-glow, rgba(122, 130, 255, 0.6)); }
   100% { box-shadow: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   홈 Orca 셸 — 좌: 내비 사이드바 / 중앙: 멀티 탭 워크스페이스 /
+   우: 채팅·세션 레일 / 최하단: 접히는 작업 큐 상태바.
+   프로젝트 상세(.orca-project-shell)와 달리 채팅이 우측이므로 컨테이너 클래스를
+   따로 둔다(.orca-side-rail) — .orca-chat-rail의 좌측 전용 미디어 규칙과 섞이지
+   않게 하고, 내부 .orca-rail-* 컴포넌트 스타일만 공유한다.
+   ══════════════════════════════════════════════════════════════════════ */
+/* 모바일 브라우저의 접히는 주소창까지 감안해 dvh 를 쓴다 — 100vh 였을 때는
+   최하단 작업 큐 상태바가 주소창 아래로 밀려 첫 화면에서 보이지 않았다. */
+body.orca-home { height: 100vh; height: 100dvh; overflow: hidden; }
+
+/* 홈은 중앙 정렬 단일 컬럼이 아니라 전폭 3분할이다 — .with-sidebar 기본값을 끈다. */
+body.orca-home.with-sidebar main {
+  margin: 0;
+  max-width: none;
+  padding: 0;
+}
+
+.orca-home-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+}
+.orca-home-row {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 데스크톱에서는 고정 사이드바를 flex 트랙으로 되돌린다(≤900px는 기존 오프캔버스 유지). */
+@media (min-width: 901px) {
+  body.orca-home .sidebar {
+    position: relative;
+    inset: auto;
+    flex: 0 0 260px;
+    width: 260px;
+    height: auto;
+  }
+}
+
+.orca-home-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0.6rem 0.7rem;
+}
+
+/* ── 중앙 워크스페이스 — 부모 높이를 꽉 채운다(.orca-workspace의 고정 높이와 다름) ── */
+.orca-home-ws {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-md);
+  background: var(--orca-surface);
+  overflow: hidden;
+}
+.orca-home-ws .orca-tabbar[hidden] { display: none; }
+
+.orca-home-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+}
+.orca-home-empty[hidden] { display: none; }
+.orca-home-empty .hero { margin: 0 0 0.4rem; }
+
+/* ── 우측 레일 ─────────────────────────────────────────────────────── */
+.orca-side-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 360px;
+  min-width: 280px;
+  max-width: 560px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--orca-border);
+  background: var(--orca-surface-2);
+  transition: width 0.16s ease;
+}
+.orca-side-rail.is-collapsed { width: 44px; min-width: 44px; }
+.orca-side-rail.is-collapsed .orca-rail-tabs,
+.orca-side-rail.is-collapsed .orca-rail-panels,
+.orca-side-rail.is-collapsed .orca-rail-title { display: none; }
+.orca-side-rail.is-resizing { transition: none; }
+.orca-side-rail.is-collapsed .orca-rail-collapse-btn svg { transform: rotate(180deg); }
+
+/* 우측 레일이라 리사이즈 핸들은 왼쪽 모서리에 붙는다. */
+.orca-side-rail-handle {
+  position: absolute;
+  top: 0; left: -3px;
+  width: 6px; height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+.orca-side-rail-handle:hover, .orca-side-rail-handle.active { background: var(--orca-accent-soft); }
+.orca-side-rail.is-collapsed .orca-side-rail-handle { cursor: default; pointer-events: none; }
+body.orca-resizing .orca-home-main { pointer-events: none; }
+
+.orca-side-rail-toggle { display: none; }
+.orca-side-rail-scrim { display: none; }
+/* 레일 헤드의 ✕ 는 오프캔버스(≤1023px)에서만 쓴다 — 데스크톱은 › 접기 버튼. */
+.orca-rail-close-btn { display: none; }
+
+/* ── 탭 내용: 대화 + 이어서 작업 (공통 규칙은 style.css에 있다) ───────── */
+.orca-tab-error { padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; align-items: flex-start; }
+/* 탭 안에서는 대화가 주인공이므로 폭을 읽기 좋은 정도로 제한한다. */
+.orca-tab-panel .job-thread,
+.orca-tab-panel .job-followup { max-width: 860px; }
+
+/* 최근 요청 말풍선 — 클릭하면 중앙 탭으로 열린다. */
+.orca-chat-hint { padding: 0.8rem 0.2rem; }
+.orca-chat-bubble {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin: 0;              /* .orca-rail-scroll이 flex gap으로 간격을 준다 */
+  flex-shrink: 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--orca-border);
+  border-radius: var(--orca-radius-sm);
+  background: var(--orca-surface-2);
+  color: var(--orca-text);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.orca-chat-bubble:hover { background: var(--orca-surface-hover); }
+.orca-chat-bubble.active { border-color: var(--orca-accent); }
+.orca-chat-bubble-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orca-chat-bubble-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--orca-muted);
+}
+
+/* 레일 폭(280~560px)에서 컴포저 칩이 넘치지 않게 줄바꿈을 허용한다. */
+.orca-side-rail .composer { margin: 0.75rem; flex-shrink: 0; }
+.orca-side-rail .composer-bar { flex-wrap: wrap; row-gap: 0.35rem; }
+
+/* ── 최하단 작업 큐 상태바 ─────────────────────────────────────────── */
+.orca-statusbar {
+  flex-shrink: 0;
+  border-top: 1px solid var(--orca-border);
+  background: var(--orca-surface-2);
+}
+.orca-statusbar-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 0.8rem;
+  border: none;
+  background: transparent;
+  color: var(--orca-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+.orca-statusbar-bar:hover { background: var(--orca-surface-hover); color: var(--orca-text); }
+.orca-statusbar-caret { flex-shrink: 0; transition: transform 0.16s ease; }
+.orca-statusbar.is-open .orca-statusbar-caret { transform: rotate(180deg); }
+.orca-statusbar-label {
+  font-family: var(--orca-font-display);
+  font-weight: 600;
+  color: var(--orca-text);
+}
+.orca-statusbar-counts { display: flex; align-items: center; gap: 0.5rem; }
+.orca-sb-count { display: inline-flex; align-items: center; gap: 0.25rem; }
+.orca-sb-count.is-running { color: var(--orca-warn); }
+.orca-sb-count.is-failed { color: var(--orca-err); }
+.orca-sb-count.is-done { color: var(--orca-ok); }
+
+.orca-statusbar-body {
+  max-height: 42vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--orca-border);
+  padding: 0 0.8rem 0.8rem;
+}
+.orca-statusbar-body[hidden] { display: none; }
+/* 상태바 자체가 "작업 큐" 라벨을 달고 있으므로 조각의 제목은 숨긴다. */
+.orca-statusbar-body #jobs > h2 { display: none; }
+.orca-statusbar-body .panel { margin: 0; padding: 0; border: none; background: none; }
+
+/* ── 태블릿·모바일(<1024px) — 우측 레일을 오프캔버스로 ───────────────── */
+@media (max-width: 1023px) {
+  .orca-side-rail {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    z-index: 25;
+    width: min(380px, 88vw);
+    max-width: none;
+    transform: translateX(100%);
+    transition: transform 0.2s ease;
+    /* 서랍은 메인뷰 위에 겹치므로 반투명 유리 표면 대신 불투명 배경을 쓴다. */
+    background: var(--orca-bg);
+    box-shadow: none;
+    /* 서랍 안에서 굴린 스크롤이 뒤의 메인뷰로 번지지 않게 한다. */
+    overscroll-behavior: contain;
+  }
+  body.home-rail-open .orca-side-rail {
+    transform: none;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.22);
+  }
+  .orca-side-rail.is-collapsed { width: min(380px, 88vw); min-width: 0; }
+  .orca-side-rail.is-collapsed .orca-rail-tabs,
+  .orca-side-rail.is-collapsed .orca-rail-panels,
+  .orca-side-rail.is-collapsed .orca-rail-title { display: flex; }
+  .orca-side-rail-handle { display: none; }
+  /* 오프캔버스에서는 폭 접기가 의미 없다 — 헤드의 ✕ 로 닫는다. */
+  .orca-side-rail .orca-rail-collapse-btn { display: none; }
+  .orca-rail-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    border: none;
+    border-radius: var(--orca-radius-sm);
+    background: transparent;
+    color: var(--orca-muted);
+    font-size: 0.95rem;
+    cursor: pointer;
+  }
+  .orca-rail-close-btn:hover { background: var(--orca-surface-hover); color: var(--orca-text); }
+
+  /* 서랍 여는 버튼은 엄지가 닿는 아래쪽 모서리에 둔다(상태바 위). */
+  .orca-side-rail-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    right: 0.7rem;
+    bottom: 2.8rem;
+    z-index: 26;
+    width: 48px; height: 48px;
+    border: 1px solid var(--orca-border);
+    border-radius: 50%;
+    background: var(--orca-surface);
+    color: var(--orca-text);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+    cursor: pointer;
+  }
+  /* 열려 있는 동안은 레일 자체를 가리므로 감춘다(닫기는 ✕·스크림·ESC). */
+  body.home-rail-open .orca-side-rail-toggle { display: none; }
+  .orca-side-rail-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 24;
+    background: rgba(0, 0, 0, 0.28);
+  }
+  body.home-rail-open .orca-side-rail-scrim:not([hidden]) { display: block; }
+}
+
+/* 모바일(≤900px): 좌·우 서랍 버튼을 아래 양쪽 모서리에 대칭으로 둔다.
+   상단은 탭바가 쓰므로 겹치지 않고, 한 손으로 둘 다 닿는다. */
+@media (max-width: 900px) {
+  body.orca-home #nav-toggle {
+    top: auto;
+    left: 0.7rem;
+    bottom: 2.8rem;
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  }
+  /* 열린 서랍 위에 버튼이 겹치지 않게 감춘다 — 닫기는 스크림 탭·ESC. */
+  body.orca-home.nav-open #nav-toggle { display: none; }
+  /* 좌측 서랍 스크림(.sidebar는 z-index 20) — 탭하면 app.js가 닫는다. */
+  body.orca-home.nav-open::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 19;
+    background: rgba(0, 0, 0, 0.28);
+  }
+  /* 햄버거가 위에서 내려왔으니 상단 여백 보정(3.4rem)이 필요 없다 — 탭바가
+     화면 맨 위부터 쓴다. */
+  body.orca-home .orca-home-main { padding-top: 0.6rem; }
+  /* 사이드바의 햄버거 회피 여백(3.6rem)도 되돌린다. */
+  body.orca-home .sidebar { padding-top: 1rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orca-side-rail { transition: none; }
+  .orca-statusbar-caret { transition: none; }
 }

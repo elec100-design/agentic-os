@@ -1,10 +1,11 @@
 import asyncio
 import json
+import re
 
 import pytest
 
 from app import config, db, orchestrator, worker
-from app.orchestrator import PlanError, layout_graph, parse_plan
+from app.orchestrator import NODE_H, NODE_W, PlanError, layout_graph, parse_plan
 from app.providers import MEDIA, PROVIDERS, ParseResult
 
 
@@ -717,11 +718,40 @@ def test_layout_vertical_for_mobile(tmp_env):
     g = layout_graph(rows, orientation="tb")
     nodes = {n["seq"]: n for n in g["nodes"]}
     assert g["orientation"] == "tb"
-    assert nodes[1]["y"] < nodes[2]["y"]           # 깊이가 아래로 쌓인다
-    assert nodes[2]["y"] == nodes[3]["y"]          # 같은 레이어는 가로로 나란히
-    assert nodes[2]["x"] != nodes[3]["x"]
+    # 한 줄 세로 스택 — 가로 스크롤이 생길 여지가 없다
+    assert nodes[1]["x"] == nodes[2]["x"] == nodes[3]["x"]
+    assert nodes[1]["y"] < nodes[2]["y"] < nodes[3]["y"]
+    assert g["width"] <= 400
     # 세로 흐름에서 출력 포트는 노드 아래쪽
     assert nodes[1]["out_y"] == nodes[1]["y"] + nodes[1]["h"]
+    # 노드는 데스크톱보다 넓고 높다(제목 세 줄 + 큰 터치 타깃)
+    assert nodes[1]["w"] > NODE_W and nodes[1]["h"] > NODE_H
+
+
+def test_layout_vertical_routes_skipping_edges_through_a_left_rail(tmp_env):
+    """바로 아래가 아닌 노드로 가는 선은 왼쪽 레일로 빼서 노드를 관통하지 않는다."""
+    rows = _rows([(1, [], "done"), (2, [1], "done"), (3, [1, 2], "pending")])
+    g = layout_graph(rows, orientation="tb")
+    nodes = {n["seq"]: n for n in g["nodes"]}
+    paths = {(e["from"], e["to"]): e["path"] for e in g["edges"]}
+    left = nodes[1]["x"]
+    # 1→3은 2를 건너뛴다 — 노드 왼쪽 바깥의 레일 x를 지난다
+    rail_xs = [float(tok) for tok in re.findall(r"L ([\d.]+) [\d.]+", paths[(1, 3)])]
+    assert rail_xs and all(x < left for x in rail_xs)
+    # 붙어 있는 1→2, 2→3은 그냥 내려 긋는다(레일 구간 없음)
+    assert "L " not in paths[(1, 2)] and "L " not in paths[(2, 3)]
+
+
+def test_layout_vertical_separates_overlapping_rails(tmp_env):
+    """세로 구간이 겹치는 우회선끼리는 레인을 나눠 포개지지 않게 한다."""
+    rows = _rows([(1, [], "done"), (2, [1], "done"), (3, [2], "pending"),
+                  (4, [1, 2, 3], "pending")])
+    g = layout_graph(rows, orientation="tb")
+    paths = {(e["from"], e["to"]): e["path"] for e in g["edges"]}
+    rail_x = {k: re.search(r"L ([\d.]+) ", v).group(1)
+              for k, v in paths.items() if "L " in v}
+    assert set(rail_x) == {(1, 4), (2, 4)}
+    assert rail_x[(1, 4)] != rail_x[(2, 4)]   # 두 우회선은 구간이 겹친다
 
 
 def test_layout_vertical_ignores_saved_positions(tmp_env):
