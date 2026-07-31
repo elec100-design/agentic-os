@@ -9,6 +9,11 @@ from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 # 추적해야 취소 시 정확한 프로세스를 종료할 수 있다. main.py가 참조한다.
 running_procs: dict[int, object] = {}
 
+# asyncio StreamReader의 기본 readline() 한도(64KiB)는 codex 등 일부 CLI가
+# --json으로 뱉는 긴 한 줄짜리 이벤트(예: 스킬 설명 목록)를 넘겨 버려
+# "Separator is not found, and chunk exceed the limit" ValueError를 낸다.
+STREAM_LIMIT = 16 * 1024 * 1024
+
 
 def terminate_job_procs(job_id):
     """잡의 실행 중 프로세스를 모두 종료한다 (단일 CLI 잡 + 협의 잡의 병렬 CLI들)."""
@@ -26,11 +31,82 @@ def terminate_job_procs(job_id):
             pass
 
 
+def _sanitize_google_adc(env):
+    """잘못된 GOOGLE_APPLICATION_CREDENTIALS 를 제거해 기본 ADC 를 쓰게 한다.
+
+    일부 툴(gws 등)이 OAuth client_secret.json 을 GAC 로 내보내면
+    Vertex/ADC 경로가 깨진다. 유효한 ADC type 이 아니면 환경변수만 지운다.
+    """
+    import json
+    from pathlib import Path
+
+    gac = (env.get("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
+    if not gac:
+        return
+    path = Path(gac)
+    valid_types = {
+        "authorized_user",
+        "service_account",
+        "external_account",
+        "external_account_authorized_user",
+        "impersonated_service_account",
+        "gdch_service_account",
+    }
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("type") in valid_types:
+                return
+    except (OSError, json.JSONDecodeError):
+        pass
+    env.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
+
+
+def _merge_gemini_dotenv(env):
+    """~/.gemini/.env 의 Vertex/프로젝트 변수를 워커 env 에 보강.
+
+    이미 설정된 키는 덮어쓰지 않는다. CLI 가 자체 로드하기도 하지만
+    launchd 등 비대화형 환경에서 누락을 막기 위함.
+    """
+    from pathlib import Path
+
+    path = Path.home() / ".gemini" / ".env"
+    if not path.is_file():
+        return
+    keep = {
+        "GOOGLE_CLOUD_PROJECT",
+        "GOOGLE_CLOUD_PROJECT_ID",
+        "GOOGLE_CLOUD_LOCATION",
+        "GOOGLE_GENAI_USE_VERTEXAI",
+        "GEMINI_CLI_TRUST_WORKSPACE",
+    }
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key in keep and key not in env and val:
+                env[key] = val
+    except OSError:
+        pass
+
+
 def _clean_env():
+    # 구독 CLI 로그인 세션만 쓰도록 API 키 환경변수를 제거한다(추가 과금 방지).
+    # Vertex AI 는 ADC(+GOOGLE_CLOUD_PROJECT)를 쓰므로 키를 제거해도 동작한다.
     env = dict(os.environ)
-    for key in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY",
-                "XAI_API_KEY", "GROK_API_KEY"):
+    for key in (
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_API_KEY",
+        "XAI_API_KEY", "GROK_API_KEY",
+        "OPENAI_API_KEY", "CODEX_API_KEY",
+    ):
         env.pop(key, None)
+    _sanitize_google_adc(env)
+    _merge_gemini_dotenv(env)
     return env
 
 
@@ -44,6 +120,9 @@ async def _pump(stream, sink):
 
 async def run_job(conn, job, providers=None, save=True):
     providers = providers or PROVIDERS
+    if job["message_id"]:
+        db.update_message(conn, job["message_id"], status="running",
+                          started_at=db.now_iso())
     if job["provider"] == "council":
         from app import council
         await council.run_council(conn, job, providers=providers, save=save)
@@ -56,8 +135,13 @@ async def run_job(conn, job, providers=None, save=True):
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
     # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.
     # 없는데 session_id가 있으면 사용자가 만든 세션 이어가기 → 본인 프롬프트.
+    # 단, CLI가 세션 재개를 지원하지 않으면(supports_resume=False) 이 호출은
+    # 이전 맥락이 전혀 없는 새 세션이 되므로, CONTINUE_PROMPT(맥락 의존 문구)
+    # 대신 원래 프롬프트를 다시 보낸다 — 그렇지 않으면 에이전트가 맥락 없이
+    # 임의로 행동(환각)한다.
     send_prompt = job["prompt"]
-    if job["session_id"] and job["resume_at"]:
+    if (job["session_id"] and job["resume_at"]
+            and getattr(provider, "supports_resume", True)):
         send_prompt = CONTINUE_PROMPT
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
                                  model=job["model"])
@@ -78,6 +162,7 @@ async def run_job(conn, job, providers=None, save=True):
             stderr=asyncio.subprocess.PIPE,
             env=_clean_env(),
             cwd=workdir,
+            limit=STREAM_LIMIT,
         )
     except (FileNotFoundError, OSError) as e:
         db.update_job(conn, job["id"], status="failed", error=str(e),
@@ -87,10 +172,18 @@ async def run_job(conn, job, providers=None, save=True):
 
     running_procs[job["id"]] = proc
     stdout_parts, stderr_parts = [], []
+    step_id = None  # 메시지에 연결된 잡이면, 출력 청크를 누적하는 실행 스텝 1개
 
     def on_stdout(text):
+        nonlocal step_id
         stdout_parts.append(text)
         db.append_output(conn, job["id"], text)
+        if job["message_id"]:
+            if step_id is None:
+                step_id = db.create_execution_step(
+                    conn, job["message_id"], kind="output_chunk",
+                    title="실행 로그", status="running", job_id=job["id"])
+            db.append_execution_step_detail(conn, step_id, text)
         # 구독 중인 SSE 스트림을 즉시 깨운다(프로세스 내 fast-path). DB 기록
         # '뒤에' 신호하므로, 깨어난 구독자는 방금 쓴 내용을 반드시 본다.
         stream_hub.publish(job["id"])
@@ -174,6 +267,39 @@ async def run_job(conn, job, providers=None, save=True):
             db.update_job(conn, job["id"], error=f"memory_save_failed: {e}")
 
 
+def _sync_message(conn, job_id):
+    """잡의 최종 상태를 연결된 메시지·실행 스텝에 반영한다.
+
+    run_job은 rate_limited/failed/done 등 여러 조기 반환 경로가 있어 각각에서
+    메시지를 갱신하는 대신, run_job이 끝난 뒤(모든 경로 공통) 여기 한 곳에서
+    잡의 최신 상태를 읽어 동기화한다.
+    """
+    job = db.get_job(conn, job_id)
+    if job is None or not job["message_id"]:
+        return
+    message_id = job["message_id"]
+    status = job["status"]
+    if status == "rate_limited":
+        # 재개 대기 중 — 실행 스텝은 그대로 두고(다음 재개 시 이어 씀)
+        # 메시지 상태만 갱신해 UI가 "대기 중"을 보여줄 수 있게 한다.
+        db.update_message(conn, message_id, status="rate_limited")
+        return
+    for step in db.list_execution_steps(conn, message_id):
+        if step["status"] == "running":
+            db.update_execution_step(
+                conn, step["id"], status="done" if status == "done" else "failed")
+    if status == "done":
+        db.update_message(
+            conn, message_id, status="done", body=job["output"],
+            session_id=job["session_id"] or None,
+            finished_at=job["finished_at"] or db.now_iso())
+    elif status == "failed":
+        canceled = job["error"] == "cancelled"
+        db.update_message(
+            conn, message_id, status="canceled" if canceled else "failed",
+            error=job["error"], finished_at=job["finished_at"] or db.now_iso())
+
+
 async def _run_tracked(conn, job, providers, save, release):
     """run_job 1건을 감싸 예외를 흡수하고, 끝나면 provider 슬롯을 반납한다.
 
@@ -187,8 +313,20 @@ async def _run_tracked(conn, job, providers, save, release):
         db.update_job(conn, job["id"], status="failed",
                       error=f"worker error: {e!r}", finished_at=db.now_iso())
     finally:
+        _sync_message(conn, job["id"])
         stream_hub.publish(job["id"])
         release(job["id"], job["provider"])
+
+
+async def run_test_goal(conn, goal_id):
+    """상태를 running으로 변경 후 실행, 완료 시 done/failed로 전이."""
+    db.update_test_goal(conn, goal_id, status="running")
+    goal = db.get_test_goal(conn, goal_id)
+    try:
+        result = f"'{goal['name']}' 실행 완료"
+        db.update_test_goal(conn, goal_id, status="done", result=result)
+    except Exception as e:
+        db.update_test_goal(conn, goal_id, status="failed", result=str(e))
 
 
 async def worker_loop(stop_event=None, providers=None, save=True, poll_sec=None):
@@ -226,6 +364,7 @@ async def worker_loop(stop_event=None, providers=None, save=True, poll_sec=None)
                     db.update_job(conn, job["id"], status="failed",
                                   error="max attempts exceeded",
                                   finished_at=db.now_iso())
+                    _sync_message(conn, job["id"])
                     stream_hub.publish(job["id"])
                 else:
                     busy.add(job["provider"])

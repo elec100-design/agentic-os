@@ -1,0 +1,84 @@
+<!-- 작업 상세 뷰 — 단독 페이지(job.html)와 홈 중앙 탭(/partials/job/{id})이 공유한다.
+     대화(이전 턴 + 이번 프롬프트 + 출력)를 말풍선으로 보여주고, 끝난 작업이면
+     같은 세션으로 이어 보내는 컴포저를 붙인다.
+     이전 턴의 마크다운 렌더·출력 스트리밍은 job-view.js가 맡는다.
+     실행 중인 작업은 SSE가 출력을 처음부터 다시 보내므로 .job-src를 비워 둔다. -->
+<div class="job-view" data-job-id="{{ job['id'] }}" data-job-status="{{ job['status'] }}">
+  <h1 class="job-title">
+    {{ '작업' | t }} #{{ job['id'] }}
+    <span class="badge badge-{{ job['status'] }}">{{ job['status'] }}</span>
+    <span class="job-meta provider-name">{{ job['provider'] }}</span>
+    {% if job['model'] %}<span class="job-meta">{{ job['model'] }}</span>{% endif %}
+  </h1>
+  {% if job['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ job['workdir'] }}</code></p>{% endif %}
+  {% if job['route_reason'] %}<p class="route-reason">🔀 {{ '자동 라우팅' | t }} — {{ job['route_reason'] }}</p>{% endif %}
+
+  <h2 class="section-label">{{ '대화' | t }}</h2>
+  <div class="chat-thread job-thread">
+    <!-- 이전 턴들(스레드 노트) — job-view.js가 이 앞에 말풍선을 채운다 -->
+    <script type="application/json" class="job-thread-src">{{ thread | tojson }}</script>
+    <div class="chat-turn user">
+      <div class="chat-role">{{ '나' | t }}</div>
+      <div class="chat-bubble"><pre class="prompt-block">{{ job['prompt'] }}</pre></div>
+    </div>
+    <div class="chat-turn assistant">
+      <div class="chat-role">{{ job['provider'] }}</div>
+      <div class="chat-bubble md-body job-out"></div>
+    </div>
+  </div>
+
+  {% if job['error'] %}
+  {% set e = job['error']|lower %}
+  <div class="err-banner">
+    <p class="err-headline">
+    {% if 'no such file' in e or 'not found' in e or 'errno 2' in e %}
+      ⚠️ <b>{{ 'CLI를 찾을 수 없습니다.' | t }}</b> <code>{{ job['provider'] }}</code> {{ '에이전트의 CLI가 설치되어 PATH에 있는지 확인하세요.' | t }} <a href="/setup">{{ '셋업에서 확인 →' | t }}</a>
+    {% elif 'timeout' == e or 'timeout' in e %}
+      ⚠️ <b>{{ '시간 초과.' | t }}</b> {{ '작업이 제한 시간 안에 끝나지 않았습니다. 컴포저의 ＋ 메뉴에서 타임아웃을 늘려 다시 시도해 보세요.' | t }}
+    {% elif 'unauthorized' in e or '401' in e or 'not authenticated' in e or 'please login' in e or 'log in' in e %}
+      ⚠️ <b>{{ '인증이 필요합니다.' | t }}</b> {{ '터미널에서' | t }} <code>{{ job['provider'] }}</code> {{ 'CLI 로그인을 완료한 뒤 다시 시도하세요.' | t }} <a href="/setup">{{ '로그인 안내 →' | t }}</a>
+    {% elif e == 'cancelled' %}
+      ⓘ {{ '취소된 작업입니다.' | t }}
+    {% elif 'rate' in e and 'limit' in e %}
+      ⏳ <b>{{ '사용 제한.' | t }}</b> {{ '제한이 풀리면 자동으로 재개됩니다.' | t }}
+    {% else %}
+      ⚠️ <b>{{ '작업이 실패했습니다.' | t }}</b>
+    {% endif %}
+    </p>
+    <pre class="err-raw">{{ job['error'] }}</pre>
+  </div>
+  {% endif %}
+
+  {% if can_follow_up %}
+  <!-- 이어서 작업 — 같은 에이전트로 후속 프롬프트를 보낸다. 세션 재개가 가능한
+       CLI면 세션을 이어받고, 아니면 이 대화 노트를 컨텍스트로 붙여 이어간다. -->
+  <form class="composer job-followup" method="post" action="/jobs" enctype="multipart/form-data">
+    <textarea name="prompt" rows="2" required placeholder="{{ '이어서 무엇을 할까요?' | t }}"></textarea>
+    <input type="hidden" name="provider" value="{{ job['provider'] }}">
+    <input type="hidden" name="model" value="{{ job['model'] or '' }}">
+    {% if job['workdir'] %}<input type="hidden" name="workdir" value="{{ job['workdir'] }}">{% endif %}
+    {% if can_resume %}
+    <input type="hidden" name="session_id" value="{{ job['session_id'] }}">
+    <input type="hidden" name="resume_provider" value="{{ job['provider'] }}">
+    <input type="hidden" name="origin_note" value="{{ job['note_path'] or '' }}">
+    {% else %}
+    <input type="hidden" name="context_note" value="{{ job['note_path'] or '' }}">
+    {% endif %}
+    <div class="composer-bar">
+      <span class="resume-note">
+        {% if can_resume %}{{ '이 세션을 이어받아 같은 에이전트로 진행합니다' | t }}
+        {% else %}{{ '이 대화를 컨텍스트로 붙여 같은 에이전트로 진행합니다' | t }}{% endif %}
+      </span>
+      <span class="spacer"></span>
+      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+        </svg>
+      </button>
+    </div>
+    <p class="followup-error" hidden></p>
+  </form>
+  {% endif %}
+
+  <pre class="job-src" hidden>{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>
+</div>

@@ -6,65 +6,95 @@
 <title>{{ project['title'] or ('프로젝트' | t) ~ ' #' ~ project['id'] }} — Agentic OS</title>
 <link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
 <link rel="stylesheet" href="/static/hljs-theme.css?v={{ asset_v() }}">
+<link rel="stylesheet" href="/static/orca-theme.css?v={{ asset_v() }}">
 <script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 <script src="/static/htmx.min.js"></script>
 </head>
-<body>
-<main class="page page-wide">
-<a class="back-link" href="/board">{{ '← 비전 보드' | t }}</a>
-<h1 class="job-title">
-  {{ project['title'] or project['goal'][:60] }}
-  <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
-        onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
-    <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
-  </form>
-</h1>
-<p class="project-goal-full">{{ project['goal'] }}</p>
-{% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
+<body class="orca">
+<div class="orca-project-shell">
+  {% include "partials/chat_rail.html" %}
 
-<!-- 상태 배너 + DAG 그래프 (2초마다 갱신 — 노드 상태가 실시간 반영된다) -->
-<div id="board" hx-get="/partials/board/{{ project['id'] }}" hx-trigger="load, every 2s"></div>
+  <main class="orca-project-main page page-wide">
+    <a class="back-link" href="/board">{{ '← 비전 보드' | t }}</a>
+    <!-- 프로젝트 개요 — 항상 보일 필요가 없는 목표·작업 위치·삭제는 접었다 펴는
+         드롭다운에 넣는다. 데스크톱은 펼친 채 시작하고(open), 모바일에서는
+         board-workspace.js가 접어서 워크스페이스가 화면을 최대한 쓰게 한다. -->
+    <details class="project-brief" id="project-brief" open>
+      <summary class="project-brief-summary">
+        <h1 class="job-title">{{ project['title'] or project['goal'][:60] }}</h1>
+        <span class="project-brief-chev" aria-hidden="true">▾</span>
+      </summary>
+      <div class="project-brief-body">
+        <p class="project-goal-full">{{ project['goal'] }}</p>
+        {% if project['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ project['workdir'] }}</code></p>{% endif %}
+        <form method="post" action="/projects/{{ project['id'] }}/delete" class="inline-form"
+              onsubmit="return confirm(t('프로젝트와 모든 태스크·산출물을 삭제할까요?'))">
+          <button class="btn-ghost btn-del">{{ '삭제' | t }}</button>
+        </form>
+      </div>
+    </details>
 
-<!-- 노드 클릭 시 태스크 상세 -->
-<div id="task-detail"></div>
-</main>
+    <!-- 워크스페이스 셸 — 상단 탭바 + 탭 콘텐츠 패널. 폭과 무관하게 항상 같은
+         DOM/탭 상태를 쓰고, CSS가 폭별로 모양만 바꾼다: ≥1024px 데스크톱은
+         사이드바 옆 가로 탭바, 768~1023px 태블릿은 전체 폭 가로 탭바(사이드바는
+         오프캔버스), <768px 모바일은 하단 세그먼트 컨트롤 뒤 칩 스트립 탭바. -->
+    <div class="orca-workspace" id="orca-workspace" data-board-id="{{ project['id'] }}">
+      <!-- 모바일 채팅 복귀는 하단 세그먼트 컨트롤(채팅)이 담당하고, 활성 탭 이름은
+           탭 칩이 그대로 보여 준다 — 별도 상단 헤더 줄을 두지 않는다(세로 공간 절약). -->
+      <header class="orca-tabbar" id="orca-tabbar">
+        <button type="button" class="orca-tabbar-navbtn" data-tabbar-nav="prev"
+                aria-label="{{ '이전 탭' | t }}" hidden>‹</button>
+        <div class="orca-tabbar-scroll" id="orca-tabbar-scroll" role="tablist"
+             aria-label="{{ '워크스페이스 탭' | t }}"></div>
+        <button type="button" class="orca-tabbar-navbtn" data-tabbar-nav="next"
+                aria-label="{{ '다음 탭' | t }}" hidden>›</button>
+      </header>
+
+      <div class="orca-tab-panels" id="orca-tab-panels">
+        <!-- 상태 배너 + DAG 그래프. 2초 폴링으로 노드 상태가 실시간 반영된다.
+             o=lr|tb — 뷰포트 폭에 따라 서버가 가로/세로 흐름으로 배치한다(모바일 재정렬).
+             board-editor.js가 매 스왑마다 orca-tasks-updated 이벤트로 태스크 상태를
+             chat-rail(실행 로그 탭)에 실시간으로 흘려보낸다. -->
+        <section class="orca-tab-panel" id="orca-tab-panel-canvas" data-tab-id="canvas"
+                 data-tab-kind="workflow" role="tabpanel" aria-labelledby="orca-tabbtn-canvas">
+          <div id="board" hx-get="/partials/board/{{ project['id'] }}"
+               hx-trigger="load, every 2s" hx-vals='js:{o: boardOrientation()}'></div>
+        </section>
+      </div>
+
+      <div class="orca-tab-empty" id="orca-tab-empty" hidden>
+        <p>{{ '열린 작업 탭이 없습니다.' | t }}</p>
+        <p class="orca-muted">{{ '캔버스에서 태스크를 선택하면 여기에 탭으로 열립니다.' | t }}</p>
+      </div>
+    </div>
+
+    <!-- 노드 클릭 시 태스크 상세. 데스크톱에서는 워크스페이스 탭으로,
+         그 아래 폭에서는 인라인/바텀시트로(board-workspace.js가 노드-폭에 따라 분기).
+         백드롭 탭으로 닫기(모바일 시트 전용). -->
+    <div id="task-detail-backdrop" class="task-detail-backdrop" hidden data-task-close></div>
+    <div id="task-detail"></div>
+  </main>
+
+  <!-- 모바일(<768px) 전용 — 채팅/워크스페이스 전체 화면 전환. board-workspace.js가
+       탭 개수·진행 중 표시(점)·미확인 배지를 채운다. -->
+  <nav class="orca-mobile-segctl" id="orca-mobile-segctl" role="tablist" aria-label="{{ '화면 전환' | t }}">
+    <button type="button" class="orca-mobile-segctl-btn" data-seg="chat" role="tab"
+            aria-selected="true" aria-controls="orca-chat-rail">{{ '채팅' | t }}</button>
+    <button type="button" class="orca-mobile-segctl-btn" data-seg="workspace" role="tab"
+            aria-selected="false" aria-controls="orca-workspace">
+      <span>{{ '작업' | t }}</span><span class="orca-mobile-segctl-count"></span>
+      <span class="orca-mobile-segctl-dot" hidden></span>
+      <span class="orca-mobile-segctl-badge" hidden>0</span>
+    </button>
+  </nav>
+</div>
 
 <script src="/static/marked.min.js?v={{ asset_v() }}"></script>
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
-<script>
-// 선택 상태는 JS 변수로 유지 — 2초 폴링이 SVG를 갈아끼워도 복원된다.
-let selTask = null, selStatus = null;
-
-async function selectTask(id) {
-  selTask = id;
-  const r = await fetch(`/partials/task/${id}`);
-  if (!r.ok) return;
-  const panel = document.getElementById("task-detail");
-  panel.innerHTML = await r.text();
-  const src = panel.querySelector(".task-src");
-  if (src) renderMarkdown(panel.querySelector(".task-out"), src.textContent);
-  const node = document.querySelector(`.graph-node[data-task="${id}"]`);
-  selStatus = node ? node.dataset.status : null;
-  highlightSel();
-}
-
-function highlightSel() {
-  document.querySelectorAll(".graph-node").forEach(n =>
-    n.classList.toggle("selected", n.dataset.task == selTask));
-}
-
-document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (e.target.id !== "board") return;
-  highlightSel();
-  // 선택된 태스크의 상태가 바뀐 순간에만 상세를 다시 불러온다
-  // (매번 갈아끼우면 미디어 재생이 끊기므로)
-  if (selTask !== null) {
-    const node = document.querySelector(`.graph-node[data-task="${selTask}"]`);
-    if (node && node.dataset.status !== selStatus) selectTask(selTask);
-  }
-});
-</script>
+<script src="/static/board-workspace.js?v={{ asset_v() }}"></script>
+<script src="/static/board-editor.js?v={{ asset_v() }}"></script>
+<script src="/static/vision-flow.js?v={{ asset_v() }}"></script>
 </body>
 </html>

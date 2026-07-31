@@ -78,8 +78,12 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 - Council(협의) 모드 — 제안→비평→종합 3단계, 내부 병렬 (`app/council.py`)
 - **첫 실행 셋업 위저드(`/setup`) + 활성 에이전트 필터링** — CLI 설치 감지,
   선택한 에이전트만 UI·라우팅·협의에 반영 (`app/settings.py`, `app/setup.py`)
+- **비전 보드 (V4/V4.1)** — 목표 → 메인 에이전트 계획 → n8n식 편집 DAG →
+  하위 에이전트·미디어 자동 실행 (`app/orchestrator.py`, `app/media.py`,
+  `/board`, `static/board-editor.js`)
+- provider별 병렬 실행 + 협의 배타 (`MAX_CONCURRENT_JOBS`)
 - 빌드 도구 없는 경량 스택 (FastAPI + Jinja2 + HTMX + vanilla JS)
-- 테스트 200개 이상, MIT 라이선스
+- 테스트 328개, MIT 라이선스
 
 **검증된 갭**
 
@@ -91,12 +95,12 @@ V3부터는 이 도구를 "내 Mac Mini 전용"에서 **다른 사람들도 GitH
 | G4 | 작업/노트 출력이 평문 `<pre>` | `templates/job.html`, `templates/note.html` | ✅ **완료** — marked.js + highlight.js vendored, 코드 복사 버튼 |
 | G5 | SSE가 1초 간격 DB 폴링 | `app/main.py` `stream_job` | ✅ **완료** — `app/stream_hub.py` 인메모리 신호 허브. 워커가 DB append 직후 구독자를 깨워 즉시 재조회(프로세스 내 fast-path), 신호 없으면 1초 폴링으로 자연 폴백. DB는 여전히 내용의 단일 출처(복원·다중 워커 안전). 지연 최대 1초 → 실측 ~0ms |
 | G6 | 동시 실행 1개 | `app/worker.py` `current` 싱글톤 (의도된 설계) | ✅ **완료** — provider별 직렬 · 서로 다른 provider 병렬(전역 상한 `MAX_CONCURRENT_JOBS`) · 협의 배타 실행. `current` 싱글톤 → `running_procs` 잡별 레지스트리로 교체(취소 정확성). 단일 디스패처가 유일 클레임 주체 + `claim_next_job` 원자성(SELECT~UPDATE 무 await)으로 이중 클레임 없음. 실측 0.6s×2 → 0.66s(병렬) |
-| G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | 미착수 |
-| G8 | 패키지 설치 불가 | pyproject에 `[build-system]`/`[project.scripts]` 없음 | 미착수 |
+| G7 | macOS 종속 | `config.py` iCloud 경로·firmlink·`is_browse_allowed`(홈/iCloud만), `install.sh`=launchd 전용 | ✅ **대부분 완료** — 홈 이하 browse + systemd 유닛. iCloud·launchd는 macOS 전용 유지 |
+| G8 | 패키지 설치 불가 | pyproject에 `[build-system]`/`[project.scripts]` 없음 | ✅ **완료** — hatchling + `aos` 엔트리포인트 (`pip install -e .`) |
 | G9 | 미설치 CLI가 UI에서 그대로 선택 가능 → 작업 실패 | `models.py` `shutil.which` | ✅ **완료** — `/setup` 위저드가 설치 감지 후 활성 필터링 (`app/settings.py`) |
-| G10 | 헬스/진단 엔드포인트 없음 | `/health` 류 라우트 부재 | 부분 완료 — `/api/setup/status`가 CLI·보조도구 감지 제공, 범용 `/api/health`는 미착수 |
-| G11 | 멀티턴 채팅·병렬 실행 미구현 | Phase 3·4 후보 | 미착수 |
-| G12 | Council 모드 결과가 평문 `<pre>`로만 표시 | `app/council.py`는 완성, UI 레이아웃만 부족 | 미착수 |
+| G10 | 헬스/진단 엔드포인트 없음 | `/health` 류 라우트 부재 | ✅ **완료** — `/api/health` + `aos doctor` (`app/health.py`) |
+| G11 | 멀티턴 채팅·병렬 실행 미구현 | Phase 3·4 후보 | ✅ **완료** — 가짜 멀티턴(노트 버블) + provider 병렬. 진짜 멀티턴 UI는 후속 |
+| G12 | Council 모드 결과가 평문 `<pre>`로만 표시 | `app/council.py`는 완성, UI 레이아웃만 부족 | ✅ **부분 완료** — 마크다운 렌더로 구조화. 전용 탭 레이아웃은 보류 |
 
 #### 로드맵
 
@@ -174,9 +178,9 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
 - [x] **Council 모드 결과 가독성** (G12): Phase 1 마크다운 렌더링으로 협의 출력
       (`##`/`###` 헤딩·제안·비평·종합)이 이미 구조적으로 렌더됨. 전용 탭 레이아웃은
       선택 개선으로 보류(마크다운 파싱 취약성 회피)
-- [ ] **병렬 실행** (G6): `worker.py` 싱글톤 → provider 단위 동시성 — **보류**.
-      "동시 1개"는 CLI 세션·메모리 충돌 방지를 위한 의도된 설계 원칙이라, 안전한
-      provider 단위 격리 검증 전까지는 리스크가 커 후속 과제로 남김
+- [x] **병렬 실행** (G6): provider별 직렬 + 서로 다른 provider 병렬
+      (`MAX_CONCURRENT_JOBS`, `running_procs` 레지스트리). 협의 잡은 배타 실행.
+      비전 보드 태스크도 같은 워커 큐로 돌며 프로젝트당 `ORCH_MAX_INFLIGHT` 상한
 
 **Phase 4 — 멀티턴 채팅 (완료)**
 
@@ -236,8 +240,9 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
   산출물은 `data/artifacts/{project}/`, 출력 마지막 줄 = 경로 계약.
 - **UI**: `/board`(프로젝트 목록·컴포저), `/projects/{id}`(DAG 그래프 + 태스크
   상세 패널). 상태별 노드 색·펄스, 미디어 썸네일·플레이어.
-- v1 제외(후보): 태스크 사이 플래너 재검토 루프, 드래그앤드롭, 태스크별 모델
-  선택, 보드 칸반 뷰(같은 데이터로 얇게 추가 가능).
+- v1 제외(당시 후보): 태스크 사이 플래너 재검토 루프, 드래그앤드롭, 태스크별 모델
+  선택, 보드 칸반 뷰. → **드래그앤드롭·의존성 편집은 V4.1에서 완료.** 나머지
+  (플래너 재검토 루프·태스크별 모델·칸반)는 후속 후보 유지.
 - **[완료] 보드 컴포저에 메인 챗 기능(모델·워크스페이스·도구) 포함**:
   - `templates/board.html` 프로젝트 폼에 `enctype="multipart/form-data"` +
     `#file-chips` + `#tools-btn`/`#tools-popup`(files / attach_memory /
@@ -249,6 +254,130 @@ HTMX + vanilla 스택은 이 제품 규모에 맞다.
     선행 태스크에서 보고된 `codex`→`claude` 폴백 4실패는 `codex`가 더 이상 실제
     PROVIDERS(claude/antigravity/grok/hermes)에 없음에 기인 — 테스트 픽스처를
     유효 provider(`grok`)로 핫픽스해 해소.
+
+### V4.1 — 워크플로 다이어그램 편집기 (2026-07-25 구현)
+
+계획이 나온 DAG를 읽기 전용 그림이 아니라 편집 가능한 캔버스로 바꿨다. 계획이
+조금 어긋났을 때 유일한 선택지가 "재계획"(전체 폐기)이던 문제와, 가로 레이아웃
+탓에 모바일에서 흐름이 안 보이던 문제를 함께 해결한다.
+
+- **동시성**: 구조 편집은 `plan_ready`/`paused`에서만 허용. `db.active_projects()`가
+  `planning`/`running`만 반환하므로 이 상태에서는 오케스트레이터 루프가 프로젝트를
+  전진시키지 않는다 — 편집과 잡 디스패치가 경합할 수 없다(락 불필요).
+  태스크 단위로는 `pending`/`failed`만 대상(완료 결과·실행 중 잡 보호).
+  노드 위치 이동은 순수 시각 요소라 모든 상태에서 허용.
+- **검증 공유**: `parse_plan`의 Kahn 순환 검사를 `_assert_acyclic()`으로,
+  타입↔provider 해소 규칙을 `resolve_provider()`로 추출해 계획 파싱과 편집 API가
+  같은 코드를 쓴다 — 편집으로 계획 계약을 우회할 수 없다.
+- **데이터**: `tasks.pos_x/pos_y`(nullable, `_migrate` ALTER). NULL = 자동 배치.
+  `depends_on`은 콤마 문자열 유지(스키마 변경 최소화).
+- **레이아웃**: `layout_graph(tasks, orientation)` — `lr`은 저장 좌표 우선,
+  `tb`는 깊이를 아래로 쌓고 저장 좌표를 무시(모바일은 항상 재정렬).
+  캔버스 크기는 실제 노드 경계에서 계산.
+- **라우트**: 편집 액션 6종이 리다이렉트 대신 보드 조각을 되돌려 준다 →
+  htmx가 `#board`만 교체해 캔버스 팬/줌·선택이 유지된다. 검증 실패는 400 + 배너.
+- **캔버스**: `static/board-editor.js` — Pointer Events(마우스·터치 단일 경로),
+  viewBox 팬/줌·핀치, 노드 드래그, 포트↔포트 연결, 연결선 클릭 삭제, 팔레트.
+  편집 가능 상태에서는 2초 폴링을 끈다(갱신할 상태가 없고 드래그를 끊는다).
+- **접근 경로 이중화**: 캔버스에서 선을 긋기 어려운 터치 환경을 위해 태스크
+  상세 패널에 선행 태스크 체크박스를 함께 둔다(같은 `deps` 엔드포인트).
+- 2026-07-25 검증: pytest 328건 통과(신규 33건), Chromium 실기기 프로파일로
+  드래그·연결·순환 거부·삭제·추가·정렬·핀치줌·하단 시트까지 확인.
+
+### V4.2 — 워크플로 편집기 MVP 완성 (다이어그램 편집 + 태스크 CRUD + 모바일 재정렬, 예정)
+
+V4.1이 "편집 가능한 캔버스" 기반을 닦았다면, V4.2는 목표 3대 축 중 아직 미완인
+**태스크 선택·수정/삭제의 실제 완성**과 **실행 가시성**을 한 사이클로 묶는다.
+후보 풀과 우선순위(P0~P2)는 V4.1 구현 직후 수집한 선행 태스크 [6]에서 왔다.
+
+> 원문 각주: 이 섹션은 2026-07-25 노트(태스크 6 우선순위 → MVP 로드맵)를 통합한
+> 것. 노트 원문이 "## M"에서 잘려 **§1(MVP in/out)만 온전**하고 §2~§5는 누락돼,
+> 아래 §2~§5는 동 노트의 **완전한 우선순위 표(Table [6])를 근거**로 재구성했다
+> (값/난이도/의존성/P0 여부는 원표 그대로). 추후 원본 §2~§5 확보 시 대조 필요.
+
+#### 1. MVP 범위 (in / out)
+
+**In (MVP)**
+- #1 노드 실행 상태 오버레이 — pending/running/done/failed 색상 + pulse, 상태만
+  diff 적용하는 경량 폴링 엔드포인트 (`layout_graph` 확장, 의존성 없음)
+- #2 필수값/미설정 경고 표시 — agent 미지정·description 공백 시 노드 테두리 경고 점
+  (`has_warning`, 의존성 없음)
+- #3 1-depth Undo — 구조 편집(이동/연결/삭제) 직후 직전 스냅샷 1개 캐싱, "실행 취소" 버튼
+- #4 삭제 확인 + 의존성 경고 다이얼로그 — 하위 태스크 존재 시 cascade/unlink 선택,
+  soft-delete + 5초 실행취소 토스트 (신규 `status=deleted` 스키마 필요)
+- #5 필드별 부분 PATCH + draft 저장 흐름 — title/description 인라인 편집, blur 500ms
+  debounce, 폴링과 draft 충돌 방지 (현 `/tasks/{id}/edit` 확장)
+- 모바일 재정렬 (목표 3대 축 중 하나, 후보 표에는 없었으나 목표에 명시) — 기존 diagram
+  뷰의 반응형 전환(가로 DAG → 세로 스택/아코디언, `layout_graph`의 `tb` 모드 활용)
+
+**Out (MVP 제외, 후속 페이즈로)**
+- P1 전체: #6 템플릿 갤러리, #7 키보드 단축키, #8 Import/Export, #9 박스 셀렉트, #10 연결 사전 유효성
+- P2 전체: #11 격자 정렬 스냅, #12 실행 히스토리 재생, #13 노드별 테스트 실행, #15 접근성, #16 비용/토큰 추정
+- 명시적 보류: #14 협업 커서/코멘트 (단일 사용자 로컬 도구라 WebSocket 실시간 계층 정당화 안 됨)
+- 미니맵은 벤치마크([2])에서 이미 후순위 보류 확정 → 후보에서 제외
+
+#### 2. 페이즈별 기능 목록 (Table [6] 기준)
+
+| 페이즈 | 포함 기능 | 가치/난이도 | 비고 |
+|---|---|---|---|
+| **MVP (V4.2)** | #1 상태 오버레이, #2 경고, #3 Undo, #4 soft-delete, #5 부분 PATCH, 모바일 재정렬 | 5/2·4/1·4/2·4/2·4/2·- | 모두 기존 스키마/API 소폭 확장 수준 |
+| **P1** | #6 템플릿 갤러리, #7 키보드 단축키, #8 Import/Export, #9 박스 셀렉트, #10 연결 사전 유효성 | 4/3·3/1·4/3·3/3·3/2 | 신규 테이블(#6,#8)·인터랙션 레이어 확장(#9,#10) |
+| **P2** | #11 격자 정렬, #12 실행 히스토리 재생, #13 노드별 테스트 실행, #15 접근성, #16 비용/토큰 추정 | 2/2·3/4·3/3·2/3·3/3 | 신규 인프라(이력 로깅·실행 격리·토큰 계측) 요구 |
+| **보류** | #14 협업 커서/코멘트 | 2/5 | 단일 사용자 전제라 보류 권장 |
+
+#### 3. 각 페이즈 완료 기준 (수용 기준)
+
+- **MVP 완료 기준**
+  - 편집 중에 노드 상태 오버레이로 pending/running/done/failed 진행 상황을 실시간 확인
+  - agent 미지정·description 공백 노드에 경고 점 표시 (`has_warning`)
+  - 구조 편집(이동/연결/삭제) 실수 시 1-depth Undo로 즉시 복구
+  - 태스크 삭제 시 하위 의존성 경고 다이얼로그 → cascade/unlink 선택, soft-delete +
+    5초 실행취소 토스트로 오삭제 방지
+  - title/description 인라인 편집이 blur 500ms debounce로 즉시 반영되고, 상태 폴링과
+    draft가 충돌하지 않음
+  - 모바일(좁은 화면)에서 DAG가 위→아래 세로 흐름으로 재정렬되어 가독
+  - 신규 pytest 추가, 2초 폴링 중단 상태에서 드래그/연결/undo/삭제 정상 동작 확인
+- **P1 완료 기준**: 템플릿 저장/재사용, 키보드 단축키(Delete/Ctrl+Z/Space+드래그/+/-/Esc),
+  Graph Document JSON(`agentic-os.workflow` 스키마) 내보내기/재도입, 박스 셀렉트 다중
+  이동/삭제, 연결 드래그 중 순환·완료노드 시도 시 즉시 빨강 피드백
+- **P2 완료 기준**: "정렬" 버튼 격자 스냅, 완료 프로젝트 타임라인 스크러버 재생, 노드별
+  격리 재실행(상류 output mock), SVG 노드 `role`/`aria-label`+Tab 순회, 태스크별
+  비용/토큰 배지 표시
+
+#### 4. 리스크 · 오픈 이슈
+
+| # | 항목 | 근거 / 영향 | 상태 |
+|---|---|---|---|
+| R1 | `soft-delete` 스키마 신규 마이그레이션 | #4에 `tasks.status=deleted` 컬럼/필드 추가 필요 (`_migrate` ALTER) | 미착수 |
+| R2 | 폴링↔draft 충돌 설계 | #5에서 상태 폴링(2s)과 인라인 draft 저장이 같은 노드를 두고 경합 — 충돌 해소 규칙 필요 | 미착수 |
+| R3 | `agentic-os.workflow` 스키마 v1 확정 | #8 Import/Export가 스키마 확정([5] 산출물)에 선행 종속 | 미착수 |
+| R4 | 실행 이력 로깅 인프라 | #12 타임라인 재생이 태스크 상태변경 이력 신규 테이블 필요 | 미착수 |
+| R5 | 노드별 실행 격리 로직 | #13이 orchestrator 실행 격리(상류 output mock) 필요 | 미착수 |
+| R6 | 토큰/비용 계측 파이프라인 부재 | #16이 provider별 토큰·비용 계측 인프라 선행 필요 — 의존성 큼 | 미착수 |
+| R7 | 협업 커서 보류 | #14는 WebSocket 실시간 계층 신설이 필요한데 현재 단일 사용자 로컬 도구라 정당화 안 됨 | 보류 |
+
+#### 5. 다음 구현 스프린트 분해 초안 (MVP, 7개)
+
+1. **soft-delete 스키마** — `tasks`에 `status=deleted` 마이그레이션 + 5초 실행취소 토스트
+2. **상태 오버레이 엔드포인트** — 경량 폴링(상태만 diff) + pending/running/done/failed 색상·펄스
+3. **필수값 경고** — `has_warning` 계산(agent 미지정·description 공백) → 노드 테두리 경고 점
+4. **1-depth Undo** — 구조 편집 직후 스냅샷 1개 캐싱 + "실행 취소" 버튼
+5. **부분 PATCH + draft** — title/description 인라인 편집, blur 500ms debounce, 폴링 충돌 방지
+6. **삭제 확인 + 의존성 경고** — 하위 태스크 존재 시 cascade/unlink 선택 다이얼로그
+7. **모바일 반응형 재정렬** — diagram 가로 DAG → 세로 스택/아코디언 전환 (`layout_graph` `tb` 모드)
+
+### V4.3 — 채널 + Orca 스타일 프로젝트 레이아웃 (구현 완료, 2026-07-30)
+
+[2026-07-30 와이어프레임](2026-07-30-orca-layout-wireframe.md)에서 설계한 "좌측 고정
+채팅 + 중앙 진행 흐름" 레이아웃을 실제로 구현. 상세는 [task.md](task.md) V4.3 절.
+
+- 신규 최상위 기능인 **채널**(`channels`/`messages` 테이블 + `/api/channels*`)이
+  DAG 편집기와는 별도로 사이드바에 상시 노출 — 기존 "노트"(1샷 잡 기록)와 달리
+  진짜 멀티턴 스레드 채팅
+- 프로젝트 페이지는 chat-rail(좌, 채널 채팅 + 실행 로그 탭) + vision-flow(중앙,
+  `#board` DOM을 소스로 하는 카드/트리 뷰)로 재구성
+- 와이어프레임의 "우측 inspector 고정 패널" 승격은 이번 구현에 미포함 — 기존
+  `task-detail` 팝오버/바텀시트 그대로 유지 (후속 후보)
 
 ### V5 — 확장 기능 후보 (예정)
 

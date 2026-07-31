@@ -1,0 +1,68 @@
+<!-- 좌측 chat-rail — Orca ADE 스타일: 에이전트 채팅 탭 + 도구 실행 로그 탭.
+     project.html 등 `.orca` 스코프 안에서 include하고, 포함하기 전에
+     window.ORCA_CHAT_RAIL 데이터(채널/태스크)를 심어준다. -->
+<!-- 태블릿/모바일(<1024px) 전용 — chat-rail은 오프캔버스 상태로 시작하므로
+     화면 밖에서도 열 수 있는 진입점이 따로 필요하다. -->
+<button type="button" class="orca-rail-mobile-toggle" id="orca-rail-mobile-toggle" aria-label="{{ '채팅 열기' | t }}" aria-controls="orca-chat-rail">
+  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4h12M2 8h12M2 12h8"/></svg>
+</button>
+<div class="orca-rail-scrim" id="orca-rail-scrim" hidden></div>
+
+<aside class="orca-chat-rail orca-glass" id="orca-chat-rail">
+  <div class="orca-rail-resize-handle" id="orca-rail-resize" role="separator" aria-orientation="vertical" aria-label="{{ '패널 너비 조절' | t }}" tabindex="0"></div>
+  <div class="orca-rail-head">
+    <span class="orca-rail-title">{{ channel['title'] if channel else ('에이전트' | t) }}</span>
+    <button type="button" class="orca-task-context-back" id="orca-task-context-back" hidden>
+      ← {{ '프로젝트 채팅' | t }}
+    </button>
+    <button type="button" class="orca-rail-collapse-btn" id="orca-rail-collapse" aria-label="{{ '접기/펼치기' | t }}">
+      <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>
+    </button>
+  </div>
+
+  <div class="orca-rail-tabs">
+    <button type="button" class="orca-rail-tab active" data-rail-tab="chat">{{ '채팅' | t }}</button>
+    <button type="button" class="orca-rail-tab" data-rail-tab="log">{{ '실행 로그' | t }}<span class="orca-rail-tab-badge" id="orca-log-badge" hidden>0</span></button>
+  </div>
+
+  <div class="orca-rail-panels">
+    {# 노드 선택 시 같은 좌측 레일이 태스크 인스펙터로 전환된다. 중앙 캔버스는
+       어떤 경우에도 워크플로우 화면으로 남는다. #}
+    <section class="orca-task-context" id="orca-task-context" hidden aria-live="polite">
+      <div class="orca-task-context-body" id="orca-task-context-body"></div>
+    </section>
+    <section class="orca-rail-panel" data-rail-panel="chat">
+      <div class="orca-rail-scroll" id="orca-chat-scroll"></div>
+      <form class="orca-rail-composer" id="orca-chat-form">
+        <textarea rows="2" required placeholder="{{ '에이전트에게 말을 걸어보세요…' | t }}"></textarea>
+        <div class="orca-rail-composer-bar">
+          <select class="orca-rail-agent-select" id="orca-chat-provider">
+            <option value="auto">{{ '자동' | t }}</option>
+            {% for a in agent_order %}<option value="{{ a }}">{{ a|capitalize }}</option>{% endfor %}
+          </select>
+          <span class="spacer" style="flex:1"></span>
+          <button type="submit" class="orca-rail-send" aria-label="{{ '전송' | t }}">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>
+          </button>
+        </div>
+      </form>
+    </section>
+
+    <section class="orca-rail-panel" data-rail-panel="log" hidden>
+      <div class="orca-log-picker">
+        <select id="orca-log-task-select"></select>
+      </div>
+      <pre class="orca-log-stream" id="orca-log-stream"></pre>
+    </section>
+  </div>
+</aside>
+
+<script>
+  window.ORCA_CHAT_RAIL = {
+    channelId: {{ channel['id'] if channel else 'null' }},
+    channelTitle: {{ (channel['title'] if channel else ('프로젝트 채팅' | t)) | tojson }},
+    tasks: {{ (tasks or []) | tojson }},
+  };
+</script>
+<script src="/static/mock-api.js?v={{ asset_v() }}"></script>
+<script src="/static/chat-rail.js?v={{ asset_v() }}"></script>

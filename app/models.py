@@ -2,8 +2,11 @@
 
 최신 모델 출시 시 하드코딩 없이 자동 반영:
   - claude: 패밀리 별칭(fable/opus/sonnet/haiku) — CLI가 항상 최신으로 해석
+  - codex: `codex debug models` JSON 카탈로그
+  - gemini: auto/pro/flash 별칭 + 알려진 full id
   - antigravity: `agy models` 출력(표시명이 --model 값)
   - grok: `grok models` 출력
+  - openclaw: `openclaw models list --json` (설정된 모델)
   - hermes: 로컬 기본값(선택 없음)
 
 `codexbar` 사용량 캐시와 같이 백그라운드로 주기 갱신하고 JSON 캐시를 읽는다.
@@ -147,6 +150,11 @@ def claude_models_from_aliases(alias_map=None):
 
 _HERMES_MODEL_RE = re.compile(r"Model:\s*(\S+)", re.I)
 
+# openclaw models list: "openai/gpt-5.5  text  195k  no  no  default"
+_OPENCLAW_MODEL_RE = re.compile(
+    r"^([a-zA-Z0-9][\w./+\-]+)\s+\S+",
+)
+
 
 def parse_hermes_status(text):
     """`hermes status`에서 현재 모델 라벨만 표시(선택은 로컬 기본값 유지)."""
@@ -154,6 +162,154 @@ def parse_hermes_status(text):
     if m:
         return [_default_entry(f"기본값 ({m.group(1)})")]
     return [_default_entry()]
+
+
+def parse_openclaw_models(text):
+    """`openclaw models list` 테이블 → entry list."""
+    entries = []
+    seen = set()
+    default_id = None
+    for line in (text or "").splitlines():
+        raw = line.strip()
+        if not raw or raw.lower().startswith("model"):
+            continue
+        m = _OPENCLAW_MODEL_RE.match(raw)
+        if not m:
+            continue
+        mid = m.group(1).strip()
+        if not mid or mid in seen:
+            continue
+        # 헤더/구분선 스킵
+        if mid.lower() in ("model", "models", "---", "input"):
+            continue
+        seen.add(mid)
+        is_default = bool(re.search(r"\bdefault\b", raw, re.I))
+        if is_default:
+            default_id = mid
+        label = f"{mid} (기본)" if is_default else mid
+        entries.append(_entry(label, mid, default=is_default))
+    if not entries:
+        return []
+    entries.insert(0, _default_entry())
+    for e in entries[1:]:
+        e["default"] = False
+    if default_id:
+        # 기본 모델 라벨만 유지
+        for e in entries[1:]:
+            if e["model"] == default_id:
+                e["label"] = f"{default_id} (기본)"
+    return entries
+
+
+def parse_openclaw_models_json(text):
+    """`openclaw models list --json` → entry list.
+
+    설정된(기본 목록) 모델만 쓴다. --all 카탈로그(수천 개)는 UI에 부적합.
+    available=false 여도 키는 선택 가능하게 남긴다(로그인 후 사용).
+    """
+    start = (text or "").find("{")
+    if start < 0:
+        return []
+    try:
+        data = json.loads(text[start:])
+    except (json.JSONDecodeError, TypeError):
+        return []
+    rows = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return []
+    entries = [_default_entry()]
+    seen = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        mid = (row.get("key") or row.get("id") or row.get("name") or "").strip()
+        if not mid or mid in seen:
+            continue
+        seen.add(mid)
+        tags = row.get("tags") or []
+        is_default = isinstance(tags, list) and "default" in tags
+        name = (row.get("name") or mid).strip()
+        label = f"{name} (기본)" if is_default else name
+        if name != mid and not is_default:
+            label = f"{name} · {mid}" if name else mid
+        elif is_default and name != mid:
+            label = f"{name} · {mid} (기본)"
+        entries.append(_entry(label, mid, default=False))
+    return entries if len(entries) > 1 else []
+
+
+def parse_codex_models(text):
+    """`codex debug models` JSON → entry list.
+
+    visibility=="list" 를 우선하고, 없으면 전체 slug 사용. hide 는 제외.
+    """
+    start = (text or "").find("{")
+    if start < 0:
+        return []
+    try:
+        data = json.loads(text[start:])
+    except (json.JSONDecodeError, TypeError):
+        return []
+    rows = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(rows, list) or not rows:
+        return []
+    listed = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        slug = (row.get("slug") or row.get("id") or "").strip()
+        if not slug:
+            continue
+        vis = (row.get("visibility") or "list").lower()
+        if vis == "hide":
+            continue
+        listed.append(row)
+    # list 우선, 없으면 hide 아닌 전체
+    preferred = [r for r in listed
+                 if (r.get("visibility") or "list").lower() == "list"]
+    use = preferred or listed
+    if not use:
+        return []
+    # priority 오름차순(낮을수록 상위) — 없으면 원래 순서
+    use = sorted(
+        use,
+        key=lambda r: (r.get("priority") is None, r.get("priority") or 0),
+    )
+    entries = [_default_entry()]
+    seen = set()
+    for row in use:
+        slug = (row.get("slug") or row.get("id") or "").strip()
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        display = (row.get("display_name") or row.get("name") or slug).strip()
+        label = f"{display} · {slug}" if display and display != slug else slug
+        entries.append(_entry(label, slug, default=False))
+    return entries if len(entries) > 1 else []
+
+
+# Gemini 패밀리 별칭 — CLI resolveModel이 최신 full id로 해석
+_GEMINI_ALIAS_MODELS = [
+    ("auto", "Auto"),
+    ("pro", "Pro (최신)"),
+    ("flash", "Flash (최신)"),
+    ("flash-lite", "Flash Lite (최신)"),
+]
+
+
+def gemini_models_fallback():
+    """네트워크/CLI 없이 선택 가능한 gemini 모델 목록."""
+    entries = [_default_entry()]
+    for mid, label in _GEMINI_ALIAS_MODELS:
+        entries.append(_entry(label, mid))
+    for mid in (
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+    ):
+        entries.append(_entry(mid, mid))
+    return entries
 
 
 # --- discovery -------------------------------------------------------------
@@ -235,10 +391,47 @@ async def discover_hermes(timeout=None):
     return parse_hermes_status(text)
 
 
+async def discover_codex(timeout=None):
+    # `codex debug models` — 네트워크/로그인 없이도 카탈로그 JSON 출력.
+    timeout = timeout or config.MODELS_DISCOVER_TIMEOUT_SEC
+    # 카탈로그가 커서 기본 15초보다 여유를 둔다.
+    text, code = await _run_cmd(
+        ["codex", "debug", "models"], max(timeout, 25)
+    )
+    if code != 0 and not text.strip():
+        return []
+    return parse_codex_models(text)
+
+
+async def discover_gemini(timeout=None):
+    # 공개 `gemini models` 서브커맨드가 없어 별칭+알려진 id 목록 사용.
+    # (CLI가 auto/pro/flash 별칭을 최신 full id로 해석)
+    return gemini_models_fallback()
+
+
+async def discover_openclaw(timeout=None):
+    timeout = timeout or config.MODELS_DISCOVER_TIMEOUT_SEC
+    text, code = await _run_cmd(
+        ["openclaw", "models", "list", "--json"], timeout
+    )
+    if code == 0 and text.strip():
+        entries = parse_openclaw_models_json(text)
+        if entries:
+            return entries
+    # JSON 실패 시 테이블 출력 폴백
+    text, code = await _run_cmd(["openclaw", "models", "list"], timeout)
+    if code != 0:
+        return []
+    return parse_openclaw_models(text)
+
+
 _DISCOVERERS = {
     "claude": discover_claude,
+    "codex": discover_codex,
     "antigravity": discover_antigravity,
+    "gemini": discover_gemini,
     "grok": discover_grok,
+    "openclaw": discover_openclaw,
     "hermes": discover_hermes,
 }
 
@@ -306,7 +499,11 @@ def write_cache(providers):
 
 
 def get_provider_models():
-    """UI/검증용 모델 목록. 캐시 → 폴백."""
+    """UI/검증용 모델 목록. 캐시 → 폴백.
+
+    캐시에 '기본값' 한 줄만 있는 경우(신규 프로바이더·조회 실패 잔재)는
+    폴백이 더 풍부하면 폴백을 쓴다 → 모델 칩이 바로 노출된다.
+    """
     cache = read_cache()
     providers = cache.get("providers") or {}
     fallback = _fallback()
@@ -315,7 +512,12 @@ def get_provider_models():
     out = {}
     for name, fb in fallback.items():
         entries = providers.get(name)
-        out[name] = entries if entries else fb
+        if not entries:
+            out[name] = fb
+        elif len(entries) <= 1 and len(fb) > 1:
+            out[name] = fb
+        else:
+            out[name] = entries
     # 캐시에만 있는 추가 프로바이더
     for name, entries in providers.items():
         out.setdefault(name, entries)

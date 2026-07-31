@@ -4,6 +4,19 @@
 document.getElementById("nav-toggle")?.addEventListener("click", () => {
   document.body.classList.toggle("nav-open");
 });
+// 사이드바 안의 ← 버튼 — 서랍을 다시 왼쪽으로 밀어 넣는다.
+document.getElementById("nav-close")?.addEventListener("click", () => {
+  document.body.classList.remove("nav-open");
+});
+// 서랍 밖을 탭하면 닫힌다 — 모바일에서 버튼을 다시 찾아 누르지 않아도 되게.
+document.addEventListener("click", (e) => {
+  if (!document.body.classList.contains("nav-open")) return;
+  if (e.target.closest(".sidebar") || e.target.closest("#nav-toggle")) return;
+  document.body.classList.remove("nav-open");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") document.body.classList.remove("nav-open");
+});
 
 // ---- 테마 토글 (라이트/다크, localStorage 유지) -------------------------
 // 저장값이 없으면 OS 설정(prefers-color-scheme)을 따르고, 한 번 누르면
@@ -219,16 +232,37 @@ function closeComposerPopups() {
   if (toolsPopup) toolsPopup.hidden = true;
   closeWsPopup();
 }
+// 버튼 아래(공간이 없으면 위)에 팝업을 띄운다.
+// 컴포저는 홈에서 우측 레일(position:absolute) 안에, 다른 화면에서는 문서
+// 최상위에 있으므로 뷰포트 좌표로 자리를 잡은 뒤 offsetParent 기준으로 변환한다.
+function placePopup(popup, anchor, fallbackW) {
+  const r = anchor.getBoundingClientRect();
+  const w = popup.offsetWidth || fallbackW;
+  const h = popup.offsetHeight || 160;
+  const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+
+  let left = Math.max(8, Math.min(r.left, vw - w - 8));
+  let top = r.bottom + 6;
+  if (top + h > vh - 8) top = Math.max(8, r.top - h - 6);
+
+  const host = popup.offsetParent;
+  if (host) {
+    const hr = host.getBoundingClientRect();
+    left -= hr.left;
+    top -= hr.top;
+  } else {
+    left += window.scrollX;
+    top += window.scrollY;
+  }
+  popup.style.top = `${top}px`;
+  popup.style.left = `${left}px`;
+}
+
 function openComposerPopup(popup, anchor) {
   closeComposerPopups();
   popup.hidden = false;
-  const r = anchor.getBoundingClientRect();
-  const w = popup.offsetWidth || 200;
-  let left = r.left + window.scrollX;
-  const maxLeft = window.scrollX + document.documentElement.clientWidth - w - 8;
-  if (left > maxLeft) left = Math.max(8, maxLeft);
-  popup.style.top = (r.bottom + 6 + window.scrollY) + "px";
-  popup.style.left = left + "px";
+  placePopup(popup, anchor, 200);
 }
 
 agentBtn?.addEventListener("click", (e) => {
@@ -455,13 +489,7 @@ function openWsPopup() {
   if (!btn || !popup) return;
   closeComposerPopups();
   popup.hidden = false;
-  const r = btn.getBoundingClientRect();
-  const w = popup.offsetWidth || 240;
-  let left = r.left + window.scrollX;
-  const maxLeft = window.scrollX + document.documentElement.clientWidth - w - 8;
-  if (left > maxLeft) left = Math.max(8, maxLeft);
-  popup.style.top = (r.bottom + 6 + window.scrollY) + "px";
-  popup.style.left = left + "px";
+  placePopup(popup, btn, 240);
 }
 
 function initWsPicker(preferredPath) {
@@ -704,3 +732,59 @@ async function loadGithub() {
     });
   }
 }
+
+// ---- 취소된 프로젝트 삭제 (비전 보드 목록) -------------------------------
+function flashBoard(msg, kind) {
+  const el = document.getElementById("board-flash");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("ok", kind === "ok");
+  el.hidden = false;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+
+function refreshProjects() {
+  const el = document.getElementById("projects");
+  if (el && window.htmx) htmx.trigger(el, "load");
+}
+
+document.body.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest("[data-del-project]");
+  if (delBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(t("이 프로젝트를 삭제할까요? 되돌릴 수 없습니다."))) return;
+    delBtn.disabled = true;
+    try {
+      const res = await fetch(`/projects/${delBtn.dataset.delProject}/delete-cancelled`, { method: "POST" });
+      if (!res.ok) {
+        let msg = t("삭제하지 못했습니다");
+        try { msg = (await res.json()).detail || msg; } catch (_) { /* 본문 없음 */ }
+        flashBoard(msg);
+      }
+    } catch (_) {
+      flashBoard(t("서버에 연결하지 못했습니다"));
+    }
+    refreshProjects();
+    return;
+  }
+
+  const clearBtn = e.target.closest("#clear-cancelled");
+  if (clearBtn) {
+    if (!confirm(t("취소된 프로젝트를 모두 삭제할까요? 되돌릴 수 없습니다."))) return;
+    clearBtn.disabled = true;
+    try {
+      const res = await fetch("/projects/cancelled/clear", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        flashBoard(t("취소된 프로젝트 {n}개를 삭제했습니다").replace("{n}", data.deleted), "ok");
+      } else {
+        flashBoard(t("삭제하지 못했습니다"));
+      }
+    } catch (_) {
+      flashBoard(t("서버에 연결하지 못했습니다"));
+    }
+    refreshProjects();
+  }
+});

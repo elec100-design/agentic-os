@@ -129,6 +129,7 @@ async def _run_one(provider, prompt, job_id, timeout):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=worker._clean_env(),
+            limit=worker.STREAM_LIMIT,
         )
     except (FileNotFoundError, OSError) as e:
         return "missing", str(e), 0.0

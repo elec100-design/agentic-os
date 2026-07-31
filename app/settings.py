@@ -13,7 +13,7 @@ from pathlib import Path
 from app import config
 from app.providers import PROVIDERS
 
-ALL = list(PROVIDERS)  # 정식 순서: claude, antigravity, grok, hermes
+ALL = list(PROVIDERS)  # 정식 순서 = providers.PROVIDERS 등록 순서
 
 _DEFAULTS = {"version": 1, "enabled_providers": ALL,
              "setup_completed": False, "completed_at": None}

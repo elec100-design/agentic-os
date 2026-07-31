@@ -16,8 +16,9 @@ mode and runs entirely on `localhost`.
   already have, and automatically picks whichever one has the most quota
   left for the job.
 - **Zero extra cost.** It never touches an API key — it shells out to your
-  authenticated CLI's headless flag (`claude -p`, `agy -p`, `grok -p`,
-  `hermes -z`), so usage counts against your existing subscription.
+  authenticated CLI's headless flag (`claude -p`, `codex exec`, `agy -p`,
+  `gemini -p`, `grok -p`, `openclaw agent`, `hermes -z`), so usage counts
+  against your existing subscription.
 - **Results persist.** Every job is saved as a Markdown note (optionally
   into your Obsidian vault), and threads append to the same note instead of
   fragmenting.
@@ -67,6 +68,22 @@ subscription account and read/write files in permitted folders.
   hermes) run it to completion — including image generation via the agy/grok
   CLIs and video via grok, with artifacts previewed right on the graph.
   Failures pause the project for one-click retry or replanning
+- **Workflow diagram editor** — the generated DAG is an editable n8n-style
+  canvas: drag nodes to place them, drag port to port to wire dependencies,
+  click a connection to remove it, and add tasks from a palette of agents and
+  task types. Pick a node to edit or delete its fields. Cycles and unknown
+  agents are rejected server-side. On narrow screens the graph re-flows
+  top-to-bottom with pinch-zoom, pan, and fit-to-screen
+- **Workflow editor MVP (next)** — live node status overlay
+  (pending/running/done/failed), required-field warnings on incomplete nodes,
+  1-step undo, safe soft-delete with dependency warning + 5s undo toast, and
+  inline field edit (partial PATCH with debounced draft). Roadmap:
+  [plan.md](docs/plan.md) V4.2
+- **Channels** — Slack-style persistent chat threads in the sidebar, separate
+  from one-shot notes: start a topic, reply to keep a session going, replies
+  show live as badges next to the channel. Each vision-board project also
+  gets its own channel, surfaced as a resizable, collapsible chat rail
+  (with a live tool-execution-log tab) alongside the project's workflow graph
 - **Job queue** — SQLite-backed sequential queue, live output via SSE,
   cancel/delete
 - **Auto-resume** — detects rate limits, waits until `resume_at`, then
@@ -91,9 +108,9 @@ subscription account and read/write files in permitted folders.
 
 | | |
 |---|---|
-| Invocation | Subscription CLI headless mode only (`claude -p`, `agy -p`, `grok -p`, `hermes -z`) |
-| API keys | None — no extra billing |
-| Concurrency | 1 job at a time (avoids CLI session/memory conflicts) |
+| Invocation | Subscription CLI headless mode only (`claude -p`, `codex exec`, `agy -p`, `gemini -p`, `grok -p`, `openclaw agent`, `hermes -z`) |
+| API keys | None for text/image/video — optional `GEMINI_API_KEY` only for board audio TTS |
+| Concurrency | Same-provider jobs serialized; different providers run in parallel (cap `AOS_MAX_CONCURRENT_JOBS`). Vision-board tasks also share the queue (`AOS_ORCH_MAX_INFLIGHT` per project) |
 | Frontend | Jinja2 + HTMX, no build step, no CDN dependencies |
 | Data | SQLite in WAL mode (`data/aos.db`) |
 
@@ -108,8 +125,11 @@ subscription account and read/write files in permitted folders.
 | Service | CLI | Good for |
 |---|---|---|
 | Claude | `claude` | Coding, refactoring |
+| Codex (ChatGPT) | `codex` | Coding, automation (`codex exec`) |
 | Antigravity | `agy` | Large documents, multimodal (Google OAuth login) |
+| Gemini CLI | `gemini` | Official Gemini terminal agent (Google OAuth) |
 | SuperGrok | `grok` | Search, up-to-date info |
+| OpenClaw | `openclaw` | Multi-provider Gateway agent |
 | Hermes | `hermes` | Local/personal data work |
 
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) for note search — optional
@@ -216,6 +236,12 @@ priority over it. Supported keys:
 | `AOS_COUNCIL_MEMBERS` | all 4 | Council participants, comma-separated |
 | `AOS_COUNCIL_AGGREGATOR` | (auto) | Pin the Council synthesizer |
 | `AOS_COUNCIL_ROUNDS` | `2` | 1 = proposals only, 2 = proposals + critique |
+| `AOS_ORCH_MAX_TASKS` | `10` | Vision board: max tasks per plan |
+| `AOS_ORCH_MAX_INFLIGHT` | `3` | Vision board: max concurrent tasks per project |
+| `AOS_MEDIA_TIMEOUT_SEC` | `300` | Vision board: media generation timeout (seconds) |
+| `GEMINI_API_KEY` | (none) | Optional. Board **audio** TTS only (image/video use subscription CLIs). Never passed to CLI subprocesses |
+| `AOS_MEDIA_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | TTS model when `GEMINI_API_KEY` is set |
+| `AOS_MAX_CONCURRENT_JOBS` | `4` | Global parallel job cap across providers |
 
 Without `AOS_VAULT_PATH`, notes save inside the repo at `data/notes/` — no
 Obsidian required.
@@ -235,16 +261,36 @@ App constants (timeouts, retries, refresh intervals) live in
 5. Watch status in the **job queue**; click a job for live streaming output
 6. Finished jobs save as notes and show up in the sidebar
 
+### Vision board
+
+1. Open **Vision board** in the sidebar (`/board`)
+2. Enter a project **goal**. Optionally pick planner agent/model, a
+   workspace, attach files/memory, or set a timeout — same composer
+   affordances as the main chat
+3. A main orchestrator agent decomposes the goal into a dependency-ordered
+   task DAG (text / image / video / audio)
+4. On the project page, **review** the plan on the editable workflow graph:
+   drag nodes, wire ports for dependencies, add tasks from the palette, or
+   edit fields in the detail panel
+5. **Approve** to run. Ready tasks dispatch as normal jobs (rate-limit
+   resume and cancel inherit from the queue worker). Media artifacts land
+   under `data/artifacts/{project_id}/` and preview on the graph
+6. On failure the project **pauses** — retry a task, replan remaining work,
+   or cancel
+
 ### Auto-routing rules
 
 - **Simple prompts** (short, no complexity keywords) → local **Hermes**
-  (saves cloud quota; falls back to cloud if Hermes is disabled)
-- **Complex prompts** → the enabled, non-exhausted cloud agent with the
-  **most real remaining quota**
+  (saves cloud quota; falls back to a difficulty-eligible cloud agent if Hermes is disabled)
+- **Complex prompts** → considers every enabled non-local agent (including
+  subsequently registered providers) that meets the difficulty profile, then
+  picks the one with the **most real remaining quota**
 - All exhausted → falls back to Hermes (or the first enabled agent, if
   Hermes is disabled too)
-- Usage comes from CodexBar; unknown agents fall back to priority order
-  (claude > antigravity > grok)
+- Usage comes from CodexBar; measured usage always beats an unknown Gateway
+  value. On a usage tie, task affinity (coding, automation, research/current
+  information, documents/multimodal, analysis) then provider registration
+  order breaks the tie
 - Routing only ever considers agents you enabled in `/setup`
 
 ### Model lists (dynamic)
@@ -298,30 +344,32 @@ queue worker, and usage tracking.
 ```
 agentic-os/
 ├── app/
-│   ├── main.py        # FastAPI: dashboard + API + SSE + workspace/note/setup routes
-│   ├── worker.py      # background queue worker (runs the CLI in the chosen cwd)
-│   ├── providers.py   # CLI adapters + model flags + quota-based auto-routing
-│   ├── council.py     # Council mode — multi-agent propose/critique/synthesize
-│   ├── settings.py    # user settings (enabled agents) — data/settings.json
-│   ├── setup.py       # first-run setup — CLI/tool install detection
-│   ├── health.py      # diagnostics for /api/health and `aos doctor`
-│   ├── i18n.py        # UI translations (English default + Korean)
-│   ├── __main__.py    # `python -m app` / `aos` entry point (serve + doctor)
-│   ├── models.py      # dynamic per-CLI model list collection + cache
-│   ├── codexbar.py    # CodexBar real usage lookup + cache
-│   ├── workspace.py   # workspace (local folder / GitHub repo) management
-│   ├── github_cli.py  # repo/branch lookups via the `gh` CLI
-│   ├── memory.py      # note read/write + state (pin/group/archive) + thread append/auto-group
-│   ├── db.py           # SQLite access layer + migrations
-│   └── config.py      # settings (env vars, fallback models, refresh intervals, ...)
-├── templates/         # Jinja2 + HTMX views (sidebar, composer, setup, notes, jobs)
-├── static/            # style.css, app.js, setup.js, vendored htmx
-├── data/              # SQLite, caches, notes (default), uploads, workspaces, settings (git-ignored)
-├── tests/             # unit tests
-├── launchd/           # macOS launchd plist template
-├── deploy/            # Linux systemd unit template
-├── bootstrap.sh       # one-command setup + run (macOS/Linux)
-└── docs/              # roadmap, task history, design docs
+│   ├── main.py          # FastAPI: dashboard + board + API + SSE + workspace/note/setup
+│   ├── worker.py        # background queue worker (runs the CLI in the chosen cwd)
+│   ├── orchestrator.py  # vision board: plan → approve → dependency-ordered dispatch
+│   ├── media.py         # vision board media provider (image/video CLI, audio TTS)
+│   ├── providers.py     # CLI adapters + model flags + quota-based auto-routing
+│   ├── council.py       # Council mode — multi-agent propose/critique/synthesize
+│   ├── settings.py      # user settings (enabled agents) — data/settings.json
+│   ├── setup.py         # first-run setup — CLI/tool install detection
+│   ├── health.py        # diagnostics for /api/health and `aos doctor`
+│   ├── i18n.py          # UI translations (English default + Korean)
+│   ├── __main__.py      # `python -m app` / `aos` entry point (serve + doctor)
+│   ├── models.py        # dynamic per-CLI model list collection + cache
+│   ├── codexbar.py      # CodexBar real usage lookup + cache
+│   ├── workspace.py     # workspace (local folder / GitHub repo) management
+│   ├── github_cli.py    # repo/branch lookups via the `gh` CLI
+│   ├── memory.py        # note read/write + state (pin/group/archive) + thread append/auto-group
+│   ├── db.py            # SQLite access layer + migrations (jobs, projects, tasks, channels, messages)
+│   └── config.py        # settings (env vars, fallback models, refresh intervals, ...)
+├── templates/           # Jinja2 + HTMX (sidebar, composer, board, project, channels, setup, notes, jobs)
+├── static/              # style.css, app.js, board-editor.js, channels.js, chat-rail.js, vision-flow.js, setup.js, vendored htmx
+├── data/                # SQLite, caches, notes, uploads, workspaces, artifacts, settings
+├── tests/               # unit tests (incl. orchestrator / media / board routes)
+├── launchd/             # macOS launchd plist template
+├── deploy/              # Linux systemd unit template
+├── bootstrap.sh         # one-command setup + run (macOS/Linux)
+└── docs/                # roadmap, task history, design docs
 ```
 
 ### Job state machine
@@ -334,6 +382,20 @@ queued → running → done | failed | rate_limited → queued (resumed)
   CLI session once the limit clears
 - Max 10 attempts, 30-minute default timeout, 60-minute default resume delay
 - Jobs stuck in `running` at restart are recovered back to `queued`
+
+### Vision board state machine
+
+```
+planning → plan_ready → running → done
+                 ↓          ↓
+              (edit)     paused → running (retry) / planning (replan)
+                 ↓
+              cancel / delete
+```
+
+- Tasks run as ordinary `jobs` (inherit rate-limit resume, cancel, restart recovery)
+- Structure edits (add/wire/delete nodes) only while `plan_ready` or `paused`
+- Media artifacts: `data/artifacts/{project_id}/`
 
 ## Tests
 
@@ -354,6 +416,7 @@ on every push and PR.
 - [Task history (task.md)](docs/task.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Adding a provider (PROVIDERS.md)](docs/PROVIDERS.md)
+- [Vision-board deletion and workflow editing](docs/vision-board-editing.md)
 - [V1 design spec](docs/2026-07-05-agentic-os-v1-design.md)
 - [V1 implementation plan](docs/2026-07-05-agentic-os-v1.md)
 
@@ -361,6 +424,8 @@ on every push and PR.
 
 - Non-macOS environments are untested (launchd and iCloud folder browsing
   are macOS-only).
-- Antigravity real usage tracking, multi-turn chat UI, parallel execution,
-  token/cost tracking, and the rest of the public-distribution roadmap live
-  in [plan.md](docs/plan.md) (V3–V4).
+- Vision board (V4/V4.1) is shipped: plan → editable DAG → multi-agent
+  run with media. Remaining polish (live status overlay, soft-delete undo,
+  inline draft PATCH) is V4.2 in [plan.md](docs/plan.md).
+- Antigravity real usage tracking, token/cost tracking,
+  and other extensions live under V5 in [plan.md](docs/plan.md).

@@ -25,10 +25,24 @@ API 키를 쓰지 않고 이미 구독 중인 CLI의 헤드리스 모드만 호�
 - **협의(Council) 모드** — 어려운 문제를 여러 에이전트가 병렬로 제안 → 서로의 답을 익명 라벨로 비평·개선 → 잔여 사용량이 가장 많은 에이전트가 최종 종합 (Hermes MoA·OpenRouter Fusion 방식). 에이전트 칩에서 "협의" 선택. 사용량 소진·실패한 에이전트는 자동 제외, `AOS_COUNCIL_*` 환경변수로 참여자·종합자·라운드 조정
 - **비전 보드** — `/board`에서 프로젝트 목표를 주면 메인 오케스트레이터
   에이전트가 의존성 있는 태스크 DAG로 분해. n8n식 워크플로우 그래프에서 계획을
-  검토·승인하면 하위 에이전트(claude/agy/grok/hermes)들이 끝까지 자동 실행 —
+  검토·승인하면 하위 에이전트(claude/codex/agy/gemini/grok/openclaw/hermes)들이 끝까지 자동 실행 —
   agy/grok CLI 이미지 생성, grok 비디오 생성 포함, 산출물은 그래프 위에서 바로
   미리보기. 실패 시 일시정지 후 원클릭 재시도·재계획. 메인 챗과 동일하게
   에이전트·모델·작업 위치(로컬 폴더/GitHub)·파일 첨부를 한 폼에서 선택 가능
+- **워크플로 다이어그램 편집기** — 생성된 DAG를 n8n식 캔버스에서 직접 고칩니다.
+  노드를 끌어 배치, 포트를 이어 의존성 연결, 연결선을 눌러 끊기, 팔레트에서
+  에이전트·태스크 종류를 골라 노드 추가. 노드를 선택하면 제목·설명·종류·
+  에이전트를 수정하거나 삭제할 수 있고, 순환이나 잘못된 에이전트는 서버가
+  거부합니다. 좁은 화면에서는 위→아래 세로 흐름으로 재정렬되고 핀치줌·팬·
+  화면 맞춤을 지원합니다
+- **워크플로 편집기 MVP (다음)** — 노드 실행 상태 오버레이(pending/running/done/failed),
+  미설정 노드 필수값 경고, 1단계 실행 취소(Undo), 의존성 경고 + 5초 실행취소 토스트를
+  둔 안전 삭제(soft-delete), 인라인 부분 편집(디바운스 draft 저장). 로드맵:
+  [plan.md](docs/plan.md) V4.2
+- **채널** — 사이드바에 두는 슬랙식 상시 채팅 스레드. 1회성 노트와 달리 주제로
+  대화를 시작하고 답장으로 세션을 이어갈 수 있고, 진행 중인 답장은 채널 옆에
+  실시간 배지로 표시됩니다. 비전 보드 프로젝트마다 전용 채널이 자동 생성되어
+  프로젝트 화면 좌측의 리사이즈·접기 가능한 chat-rail(실행 로그 탭 포함)로 붙습니다
 - **작업 큐** — SQLite 기반 순차 처리, 실시간 출력(SSE) 스트리밍, 취소·삭제
 - **자동 재개** — rate limit 감지 후 `resume_at` 시각까지 대기, CLI 세션으로 이어서 실행
 - **노트 ↔ 작업큐 연동** — 노트에 hover하면 고정/이름변경/그룹/보관/삭제, 노트에서 세션 이어가기(같은 작업 위치·같은 노트로 이어짐). 이어갈 때 에이전트·모델을 바꾸거나 파일을 첨부할 수 있습니다. 한쪽을 지우면 반대쪽도 함께 정리
@@ -42,9 +56,9 @@ API 키를 쓰지 않고 이미 구독 중인 CLI의 헤드리스 모드만 호�
 
 | 항목 | 내용 |
 |------|------|
-| 호출 방식 | 구독 CLI 헤드리스 모드만 사용 (`claude -p`, `agy -p`, `grok -p`, `hermes -z`) |
-| API 키 | 사용하지 않음 — 추가 과금 없음 |
-| 동시 실행 | 1개 (메모리·CLI 세션 충돌 방지) |
+| 호출 방식 | 구독 CLI 헤드리스 모드만 사용 (`claude -p`, `codex exec`, `agy -p`, `gemini -p`, `grok -p`, `openclaw agent`, `hermes -z`) |
+| API 키 | 텍스트·이미지·비디오는 없음. 보드 **오디오 TTS**만 선택적 `GEMINI_API_KEY` |
+| 동시 실행 | 같은 provider 직렬, 다른 provider 병렬(`AOS_MAX_CONCURRENT_JOBS`). 비전 보드 태스크도 같은 큐 공유(프로젝트당 `AOS_ORCH_MAX_INFLIGHT`) |
 | 프론트엔드 | Jinja2 + HTMX (빌드 도구 없음, CDN 의존 없음) |
 | 데이터 | SQLite WAL 모드 (`data/aos.db`) |
 
@@ -57,8 +71,11 @@ API 키를 쓰지 않고 이미 구독 중인 CLI의 헤드리스 모드만 호�
 | 서비스 | CLI | 용도 |
 |--------|-----|------|
 | Claude | `claude` | 코딩, 리팩토링 |
+| Codex (ChatGPT) | `codex` | 코딩·자동화 (`codex exec`) |
 | Antigravity | `agy` | 대용량 문서, 멀티모달 (구글 OAuth 로그인) |
+| Gemini CLI | `gemini` | 공식 Gemini 터미널 에이전트 (OAuth 또는 Vertex AI/ADC) |
 | SuperGrok | `grok` | 검색, 최신 정보 |
+| OpenClaw | `openclaw` | 멀티 프로바이더 Gateway 에이전트 |
 | Hermes | `hermes` | 로컬·개인 데이터 작업 |
 
 - 노트 검색용 [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) — 선택
@@ -145,6 +162,12 @@ cp aos.env.example aos.env   # 편집해서 값 채우기
 | `AOS_COUNCIL_MEMBERS` | 4개 전체 | 협의 모드 참여 에이전트(콤마 구분) |
 | `AOS_COUNCIL_AGGREGATOR` | (자동) | 협의 모드 종합자 고정 |
 | `AOS_COUNCIL_ROUNDS` | `2` | 1=제안만, 2=제안+상호비평 |
+| `AOS_ORCH_MAX_TASKS` | `10` | 비전 보드: 계획당 최대 태스크 수 |
+| `AOS_ORCH_MAX_INFLIGHT` | `3` | 비전 보드: 프로젝트당 동시 실행 태스크 상한 |
+| `AOS_MEDIA_TIMEOUT_SEC` | `300` | 비전 보드: 미디어 생성 타임아웃(초) |
+| `GEMINI_API_KEY` | (없음) | 선택. 보드 **오디오** TTS 전용(이미지·비디오는 구독 CLI). CLI 서브프로세스에는 전달되지 않음 |
+| `AOS_MEDIA_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | `GEMINI_API_KEY` 설정 시 TTS 모델 |
+| `AOS_MAX_CONCURRENT_JOBS` | `4` | provider 간 전역 병렬 잡 상한 |
 
 `AOS_VAULT_PATH`를 지정하지 않으면 노트는 저장소 안 `data/notes/`에 저장됩니다. Obsidian이 없어도 그대로 동작합니다.
 
@@ -159,12 +182,26 @@ cp aos.env.example aos.env   # 편집해서 값 채우기
 5. **작업 큐**에서 상태 확인, 클릭 시 실시간 출력 스트리밍
 6. 완료된 작업은 노트로 저장되고 사이드바 메모리와 연동됩니다
 
+### 비전 보드
+
+1. 사이드바의 **비전 보드**(`/board`)로 이동
+2. 프로젝트 **목표**를 입력. 필요하면 계획 에이전트·모델, 작업 위치, 파일/메모리
+   첨부, 타임아웃을 지정 — 메인 챗 컴포저와 같은 옵션
+3. 메인 오케스트레이터 에이전트가 목표를 의존성 있는 태스크 DAG로 분해
+   (text / image / video / audio)
+4. 프로젝트 페이지에서 워크플로 그래프를 **검토·편집**: 노드 드래그, 포트 연결로
+   의존성 조정, 팔레트에서 태스크 추가, 상세 패널에서 필드 수정
+5. **승인**하면 준비된 태스크가 일반 잡으로 디스패치(레이트리밋 재개·취소는
+   워커 상속). 미디어 산출물은 `data/artifacts/{project_id}/`에 저장되고 그래프에서
+   미리보기
+6. 실패 시 프로젝트가 **일시정지** — 태스크 재시도, 남은 일 재계획, 또는 취소
+
 ### 자동 라우팅 규칙
 
-- **단순 작업**(짧고 키워드 없음) → 로컬 **Hermes** (클라우드 사용량 절약, 비활성 시 클라우드로 폴백)
-- **복잡 작업** → 활성 에이전트 중 소진되지 않은 클라우드 에이전트 중 **실측 잔여 사용량이 가장 많은 곳**
+- **단순 작업**(짧고 키워드 없음) → 로컬 **Hermes** (클라우드 사용량 절약, 비활성 시 난이도에 맞는 클라우드로 폴백)
+- **복잡 작업** → 활성화된 모든 비로컬 에이전트(Claude·Codex·Antigravity·Gemini·Grok·OpenClaw 및 이후 추가분)에서 난이도 프로필을 만족하는 후보를 고르고, **실측 잔여 사용량이 가장 많은 곳**
 - 모두 소진 → Hermes 폴백 (Hermes도 비활성이면 활성 에이전트 중 첫 번째로 시도)
-- 사용량은 CodexBar에서 읽으며, 알 수 없는 에이전트는 우선순위(claude > antigravity > grok)로 처리
+- 사용량은 CodexBar에서 읽으며, 실측값이 있는 에이전트를 사용량 미확인 Gateway보다 우선합니다. 사용량 동률일 때만 작업 성격(코딩·자동화·조사/최신성·문서/멀티모달·분석)을 반영하고, 이후 provider 등록 순서를 적용합니다
 - 라우팅은 `/setup`에서 활성화한 에이전트로만 제한됩니다
 
 ### 모델 목록 (동적)
@@ -200,29 +237,32 @@ tailscale serve --https=443 off  # 해제
 ```
 agentic-os/
 ├── app/
-│   ├── main.py        # FastAPI: 대시보드 + API + SSE + 워크스페이스/노트/셋업 엔드포인트
-│   ├── worker.py      # 백그라운드 큐 워커 (선택한 cwd에서 CLI 실행)
-│   ├── providers.py   # CLI 어댑터 + 모델 플래그 + 사용량 기반 자동 라우팅
-│   ├── council.py     # 협의(Council) 모드 — 다중 에이전트 제안·비평·종합
-│   ├── settings.py    # 사용자 설정(활성 에이전트) — data/settings.json
-│   ├── setup.py       # 첫 실행 셋업 — CLI·보조도구 설치 감지
-│   ├── health.py      # /api/health·`aos doctor` 진단 정보
-│   ├── __main__.py    # `python -m app`/`aos` 진입점 (서버 실행 + doctor)
-│   ├── models.py      # CLI 모델 목록 동적 수집 + 캐시
-│   ├── codexbar.py    # CodexBar 실측 사용량 조회 + 캐시
-│   ├── workspace.py   # 작업 위치(로컬 폴더 / GitHub 리포) 관리
-│   ├── github_cli.py  # gh CLI로 리포·브랜치 조회
-│   ├── memory.py      # 노트 읽기/쓰기 + 상태(고정/그룹/보관) + 스레드 append/자동 그룹핑
-│   ├── db.py           # SQLite 접근 계층 + 마이그레이션
-│   └── config.py      # 설정값 (환경변수, 폴백 모델, 새로고침 주기 등)
-├── templates/         # Jinja2 + HTMX 화면 (사이드바, 컴포저, 셋업, 노트, 작업)
-├── static/            # style.css, app.js, setup.js, htmx (vendored)
-├── data/              # SQLite, 캐시, 노트(기본), 업로드, 워크스페이스, 셋업 설정 (git 제외)
-├── tests/             # 유닛 테스트
-├── launchd/           # macOS launchd plist 템플릿
-├── deploy/            # Linux systemd 유닛 템플릿
-├── bootstrap.sh       # 원스톱 설치+실행 (macOS/Linux)
-└── docs/              # 로드맵·작업 내역·설계 문서
+│   ├── main.py          # FastAPI: 대시보드 + 보드 + API + SSE + 워크스페이스/노트/셋업
+│   ├── worker.py        # 백그라운드 큐 워커 (선택한 cwd에서 CLI 실행)
+│   ├── orchestrator.py  # 비전 보드: 계획 → 승인 → 의존성 순서 디스패치
+│   ├── media.py         # 비전 보드 미디어 provider (이미지·비디오 CLI, 오디오 TTS)
+│   ├── providers.py     # CLI 어댑터 + 모델 플래그 + 사용량 기반 자동 라우팅
+│   ├── council.py       # 협의(Council) 모드 — 다중 에이전트 제안·비평·종합
+│   ├── settings.py      # 사용자 설정(활성 에이전트) — data/settings.json
+│   ├── setup.py         # 첫 실행 셋업 — CLI·보조도구 설치 감지
+│   ├── health.py        # /api/health·`aos doctor` 진단 정보
+│   ├── i18n.py          # UI 번역 (영문 기본 + 한국어)
+│   ├── __main__.py      # `python -m app`/`aos` 진입점 (서버 실행 + doctor)
+│   ├── models.py        # CLI 모델 목록 동적 수집 + 캐시
+│   ├── codexbar.py      # CodexBar 실측 사용량 조회 + 캐시
+│   ├── workspace.py     # 작업 위치(로컬 폴더 / GitHub 리포) 관리
+│   ├── github_cli.py    # gh CLI로 리포·브랜치 조회
+│   ├── memory.py        # 노트 읽기/쓰기 + 상태(고정/그룹/보관) + 스레드 append/자동 그룹핑
+│   ├── db.py            # SQLite 접근 계층 + 마이그레이션 (jobs, projects, tasks, channels, messages)
+│   └── config.py        # 설정값 (환경변수, 폴백 모델, 새로고침 주기 등)
+├── templates/           # Jinja2 + HTMX (사이드바, 컴포저, 보드, 프로젝트, 채널, 셋업, 노트, 작업)
+├── static/              # style.css, app.js, board-editor.js, channels.js, chat-rail.js, vision-flow.js, setup.js, htmx (vendored)
+├── data/                # SQLite, 캐시, 노트, 업로드, 워크스페이스, artifacts, 설정
+├── tests/               # 유닛 테스트 (orchestrator / media / board routes 포함)
+├── launchd/             # macOS launchd plist 템플릿
+├── deploy/              # Linux systemd 유닛 템플릿
+├── bootstrap.sh         # 원스톱 설치+실행 (macOS/Linux)
+└── docs/                # 로드맵·작업 내역·설계 문서
 ```
 
 ### 작업 상태 머신
@@ -234,6 +274,20 @@ queued → running → done | failed | rate_limited → queued (재개)
 - rate limit 감지 시 `resume_at` 저장 후 대기, 제한 해제 후 CLI 세션으로 재개
 - 최대 시도 10회, 기본 타임아웃 30분, 기본 재개 지연 60분
 - 앱 재시작 시 `running` 상태 작업은 `queued`로 복구
+
+### 비전 보드 상태 머신
+
+```
+planning → plan_ready → running → done
+                 ↓          ↓
+              (편집)     paused → running (재시도) / planning (재계획)
+                 ↓
+              취소 / 삭제
+```
+
+- 태스크는 일반 `jobs`로 실행 (레이트리밋 재개·취소·재시작 복구 상속)
+- 구조 편집(노드 추가/연결/삭제)은 `plan_ready` 또는 `paused`에서만
+- 미디어 산출물: `data/artifacts/{project_id}/`
 
 ## 테스트
 
@@ -253,11 +307,15 @@ CI(`.github/workflows/ci.yml`)가 push·PR마다 Python 3.11/3.12에서 전체 �
 - [작업 내역 (task.md)](docs/task.md)
 - [기여 가이드 (CONTRIBUTING.md)](CONTRIBUTING.md)
 - [새 에이전트 추가 (PROVIDERS.md)](docs/PROVIDERS.md)
+- [비전 보드 삭제·워크플로우 편집](docs/vision-board-editing.md)
 - [V1 설계 명세](docs/2026-07-05-agentic-os-v1-design.md)
 - [V1 구현 계획](docs/2026-07-05-agentic-os-v1.md)
 
 ## 알려진 한계 / 로드맵
 
 - macOS 외 환경은 미검증(launchd·iCloud 탐색은 macOS 전용). 로드맵 참고.
-- Antigravity 사용량 실측 연동, 멀티턴 채팅 UI, 병렬 실행, 토큰·비용 추적 등
-  공개 배포 로드맵은 [plan.md](docs/plan.md)의 V3~V4 참고.
+- 비전 보드(V4/V4.1) 출시됨: 계획 → 편집 가능한 DAG → 다중 에이전트 실행·미디어.
+  남은 다듬기(상태 오버레이, soft-delete 실행취소, 인라인 draft PATCH)는
+  [plan.md](docs/plan.md) V4.2.
+- Antigravity 사용량 실측, 토큰·비용 추적 등은
+  [plan.md](docs/plan.md) V5 후보.

@@ -192,7 +192,9 @@ def test_rank_cloud_orders_by_remaining():
         "antigravity": {"available": False},
         "grok": {"remaining": 80},
     }
-    ranked = rank_cloud(usage)
+    ranked = rank_cloud(
+        usage, enabled=["claude", "antigravity", "grok", "hermes"],
+    )
     assert [name for name, _ in ranked] == ["grok", "claude"]
 
 

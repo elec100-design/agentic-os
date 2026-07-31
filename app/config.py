@@ -325,8 +325,14 @@ def folder_label(name):
 
 # CodexBar(`codexbar usage`)로 실측하는 프로바이더. 우리 이름 -> CodexBar id.
 # hermes는 로컬 실행이라 사용 제한이 없어 제외.
-# antigravity(agy)는 CodexBar 미지원이라 실측 불가 → 사용량 '정보 없음'으로 표시.
-CODEXBAR_PROVIDERS = {"claude": "claude", "grok": "grok"}
+# openclaw는 CodexBar id가 없어 실측 불가 → 사용량 '정보 없음'.
+CODEXBAR_PROVIDERS = {
+    "claude": "claude",
+    "codex": "codex",
+    "antigravity": "antigravity",
+    "gemini": "gemini",
+    "grok": "grok",
+}
 USAGE_REFRESH_SEC = 180          # 백그라운드로 사용량 갱신하는 주기
 CODEXBAR_TIMEOUT_SEC = 60        # 프로바이더 1건 조회 타임아웃
 
@@ -343,10 +349,34 @@ FALLBACK_PROVIDER_MODELS = {
         {"label": "Sonnet (최신)", "model": "sonnet"},
         {"label": "Haiku (최신)", "model": "haiku"},
     ],
+    # codex: `codex debug models` 조회 실패 시 폴백(슬러그는 버전마다 달라질 수 있음)
+    "codex": [
+        {"label": "기본값", "model": None, "default": True},
+        {"label": "GPT-5.6 Sol", "model": "gpt-5.6-sol"},
+        {"label": "GPT-5.6 Terra", "model": "gpt-5.6-terra"},
+        {"label": "GPT-5.6 Luna", "model": "gpt-5.6-luna"},
+        {"label": "GPT-5.5", "model": "gpt-5.5"},
+        {"label": "GPT-5.2", "model": "gpt-5.2"},
+    ],
     "antigravity": [
         {"label": "기본값", "model": None, "default": True},
     ],
+    # gemini: 별칭 + 자주 쓰는 full id (CLI가 별칭을 최신으로 해석)
+    "gemini": [
+        {"label": "기본값", "model": None, "default": True},
+        {"label": "Auto", "model": "auto"},
+        {"label": "Pro (최신)", "model": "pro"},
+        {"label": "Flash (최신)", "model": "flash"},
+        {"label": "Flash Lite (최신)", "model": "flash-lite"},
+        {"label": "gemini-2.5-pro", "model": "gemini-2.5-pro"},
+        {"label": "gemini-2.5-flash", "model": "gemini-2.5-flash"},
+        {"label": "gemini-3.5-flash", "model": "gemini-3.5-flash"},
+        {"label": "gemini-3.1-flash-lite", "model": "gemini-3.1-flash-lite"},
+    ],
     "grok": [
+        {"label": "기본값", "model": None, "default": True},
+    ],
+    "openclaw": [
         {"label": "기본값", "model": None, "default": True},
     ],
     "hermes": [
@@ -385,14 +415,15 @@ MAX_CONCURRENT_JOBS = int(os.environ.get("AOS_MAX_CONCURRENT_JOBS", "4"))
 STREAM_POLL_SEC = 1.0
 
 # 협의(Council) 모드 — 여러 에이전트가 제안·비평하고 한 에이전트가 종합한다.
-#   AOS_COUNCIL_MEMBERS    : 참여 에이전트 목록(콤마 구분, 기본 4개 전체)
+#   AOS_COUNCIL_MEMBERS    : 참여 에이전트 목록(콤마 구분, 기본 전체 클라우드+hermes)
 #   AOS_COUNCIL_AGGREGATOR : 종합자 고정(기본 빈 값 = 잔여 사용량 기반 자동)
 #   AOS_COUNCIL_ROUNDS     : 2=제안+상호비평(기본), 1=제안만
 #   AOS_COUNCIL_STAGE_TIMEOUT_SEC : 단계별 CLI 1회 실행 타임아웃(기본 600초)
 COUNCIL_MEMBERS = [
     p.strip()
     for p in os.environ.get(
-        "AOS_COUNCIL_MEMBERS", "claude,antigravity,grok,hermes"
+        "AOS_COUNCIL_MEMBERS",
+        "claude,codex,antigravity,gemini,grok,openclaw,hermes",
     ).split(",")
     if p.strip()
 ]

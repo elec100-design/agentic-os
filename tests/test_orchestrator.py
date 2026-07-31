@@ -1,10 +1,11 @@
 import asyncio
 import json
+import re
 
 import pytest
 
 from app import config, db, orchestrator, worker
-from app.orchestrator import PlanError, layout_graph, parse_plan
+from app.orchestrator import NODE_H, NODE_W, PlanError, layout_graph, parse_plan
 from app.providers import MEDIA, PROVIDERS, ParseResult
 
 
@@ -274,6 +275,83 @@ def test_retry_task_resumes_project(tmp_env):
     assert db.get_project(conn, pid)["status"] == "running"
 
 
+def test_output_error_hint_flags_error_notice_and_empty(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text")])
+    tid = db.list_tasks(conn, pid)[0]["id"]
+    db.update_task(conn, tid, status="done", output="")
+    assert "결과" in orchestrator.output_error_hint(db.get_task(conn, tid))
+    db.update_task(conn, tid, output="jetski: no output produced — auto-denied.")
+    assert orchestrator.output_error_hint(db.get_task(conn, tid))
+    db.update_task(conn, tid, output="정상 산출물입니다")
+    assert orchestrator.output_error_hint(db.get_task(conn, tid)) is None
+    # 긴 산출물 안에 우연히 섞인 문구는 오탐이므로 검사하지 않는다
+    db.update_task(conn, tid, output="가" * 3000 + " no output produced")
+    assert orchestrator.output_error_hint(db.get_task(conn, tid)) is None
+
+
+def test_retry_done_task_with_model_swap_and_instruction(tmp_env, monkeypatch):
+    monkeypatch.setattr(orchestrator.models, "is_valid_model",
+                        lambda provider, model: True)
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text")])
+    tid = db.list_tasks(conn, pid)[0]["id"]
+    db.update_task(conn, tid, status="done", output="no output produced")
+    db.update_project(conn, pid, status="done")
+
+    orchestrator.retry_task(conn, tid, agent="grok", model="grok-4",
+                            instruction="권한 필요한 명령은 쓰지 마라")
+    task = db.get_task(conn, tid)
+    assert task["status"] == "pending" and task["output"] == ""
+    assert task["provider"] == "grok" and task["model"] == "grok-4"
+    assert db.get_project(conn, pid)["status"] == "running"
+
+    orchestrator._advance(conn, db.get_project(conn, pid))
+    job = db.get_job(conn, db.get_task(conn, tid)["job_id"])
+    assert job["provider"] == "grok" and job["model"] == "grok-4"
+    assert "권한 필요한 명령은 쓰지 마라" in job["prompt"]
+
+
+def test_retry_task_rejects_running_task(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text")])
+    tid = db.list_tasks(conn, pid)[0]["id"]
+    db.update_task(conn, tid, status="running")
+    with pytest.raises(ValueError):
+        orchestrator.retry_task(conn, tid)
+
+
+def test_retry_cascade_resets_downstream_tasks(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text"),
+                                  (2, [1], "grok", "text"),
+                                  (3, [2], "claude", "text")])
+    t1, t2, t3 = db.list_tasks(conn, pid)
+    for t in (t1, t2, t3):
+        db.update_task(conn, t["id"], status="done", output="결과")
+    db.update_project(conn, pid, status="done")
+
+    orchestrator.retry_task(conn, t1["id"], cascade=True)
+    assert [t["status"] for t in db.list_tasks(conn, pid)] == ["pending"] * 3
+    # cascade 없이는 후속 태스크의 기존 결과를 건드리지 않는다
+    for t in (t1, t2, t3):
+        db.update_task(conn, t["id"], status="done", output="결과")
+    orchestrator.retry_task(conn, t1["id"])
+    assert [t["status"] for t in db.list_tasks(conn, pid)] == [
+        "pending", "done", "done"]
+
+
+def test_dependent_seqs_walks_transitively(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _running_project(conn, [(1, [], "claude", "text"),
+                                  (2, [1], "grok", "text"),
+                                  (3, [2], "claude", "text"),
+                                  (4, [], "claude", "text")])
+    tasks = db.list_tasks(conn, pid)
+    assert orchestrator.dependent_seqs(tasks, 1) == {2, 3}
+    assert orchestrator.dependent_seqs(tasks, 3) == set()
+
+
 def test_advance_completes_project(tmp_env):
     conn = _conn(tmp_env)
     pid = _running_project(conn, [(1, [], "claude", "text")])
@@ -435,3 +513,259 @@ async def test_e2e_project_runs_to_completion(tmp_env, tmp_path):
     assert finished == sorted(finished)
     job3 = db.get_job(conn, tasks[2]["job_id"])
     assert "태스크 결과" in job3["prompt"]  # 상류 출력이 하류 프롬프트에 전달됨
+
+
+# --- 다이어그램 편집 ------------------------------------------------------------
+
+def _editable_project(conn, tasks_spec, status="plan_ready"):
+    """tasks_spec: [(seq, deps)] — 편집 가능한 상태의 프로젝트를 만든다."""
+    pid = db.create_project(conn, "목표")
+    db.update_project(conn, pid, status=status)
+    for seq, deps in tasks_spec:
+        db.create_task(conn, pid, seq, f"태스크{seq}", f"설명{seq}", "text",
+                       "claude", depends_on=",".join(str(d) for d in deps))
+    return pid
+
+
+def _task_id(conn, pid, seq):
+    return next(t["id"] for t in db.list_tasks(conn, pid) if t["seq"] == seq)
+
+
+def test_edit_guard_rejects_running_project(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])], status="running")
+    tid = _task_id(conn, pid, 1)
+    with pytest.raises(ValueError):
+        orchestrator.update_task_fields(conn, tid, title="새 제목",
+                                        description="새 설명",
+                                        task_type="text", agent="claude")
+
+
+def test_edit_guard_rejects_finished_task(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])], status="paused")
+    tid = _task_id(conn, pid, 1)
+    db.update_task(conn, tid, status="done")
+    with pytest.raises(ValueError):
+        orchestrator.delete_task(conn, tid)
+
+
+def test_update_task_fields(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    tid = _task_id(conn, pid, 1)
+    orchestrator.update_task_fields(conn, tid, title="고친 제목",
+                                    description="고친 설명", task_type="text",
+                                    agent="hermes")
+    task = db.get_task(conn, tid)
+    assert task["title"] == "고친 제목"
+    assert task["provider"] == "hermes"
+
+
+def test_update_task_fields_media_type_forces_media_provider(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    tid = _task_id(conn, pid, 1)
+    orchestrator.update_task_fields(conn, tid, title="포스터", description="포스터 생성",
+                                    task_type="image", agent="claude")
+    assert db.get_task(conn, tid)["provider"] == MEDIA
+
+
+def test_update_task_fields_rejects_unknown_type_and_agent(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    tid = _task_id(conn, pid, 1)
+    with pytest.raises(ValueError):
+        orchestrator.update_task_fields(conn, tid, title="t", description="d",
+                                        task_type="hologram", agent="claude")
+    with pytest.raises(ValueError):
+        orchestrator.update_task_fields(conn, tid, title="t", description="d",
+                                        task_type="text", agent="gpt")
+
+
+def test_update_task_fields_rejects_empty(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    tid = _task_id(conn, pid, 1)
+    with pytest.raises(ValueError):
+        orchestrator.update_task_fields(conn, tid, title="  ", description="d",
+                                        task_type="text", agent="claude")
+
+
+def test_set_task_deps_replaces_whole_list(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, []), (2, []), (3, [1])])
+    tid = _task_id(conn, pid, 3)
+    orchestrator.set_task_deps(conn, tid, [1, 2])
+    assert orchestrator.task_deps(db.get_task(conn, tid)) == [1, 2]
+    # 같은 엔드포인트로 엣지를 뗀다
+    orchestrator.set_task_deps(conn, tid, [2])
+    assert orchestrator.task_deps(db.get_task(conn, tid)) == [2]
+    orchestrator.set_task_deps(conn, tid, [])
+    assert orchestrator.task_deps(db.get_task(conn, tid)) == []
+
+
+def test_set_task_deps_rejects_self_unknown_and_cycle(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, []), (2, [1])])
+    t1, t2 = _task_id(conn, pid, 1), _task_id(conn, pid, 2)
+    with pytest.raises(ValueError):
+        orchestrator.set_task_deps(conn, t2, [2])          # 자기 참조
+    with pytest.raises(ValueError):
+        orchestrator.set_task_deps(conn, t2, [99])         # 없는 seq
+    with pytest.raises(ValueError):
+        orchestrator.set_task_deps(conn, t1, [2])          # 1→2→1 순환
+    assert orchestrator.task_deps(db.get_task(conn, t1)) == []
+
+
+def test_add_task_appends_with_new_seq(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, []), (2, [1])])
+    tid = orchestrator.add_task(conn, pid, "새 태스크", description="새 설명",
+                                task_type="text", agent="hermes", pos=(300, 40))
+    task = db.get_task(conn, tid)
+    assert task["seq"] == 3
+    assert task["status"] == "pending"
+    assert task["provider"] == "hermes"
+    assert (task["pos_x"], task["pos_y"]) == (300.0, 40.0)
+
+
+def test_add_task_defaults_description_to_title(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    tid = orchestrator.add_task(conn, pid, "제목만 있는 태스크")
+    assert db.get_task(conn, tid)["description"] == "제목만 있는 태스크"
+
+
+def test_add_task_respects_max_tasks(tmp_env, monkeypatch):
+    conn = _conn(tmp_env)
+    monkeypatch.setattr(config, "ORCH_MAX_TASKS", 2)
+    pid = _editable_project(conn, [(1, []), (2, [])])
+    with pytest.raises(ValueError):
+        orchestrator.add_task(conn, pid, "세 번째")
+
+
+def test_add_task_with_source_message_fills_created_task_id(tmp_env):
+    """채팅→탭 자동 오픈 연결고리 — source_message_id가 있으면 그 메시지의
+    created_task_id를 채워, 클라이언트가 메시지 응답만 보고 탭을 열 수 있다."""
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    channel_id = db.create_channel(conn, "테스트 채널")
+    message_id = db.create_message(conn, channel_id, role="user", body="새 태스크 만들어줘")
+    assert db.get_message(conn, message_id)["created_task_id"] is None
+
+    tid = orchestrator.add_task(conn, pid, "채팅에서 생긴 태스크",
+                                source_message_id=message_id)
+
+    assert db.get_message(conn, message_id)["created_task_id"] == tid
+
+
+def test_add_task_without_source_message_leaves_created_task_id_null(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    channel_id = db.create_channel(conn, "테스트 채널")
+    message_id = db.create_message(conn, channel_id, role="user", body="상관없는 메시지")
+    orchestrator.add_task(conn, pid, "수동 추가 태스크")
+    assert db.get_message(conn, message_id)["created_task_id"] is None
+
+
+def test_delete_task_strips_dependency_from_siblings(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, []), (2, [1]), (3, [1, 2])])
+    orchestrator.delete_task(conn, _task_id(conn, pid, 1))
+    remaining = {t["seq"]: orchestrator.task_deps(t) for t in db.list_tasks(conn, pid)}
+    assert remaining == {2: [], 3: [2]}
+
+
+def test_move_and_reset_layout(tmp_env):
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])])
+    tid = _task_id(conn, pid, 1)
+    orchestrator.move_task(conn, tid, 420, 88)
+    assert (db.get_task(conn, tid)["pos_x"], db.get_task(conn, tid)["pos_y"]) == (420.0, 88.0)
+    # 캔버스 밖(음수)으로는 나가지 않는다
+    orchestrator.move_task(conn, tid, -50, -10)
+    assert (db.get_task(conn, tid)["pos_x"], db.get_task(conn, tid)["pos_y"]) == (0.0, 0.0)
+    orchestrator.reset_layout(conn, pid)
+    assert db.get_task(conn, tid)["pos_x"] is None
+
+
+def test_move_task_allowed_while_running(tmp_env):
+    """배치는 순수 시각 요소 — 실행 중에도 막지 않는다."""
+    conn = _conn(tmp_env)
+    pid = _editable_project(conn, [(1, [])], status="running")
+    tid = _task_id(conn, pid, 1)
+    db.update_task(conn, tid, status="running")
+    orchestrator.move_task(conn, tid, 10, 20)
+    assert db.get_task(conn, tid)["pos_x"] == 10.0
+
+
+# --- layout_graph: 저장된 좌표 + 모바일 세로 배치 --------------------------------
+
+def test_layout_honors_saved_positions(tmp_env):
+    rows = _rows([(1, [], "pending"), (2, [1], "pending")])
+    rows[1]["pos_x"], rows[1]["pos_y"] = 500.0, 300.0
+    g = layout_graph(rows)
+    nodes = {n["seq"]: n for n in g["nodes"]}
+    assert (nodes[2]["x"], nodes[2]["y"]) == (500.0, 300.0)
+    # 캔버스는 실제 노드 경계까지 넓어진다
+    assert g["width"] >= 500 + nodes[2]["w"]
+    assert g["height"] >= 300 + nodes[2]["h"]
+
+
+def test_layout_vertical_for_mobile(tmp_env):
+    rows = _rows([(1, [], "done"), (2, [1], "pending"), (3, [1], "pending")])
+    g = layout_graph(rows, orientation="tb")
+    nodes = {n["seq"]: n for n in g["nodes"]}
+    assert g["orientation"] == "tb"
+    # 한 줄 세로 스택 — 가로 스크롤이 생길 여지가 없다
+    assert nodes[1]["x"] == nodes[2]["x"] == nodes[3]["x"]
+    assert nodes[1]["y"] < nodes[2]["y"] < nodes[3]["y"]
+    assert g["width"] <= 400
+    # 세로 흐름에서 출력 포트는 노드 아래쪽
+    assert nodes[1]["out_y"] == nodes[1]["y"] + nodes[1]["h"]
+    # 노드는 데스크톱보다 넓고 높다(제목 세 줄 + 큰 터치 타깃)
+    assert nodes[1]["w"] > NODE_W and nodes[1]["h"] > NODE_H
+
+
+def test_layout_vertical_routes_skipping_edges_through_a_left_rail(tmp_env):
+    """바로 아래가 아닌 노드로 가는 선은 왼쪽 레일로 빼서 노드를 관통하지 않는다."""
+    rows = _rows([(1, [], "done"), (2, [1], "done"), (3, [1, 2], "pending")])
+    g = layout_graph(rows, orientation="tb")
+    nodes = {n["seq"]: n for n in g["nodes"]}
+    paths = {(e["from"], e["to"]): e["path"] for e in g["edges"]}
+    left = nodes[1]["x"]
+    # 1→3은 2를 건너뛴다 — 노드 왼쪽 바깥의 레일 x를 지난다
+    rail_xs = [float(tok) for tok in re.findall(r"L ([\d.]+) [\d.]+", paths[(1, 3)])]
+    assert rail_xs and all(x < left for x in rail_xs)
+    # 붙어 있는 1→2, 2→3은 그냥 내려 긋는다(레일 구간 없음)
+    assert "L " not in paths[(1, 2)] and "L " not in paths[(2, 3)]
+
+
+def test_layout_vertical_separates_overlapping_rails(tmp_env):
+    """세로 구간이 겹치는 우회선끼리는 레인을 나눠 포개지지 않게 한다."""
+    rows = _rows([(1, [], "done"), (2, [1], "done"), (3, [2], "pending"),
+                  (4, [1, 2, 3], "pending")])
+    g = layout_graph(rows, orientation="tb")
+    paths = {(e["from"], e["to"]): e["path"] for e in g["edges"]}
+    rail_x = {k: re.search(r"L ([\d.]+) ", v).group(1)
+              for k, v in paths.items() if "L " in v}
+    assert set(rail_x) == {(1, 4), (2, 4)}
+    assert rail_x[(1, 4)] != rail_x[(2, 4)]   # 두 우회선은 구간이 겹친다
+
+
+def test_layout_vertical_ignores_saved_positions(tmp_env):
+    """모바일은 '잘 보이도록 재정렬'이 목적 — 데스크톱 배치를 따라가지 않는다."""
+    rows = _rows([(1, [], "pending"), (2, [1], "pending")])
+    rows[1]["pos_x"], rows[1]["pos_y"] = 900.0, 700.0
+    g = layout_graph(rows, orientation="tb")
+    nodes = {n["seq"]: n for n in g["nodes"]}
+    assert nodes[2]["x"] != 900.0 and nodes[2]["y"] != 700.0
+
+
+def test_layout_ports_match_edge_endpoints():
+    g = layout_graph(_rows([(1, [], "done"), (2, [1], "pending")]))
+    nodes = {n["seq"]: n for n in g["nodes"]}
+    edge = g["edges"][0]
+    assert edge["path"].startswith(f"M {nodes[1]['out_x']} {nodes[1]['out_y']}")
+    assert edge["path"].endswith(f"{nodes[2]['in_x']} {nodes[2]['in_y']}")

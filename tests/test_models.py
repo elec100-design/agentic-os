@@ -77,6 +77,63 @@ def test_parse_hermes_status_label():
     assert "tencent/hy3:free" in entries[0]["label"]
 
 
+def test_parse_openclaw_models_table():
+    text = """Model                                      Input      Ctx         Local Auth  Tags
+openai/gpt-5.5                             text       195k        no    no    default
+anthropic/claude-opus-4                    text       200k        no    yes
+"""
+    entries = models.parse_openclaw_models(text)
+    assert entries[0]["model"] is None and entries[0]["default"] is True
+    ids = [e["model"] for e in entries if e["model"]]
+    assert ids == ["openai/gpt-5.5", "anthropic/claude-opus-4"]
+    assert "기본" in next(e["label"] for e in entries if e["model"] == "openai/gpt-5.5")
+
+
+def test_parse_openclaw_models_empty():
+    assert models.parse_openclaw_models("") == []
+    assert models.parse_openclaw_models("Model  Input") == []
+
+
+def test_parse_openclaw_models_json():
+    text = """{
+  "count": 2,
+  "models": [
+    {"key": "openai/gpt-5.5", "name": "gpt-5.5", "tags": ["default"]},
+    {"key": "anthropic/claude-opus-4", "name": "Claude Opus 4", "tags": []}
+  ]
+}"""
+    entries = models.parse_openclaw_models_json(text)
+    assert entries[0]["model"] is None
+    ids = [e["model"] for e in entries if e["model"]]
+    assert ids == ["openai/gpt-5.5", "anthropic/claude-opus-4"]
+
+
+def test_parse_codex_models_json():
+    text = json.dumps({
+        "models": [
+            {"slug": "gpt-5.6-sol", "display_name": "GPT-5.6-Sol",
+             "visibility": "list", "priority": 1},
+            {"slug": "gpt-5.4", "display_name": "GPT-5.4",
+             "visibility": "hide", "priority": 9},
+            {"slug": "gpt-5.5", "display_name": "GPT-5.5",
+             "visibility": "list", "priority": 2},
+        ]
+    })
+    entries = models.parse_codex_models(text)
+    ids = [e["model"] for e in entries if e["model"]]
+    assert ids == ["gpt-5.6-sol", "gpt-5.5"]
+    assert "gpt-5.4" not in ids
+    assert entries[0]["model"] is None
+
+
+def test_gemini_models_fallback_has_aliases():
+    entries = models.gemini_models_fallback()
+    ids = [e["model"] for e in entries]
+    assert None in ids
+    assert "auto" in ids and "pro" in ids and "flash" in ids
+    assert len(entries) > 1  # 모델 칩이 보이려면 2개 이상
+
+
 def test_get_provider_models_falls_back_when_cache_empty(tmp_env):
     out = models.get_provider_models()
     assert "claude" in out

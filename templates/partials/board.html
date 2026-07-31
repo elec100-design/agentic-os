@@ -58,25 +58,119 @@
 {% endif %}
 
 {% if tasks %}
-<div class="graph-canvas">
-<svg width="{{ graph['width'] }}" height="{{ graph['height'] }}"
-     viewBox="0 0 {{ graph['width'] }} {{ graph['height'] }}" class="graph-svg">
+{# 캔버스 상태는 board-editor.js가 data-* 로 읽는다 — 폴링으로 조각이 갈려도
+   프로젝트 id·방향·편집 가능 여부가 항상 마크업에 실려 온다. #}
+<div class="graph-toolbar">
+  <span class="graph-hint">
+    {% if editable %}{{ '노드를 끌어 배치하고, 포트를 이어 연결하세요.' | t }}
+    {% else %}{{ '실행 중에는 그래프를 편집할 수 없습니다.' | t }}{% endif %}
+  </span>
+  <span class="spacer"></span>
+  {% if editable %}
+  <button type="button" class="btn-ghost" data-canvas="add">＋ {{ '태스크' | t }}</button>
+  <button type="button" class="btn-ghost" data-canvas="relayout">{{ '자동 정렬' | t }}</button>
+  {% endif %}
+  <button type="button" class="btn-ghost" data-canvas="zoom-out" aria-label="{{ '축소' | t }}">−</button>
+  <button type="button" class="btn-ghost" data-canvas="zoom-in" aria-label="{{ '확대' | t }}">＋</button>
+  <button type="button" class="btn-ghost" data-canvas="fit">{{ '화면 맞춤' | t }}</button>
+  {# 다이어그램 ↔ 진행 흐름(카드+트리+변경 파일) 뷰 전환 — static/vision-flow.js가 처리 #}
+  <button type="button" class="btn-ghost" data-flow-toggle aria-pressed="false">{{ '진행 흐름' | t }}</button>
+</div>
+
+<div class="graph-canvas" data-project="{{ project['id'] }}"
+     data-orientation="{{ graph['orientation'] }}"
+     data-editable="{{ 1 if editable else 0 }}">
+<svg class="graph-svg" width="100%" height="100%"
+     data-w="{{ graph['width'] }}" data-h="{{ graph['height'] }}"
+     viewBox="0 0 {{ graph['width'] }} {{ graph['height'] }}">
+  {# 연결 드래그 중 그려지는 고무줄 — 평소엔 CSS로 감춰져 있고 JS가 d만 채운다 #}
+  <path class="graph-edge linking" d=""/>
   {% for e in graph['edges'] %}
-  <path class="graph-edge{% if e['done'] %} done{% endif %}" d="{{ e['path'] }}"/>
+  <g class="graph-edge-g" data-from="{{ e['from'] }}" data-to="{{ e['to'] }}">
+    <path class="graph-edge{% if e['done'] %} done{% endif %}" d="{{ e['path'] }}"/>
+    {# 얇은 곡선은 터치로 못 맞춘다 — 투명한 굵은 선을 히트 영역으로 겹쳐 둔다 #}
+    <path class="graph-edge-hit" d="{{ e['path'] }}"/>
+  </g>
   {% endfor %}
   {% for n in graph['nodes'] %}
-  <g class="graph-node st-{{ n['status'] }}" data-task="{{ n['id'] }}" data-status="{{ n['status'] }}"
-     transform="translate({{ n['x'] }}, {{ n['y'] }})" onclick="selectTask({{ n['id'] }})">
+  {# data-title/provider/type/artifact/error — vision-flow.js가 그래프 DOM만 읽어서
+     카드·트리·변경 파일 뷰를 그리므로, 노드 텍스트 잘림(18자)과 별개로 원본 값을 싣는다 #}
+  <g class="graph-node st-{{ n['status'] }}{% if n['id'] in warn_ids %} has-warn{% endif %}"
+     data-task="{{ n['id'] }}"
+     data-seq="{{ n['seq'] }}" data-status="{{ n['status'] }}"
+     data-x="{{ n['x'] }}" data-y="{{ n['y'] }}"
+     data-editable="{{ 1 if editable and n['status'] in editable_task_statuses else 0 }}"
+     data-title="{{ n['title'] }}" data-provider="{{ n['provider'] }}"
+     data-type="{{ n['task_type'] }}"
+     data-artifact="{{ n['artifact_path'].split('/')[-1] if n['artifact_path'] else '' }}"
+     data-error="{{ '1' if n['error'] or n['id'] in warn_ids else '0' }}"
+     data-job="{{ n['job_id'] or '' }}"
+     data-model="{{ n['model'] or '' }}"
+     transform="translate({{ n['x'] }}, {{ n['y'] }})">
     <rect class="node-box" width="{{ n['w'] }}" height="{{ n['h'] }}" rx="10"/>
-    <text class="node-title" x="12" y="24">{{ ICON[n['task_type']] }} {{ n['title'][:18] }}{% if n['title'] | length > 18 %}…{% endif %}</text>
-    <text class="node-meta" x="12" y="48">{{ n['provider'] }}</text>
-    <text class="node-status" x="{{ n['w'] - 12 }}" y="48" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
+    {# 제목 줄바꿈은 서버(orchestrator.TITLE_WRAP)가 박스 폭에 맞춰 잘라 준다 —
+       데스크톱은 두 줄, 모바일은 더 넓은 박스에 세 줄. #}
+    {% for line in n['lines'] %}
+    <text class="node-title" x="12" y="{{ 26 + 22 * loop.index0 }}">
+      {%- if loop.first %}{{ ICON[n['task_type']] }} {% endif %}{{ line }}</text>
+    {% endfor %}
+    <text class="node-meta" x="12" y="{{ n['h'] - 14 }}">{{ n['provider'] }}{% if n['model'] %} · {{ n['model'] }}{% endif %}</text>
+    <text class="node-status" x="{{ n['w'] - 12 }}" y="{{ n['h'] - 14 }}" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
+    {% if n['id'] in warn_ids %}
+    <text class="node-warn" x="{{ n['w'] - 12 }}" y="26" text-anchor="end">⚠</text>
+    {% endif %}
     {% if n['artifact_path'] and n['task_type'] == 'image' %}
     <image href="/artifacts/{{ project['id'] }}/{{ n['artifact_path'].split('/')[-1] }}"
            x="{{ n['w'] - 40 }}" y="8" width="28" height="28" preserveAspectRatio="xMidYMid slice"/>
+    {% endif %}
+    {% if editable %}
+    {# 포트 좌표는 노드 로컬 기준 — <g>가 이미 (x, y)로 이동돼 있다.
+       모바일은 손가락으로 집어야 하므로 반지름을 키운다. #}
+    {% set _pr = 10 if graph['orientation'] == 'tb' else 6 %}
+    <circle class="node-port port-in" data-port="in"
+            cx="{{ n['in_x'] - n['x'] }}" cy="{{ n['in_y'] - n['y'] }}" r="{{ _pr }}"/>
+    <circle class="node-port port-out" data-port="out"
+            cx="{{ n['out_x'] - n['x'] }}" cy="{{ n['out_y'] - n['y'] }}" r="{{ _pr }}"/>
     {% endif %}
   </g>
   {% endfor %}
 </svg>
 </div>
+
+{% if editable %}
+{# 팔레트 — 사용 가능한 에이전트 모듈과 태스크 타입. '＋ 태스크'가 연다. #}
+<form class="node-palette" hidden hx-post="/projects/{{ project['id'] }}/tasks"
+      hx-target="#board" hx-swap="innerHTML">
+  <input type="hidden" name="o" value="{{ graph['orientation'] }}">
+  <input type="hidden" name="x"><input type="hidden" name="y">
+  <label class="pal-row">
+    <span>{{ '제목' | t }}</span>
+    <input name="title" required placeholder="{{ '태스크 제목' | t }}">
+  </label>
+  <label class="pal-row">
+    <span>{{ '설명' | t }}</span>
+    <textarea name="description" rows="2"
+              placeholder="{{ '구체적 작업 지시 (비우면 제목을 씁니다)' | t }}"></textarea>
+  </label>
+  <label class="pal-row">
+    <span>{{ '종류' | t }}</span>
+    <select name="task_type">
+      {% for tt in task_types %}
+      <option value="{{ tt }}">{{ ICON[tt] }} {{ tt }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="pal-row">
+    <span>{{ '에이전트' | t }}</span>
+    <select name="agent">
+      <option value="auto">{{ '자동' | t }}</option>
+      {% for a in agent_order %}<option value="{{ a }}">{{ a }}</option>{% endfor %}
+    </select>
+  </label>
+  <div class="pal-foot">
+    <button type="button" class="btn-ghost" data-canvas="cancel-add">{{ '취소' | t }}</button>
+    <button class="btn-primary">{{ '추가' | t }}</button>
+  </div>
+</form>
+{% endif %}
 {% endif %}

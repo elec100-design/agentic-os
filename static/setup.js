@@ -3,7 +3,9 @@
 // 단계 전환·선택 상태는 전부 이 파일이 관리한다.
 "use strict";
 
-const ORDER = ["claude", "antigravity", "grok", "hermes"];
+const ORDER = [
+  "claude", "codex", "antigravity", "gemini", "grok", "openclaw", "hermes",
+];
 const state = {
   step: SETUP.completed ? 2 : 1,   // 재설정으로 다시 온 경우 선택 단계부터
   status: null,                     // /api/setup/status 결과
@@ -47,7 +49,7 @@ function renderWelcome() {
       <p class="setup-sub">${t("구독 중인 AI CLI들을 하나의 대시보드로 — 실측 남은 사용량으로 자동 배분하고, 결과는 노트로 쌓입니다.")}</p>
     </div>
     <ul class="setup-features">
-      <li><span class="feat-ico">⇄</span><div><b>${t("자동 라우팅")}</b><span>${t("남은 사용량이 가장 많은 에이전트로 작업을 배분합니다")}</span></div></li>
+      <li><span class="feat-ico">⇄</span><div><b>${t("자동 배분")}</b><span>${t("남은 사용량이 가장 많은 에이전트로 작업을 배분합니다")}</span></div></li>
       <li><span class="feat-ico">▤</span><div><b>${t("작업 큐")}</b><span>${t("사용 제한에 걸리면 큐에 두었다가 자동으로 재개합니다")}</span></div></li>
       <li><span class="feat-ico">✎</span><div><b>${t("노트 메모리")}</b><span>${t("모든 결과가 마크다운 노트로 저장되고 이어서 작업할 수 있습니다")}</span></div></li>
       <li><span class="feat-ico">⚖</span><div><b>${t("협의 모드")}</b><span>${t("여러 에이전트가 제안·비평하고 하나가 종합합니다")}</span></div></li>
@@ -60,6 +62,27 @@ function badge(p) {
   return st.installed
     ? `<span class="pc-badge badge-ok">${t("✓ 설치됨")}</span>`
     : `<span class="pc-badge badge-miss" title="${st.installHint || ""}">${t("✗ 없음")}</span>`;
+}
+
+// authStatus: ok | needed | unknown | na
+function authBadge(p) {
+  const st = state.status?.providers?.[p];
+  if (!st) return `<span class="pc-badge">${t("확인 중…")}</span>`;
+  if (!st.installed) {
+    return `<span class="pc-badge badge-miss">${t("✗ 없음")}</span>`;
+  }
+  const status = st.authStatus || "unknown";
+  const detail = st.authDetail ? ` title="${String(st.authDetail).replace(/"/g, "&quot;")}"` : "";
+  if (status === "na") {
+    return `<span class="pc-badge badge-ok"${detail}>${t("로그인 불필요")}</span>`;
+  }
+  if (status === "ok") {
+    return `<span class="pc-badge badge-ok"${detail}>${t("✓ 로그인됨")}</span>`;
+  }
+  if (status === "needed") {
+    return `<span class="pc-badge badge-miss"${detail}>${t("✗ 로그인 필요")}</span>`;
+  }
+  return `<span class="pc-badge"${detail}>${t("? 상태 미확인")}</span>`;
 }
 
 function renderProviders() {
@@ -101,15 +124,23 @@ function renderAuth() {
   const rows = ORDER.filter((p) => state.selected.has(p)).map((p) => {
     const st = state.status?.providers?.[p] || {};
     const cmd = st.authCmd
-      ? `<code class="auth-cmd">${st.authCmd}</code>` : `<span class="pc-badge badge-ok">${t("로그인 불필요")}</span>`;
+      ? `<code class="auth-cmd">${st.authCmd}</code>`
+      : `<span class="pc-badge badge-ok">${t("로그인 불필요")}</span>`;
+    const detail = st.authDetail
+      ? `<span class="pc-desc auth-detail">${t("상태:")} ${st.authDetail}</span>` : "";
+    const needWarn = st.authStatus === "needed" && st.installed
+      ? `<p class="pc-warn">${t("로그인 전에는 이 에이전트 작업이 실패합니다. 아래 명령을 터미널에서 실행한 뒤 재확인하세요.")}</p>`
+      : "";
     return `
       <div class="auth-row">
         <span class="pc-mono">${(st.label || p).charAt(0)}</span>
         <div class="auth-info">
           <span class="pc-name">${st.label || p} ${cmd}</span>
           <span class="pc-desc">${t(st.authHint || "")}</span>
+          ${detail}
+          ${needWarn}
         </div>
-        ${badge(p)}
+        ${authBadge(p)}
       </div>`;
   }).join("");
   const tools = Object.entries(state.status?.tools || {}).map(([name, tool]) =>
@@ -120,7 +151,7 @@ function renderAuth() {
       <h2>${t("각 CLI에 로그인하세요")}</h2>
       <button type="button" class="btn-ghost" id="recheck">${t("재확인")}</button>
     </div>
-    <div class="setup-callout">${t("Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 계속 진행하세요. (로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다)")}</div>
+    <div class="setup-callout">${t("Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 재확인을 누르세요. 로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다.")}</div>
     <div class="auth-list">${rows}</div>
     <div class="setup-optional">
       <h3>${t("보조 도구 (선택)")}</h3>
@@ -163,7 +194,7 @@ async function recheck(ev) {
 function syncFooter() {
   backBtn.hidden = state.step === 1;
   skipBtn.hidden = state.step === 4;
-  nextBtn.textContent = state.step === 1 ? t("시작하기") : state.step === 4 ? t("완료") : t("다음");
+  nextBtn.textContent = state.step === 1 ? t("시작하기") : state.step === 4 ? t("마침") : t("다음");
   nextBtn.disabled = state.step >= 2 && state.selected.size === 0;
   document.querySelectorAll("#setup-steps .step").forEach((el) => {
     const n = Number(el.dataset.step);

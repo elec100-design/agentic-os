@@ -37,7 +37,9 @@ def test_api_health_route(tmp_env):
         assert r.status_code == 200
         data = r.json()
         assert set(["ok", "version", "server", "setup", "providers", "tools"]) <= set(data)
-        assert set(data["providers"]) == {"claude", "antigravity", "grok", "hermes"}
+        assert set(data["providers"]) == {
+            "claude", "codex", "antigravity", "gemini", "grok", "openclaw", "hermes",
+        }
 
 
 def test_doctor_exit_code(tmp_env, monkeypatch, capsys):

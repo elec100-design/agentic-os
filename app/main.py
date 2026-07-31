@@ -18,6 +18,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
 from app import (
     codexbar, config, council, db, github_cli, health, i18n, memory, models,
@@ -299,6 +300,7 @@ async def _save_uploads(files):
 
 @app.post("/jobs")
 async def create_job(
+    request: Request,
     prompt: str = Form(...),
     provider: str = Form("auto"),
     model: str = Form(""),
@@ -336,9 +338,11 @@ async def create_job(
         raise HTTPException(
             status_code=400,
             detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
-    # agy는 헤드리스 세션 재개가 불가능해 이어가기를 지원하지 않는다 → 넘어온
-    # session_id를 무시하고 항상 새 대화로 처리(오염 방지, UI 우회 제출 방어).
-    if provider == "antigravity":
+    # 헤드리스 세션 재개가 불가능한 CLI → 넘어온 session_id를 무시하고 항상
+    # 새 대화로 처리(오염 방지, UI 우회 제출 방어).
+    # - antigravity(agy): 헤드리스 세션 ID 부재
+    # - gemini: --resume 이 latest/index 전용(UUID 재개 없음)
+    if provider in ("antigravity", "gemini"):
         session_id = ""
     if not models.is_valid_model(provider, model):
         model = ""
@@ -367,13 +371,18 @@ async def create_job(
         prompt += "\n\n첨부 파일 (로컬 경로에서 읽을 것):\n" + "\n".join(
             f"- {p}" for p in uploads
         )
-    db.create_job(conn, prompt, provider,
-                  timeout_sec=timeout_min * 60 if timeout_min else None,
-                  session_id=session_id.strip() or None,
-                  model=model or None,
-                  workdir=workdir or None,
-                  note_path=str(Path(origin_note).resolve()) if origin_note else None,
-                  route_reason=route_reason)
+    job_id = db.create_job(
+        conn, prompt, provider,
+        timeout_sec=timeout_min * 60 if timeout_min else None,
+        session_id=session_id.strip() or None,
+        model=model or None,
+        workdir=workdir or None,
+        note_path=str(Path(origin_note).resolve()) if origin_note else None,
+        route_reason=route_reason)
+    # 탭 안에서 이어 보낸 후속 작업은 페이지를 떠나지 않는다 — 새 작업 id만 받아
+    # 그 자리에서 새 탭으로 연다.
+    if "application/json" in (request.headers.get("accept") or ""):
+        return {"job_id": job_id}
     return RedirectResponse("/", status_code=303)
 
 
@@ -386,15 +395,357 @@ def api_recommend(prompt: str = ""):
     return {"provider": provider, "reason": reason}
 
 
+# --- 채널: 주제별 지속 대화(쓰레드 답장) ------------------------------------
+# 사이드바 히스토리의 단발성 잡과 달리, 채널 안 대화는 messages 테이블에
+# 쌓이고 답장이 parent_id로 쓰레드를 이룬다. 실제 CLI 실행은 여전히 jobs가
+# 담당하며(worker.py), messages.job_id로 연결된다.
+
+class ChannelCreate(BaseModel):
+    title: str
+    topic: str = ""
+    workdir: str | None = None
+    default_provider: str | None = None
+
+
+class ChannelUpdate(BaseModel):
+    title: str | None = None
+    topic: str | None = None
+    default_provider: str | None = None
+
+
+class MessageCreate(BaseModel):
+    body: str
+    provider: str = "auto"
+    model: str = ""
+    parent_id: int | None = None
+
+
+class TestGoalCreate(BaseModel):
+    name: str
+
+
+class BoardTabCreate(BaseModel):
+    title: str
+    kind: str = "artifact"
+    ref_id: int | None = None
+    status: str = "pending"
+
+
+class BoardTabRename(BaseModel):
+    title: str
+
+
+class BoardTabOrder(BaseModel):
+    tab_ids: list[int]
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    task_type: str | None = None
+    agent: str | None = None
+    model: str | None = None
+    reset_status: bool = False
+
+
+class TaskMessageCreate(BaseModel):
+    content: str
+
+
+@app.post("/api/test-goal", status_code=201)
+async def api_create_test_goal(payload: TestGoalCreate):
+    conn = db.get_conn()
+    goal_id = db.create_test_goal(conn, payload.name)
+    await worker.run_test_goal(conn, goal_id)
+    return {"id": goal_id, "status": "pending"}
+
+
+@app.get("/api/test-goal/{goal_id}")
+def api_get_test_goal(goal_id: int):
+    conn = db.get_conn()
+    goal = db.get_test_goal(conn, goal_id)
+    if goal is None:
+        raise HTTPException(status_code=404)
+    return {"id": goal["id"], "status": goal["status"], "result": goal["result"]}
+
+
+@app.post("/api/channels", status_code=201)
+def api_create_channel(payload: ChannelCreate):
+    conn = db.get_conn()
+    workdir = payload.workdir if payload.workdir and workspace.valid_path(
+        payload.workdir) else None
+    channel_id = db.create_channel(
+        conn, payload.title, topic=payload.topic, workdir=workdir,
+        default_provider=payload.default_provider or None)
+    return dict(db.get_channel(conn, channel_id))
+
+
+@app.get("/api/channels")
+def api_list_channels(status: str = "active"):
+    conn = db.get_conn()
+    rows = db.list_channels(conn, status=status or None)
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/channels/{channel_id}")
+def api_get_channel(channel_id: int, limit: int = 50):
+    conn = db.get_conn()
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404)
+    rows = db.list_root_messages(conn, channel_id, limit=limit)
+    return {"channel": dict(channel), "messages": [dict(r) for r in rows]}
+
+
+@app.patch("/api/channels/{channel_id}")
+def api_update_channel(channel_id: int, payload: ChannelUpdate):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if fields:
+        db.update_channel(conn, channel_id, **fields)
+    return dict(db.get_channel(conn, channel_id))
+
+
+@app.post("/api/channels/{channel_id}/archive")
+def api_archive_channel(channel_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    db.update_channel(conn, channel_id, status="archived")
+    return dict(db.get_channel(conn, channel_id))
+
+
+@app.delete("/api/channels/{channel_id}")
+def api_delete_channel(channel_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    db.delete_channel(conn, channel_id)
+    return {"status": "deleted"}
+
+
+@app.get("/api/channels/{channel_id}/messages")
+def api_list_channel_messages(channel_id: int, before_seq: int | None = None,
+                              limit: int = 50):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    rows = db.list_root_messages(conn, channel_id, before_seq=before_seq,
+                                 limit=limit)
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/channels/{channel_id}/messages", status_code=202)
+def api_create_channel_message(channel_id: int, payload: MessageCreate):
+    conn = db.get_conn()
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404)
+    if not payload.body.strip():
+        raise HTTPException(status_code=400, detail="empty body")
+
+    provider = payload.provider or channel["default_provider"] or "auto"
+    enabled = settings.enabled_providers()
+    route_reason = None
+    if provider == "auto":
+        provider, route_reason = route_auto(
+            payload.body, usage_state=usage_state()["usage"], enabled=enabled)
+    if provider == COUNCIL:
+        try:
+            council.select_members(usage_state()["usage"], enabled=enabled)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    elif provider not in PROVIDERS:
+        raise HTTPException(status_code=400, detail="unknown provider")
+    elif provider not in enabled:
+        raise HTTPException(
+            status_code=400,
+            detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+
+    model = payload.model or ""
+    if not models.is_valid_model(provider, model):
+        model = ""
+    workdir = channel["workdir"]
+    if not workdir or not workspace.valid_path(workdir):
+        workdir = None
+
+    # parent_id는 항상 쓰레드 루트를 직접 가리키도록 정규화해서 넘긴다.
+    thread_root_id = None
+    session_id = None
+    if payload.parent_id:
+        parent = db.get_message(conn, payload.parent_id)
+        if parent is None or parent["channel_id"] != channel_id:
+            raise HTTPException(status_code=404, detail="parent message not found")
+        thread_root_id = parent["root_id"] or parent["id"]
+        inherited_session, inherited_provider = db.latest_thread_session(
+            conn, thread_root_id)
+        if inherited_session and inherited_provider == provider:
+            session_id = inherited_session
+
+    user_message_id = db.create_message(
+        conn, channel_id, role="user", body=payload.body, author="user",
+        parent_id=thread_root_id, status="done")
+
+    # 채널의 새 루트 대화라면(부모 없음) 방금 만든 사용자 메시지가 쓰레드
+    # 루트가 되고, 에이전트 응답은 그 아래 첫 답장으로 들어간다.
+    agent_parent_id = thread_root_id or user_message_id
+    agent_message_id = db.create_message(
+        conn, channel_id, role="agent", body="", author=provider,
+        parent_id=agent_parent_id, status="queued", provider=provider,
+        model=model or None)
+
+    job_id = db.create_job(
+        conn, payload.body, provider, session_id=session_id,
+        model=model or None, workdir=workdir, route_reason=route_reason,
+        channel_id=channel_id, message_id=agent_message_id)
+    db.update_message(conn, agent_message_id, job_id=job_id)
+
+    return {"message_id": agent_message_id, "job_id": job_id,
+            "user_message_id": user_message_id}
+
+
+@app.get("/api/messages/{message_id}")
+def api_get_message(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    return dict(message)
+
+
+@app.get("/api/messages/{message_id}/thread")
+def api_message_thread(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    root_id = message["root_id"] or message["id"]
+    rows = db.list_thread(conn, root_id)
+    return {"root_id": root_id, "messages": [dict(r) for r in rows]}
+
+
+@app.post("/api/messages/{message_id}/cancel")
+def api_cancel_message(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    if message["job_id"]:
+        db.update_job(conn, message["job_id"], status="failed",
+                      error="cancelled", finished_at=db.now_iso())
+        worker.terminate_job_procs(message["job_id"])
+    db.update_message(conn, message_id, status="canceled",
+                      finished_at=db.now_iso())
+    return dict(db.get_message(conn, message_id))
+
+
+@app.get("/api/messages/{message_id}/trace")
+def api_message_trace(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    steps = db.list_execution_steps(conn, message_id)
+    return {"message": dict(message), "steps": [dict(s) for s in steps]}
+
+
+@app.get("/api/messages/{message_id}/stream")
+async def api_message_stream(message_id: int):
+    conn = db.get_conn()
+    message = db.get_message(conn, message_id)
+    if message is None:
+        raise HTTPException(status_code=404)
+    job_id = message["job_id"]
+
+    async def gen():
+        # 잡이 아직 없거나(방금 큐잉) 이미 있으면 job_id로 구독한다. 잡이
+        # 나중에 재시도로 새로 생기는 경우는 없다 — 메시지당 잡 1개.
+        q = stream_hub.subscribe(job_id) if job_id else None
+        sent_len: dict[int, int] = {}
+        last_status = None
+        try:
+            while True:
+                conn = db.get_conn()
+                msg = db.get_message(conn, message_id)
+                if msg is None:
+                    break
+                for step in db.list_execution_steps(conn, message_id):
+                    prev = sent_len.get(step["id"], -1)
+                    cur = len(step["detail"] or "")
+                    if cur != prev or (prev == -1 and step["status"] != "running"):
+                        payload = {
+                            "id": step["id"], "seq": step["seq"],
+                            "kind": step["kind"], "title": step["title"],
+                            "status": step["status"], "detail": step["detail"],
+                        }
+                        yield f"event: step\ndata: {json.dumps(payload)}\n\n"
+                        sent_len[step["id"]] = cur
+                if msg["status"] != last_status:
+                    yield f"event: status\ndata: {json.dumps(msg['status'])}\n\n"
+                    last_status = msg["status"]
+                if msg["status"] in ("done", "failed", "canceled"):
+                    yield "event: done\ndata: {}\n\n"
+                    break
+                if q is not None:
+                    try:
+                        await asyncio.wait_for(q.get(), timeout=config.STREAM_POLL_SEC)
+                    except asyncio.TimeoutError:
+                        pass
+                else:
+                    await asyncio.sleep(config.STREAM_POLL_SEC)
+        finally:
+            if job_id and q is not None:
+                stream_hub.unsubscribe(job_id, q)
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@app.get("/partials/channels", response_class=HTMLResponse)
+def partials_channels(request: Request):
+    """사이드바 채널 목록: 워크스페이스 채널 + 실행 중인 액티브 세션(루트 메시지)을
+    계층으로 보여준다. 진행 중인 세션이 있는 채널이 먼저 오도록 정렬한다."""
+    conn = db.get_conn()
+    rows = []
+    for c in db.list_channels(conn, status="active"):
+        roots = db.list_root_messages(conn, c["id"], limit=8)
+        active = []
+        for root in roots:
+            thread = db.list_thread(conn, root["id"])
+            last = thread[-1] if thread else root
+            if last["status"] in ("queued", "running"):
+                active.append({**dict(root), "status": last["status"]})
+        rows.append({"channel": dict(c), "active": active})
+    rows.sort(key=lambda r: bool(r["active"]), reverse=True)
+    return templates.TemplateResponse(
+        request, "partials/channels.html", {"rows": rows})
+
+
+@app.get("/channels/{channel_id}", response_class=HTMLResponse)
+def channel_page(request: Request, channel_id: int):
+    conn = db.get_conn()
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404)
+    roots = db.list_root_messages(conn, channel_id, limit=200)
+    threads = [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots]
+    return templates.TemplateResponse(
+        request, "channel.html",
+        {"channel": dict(channel), "threads": threads,
+         "provider_models": models.get_provider_models(),
+         "agent_order": settings.enabled_providers()})
+
+
 @app.get("/note", response_class=HTMLResponse)
 def note_view(request: Request, path: str):
     note = memory.read_note(path)
     if note is None:
         raise HTTPException(status_code=404)
-    # hermes(로컬·무상태)·antigravity(헤드리스 세션 재개 불가)는 이어가기 미지원.
+    # hermes(로컬·무상태)·antigravity/gemini(헤드리스 UUID 재개 불가)는 이어가기 미지원.
     can_resume = bool(
         note["session_id"] and note["provider"] in PROVIDERS
-        and note["provider"] not in ("hermes", "antigravity")
+        and note["provider"] not in ("hermes", "antigravity", "gemini")
     )
     pm = models.get_provider_models()
     order = settings.enabled_providers()
@@ -407,13 +758,45 @@ def note_view(request: Request, path: str):
     )
 
 
+def _job_view_ctx(job):
+    """작업 상세 뷰(단독 페이지·홈 탭 공용)의 렌더 컨텍스트.
+
+    thread: 이 작업 '이전'의 대화 턴들 — 연결된 스레드 노트에서 읽는다. 노트는
+    작업이 끝난 뒤에 기록되므로, 끝난 작업이면 노트의 마지막 한 쌍이 이 작업
+    자신이라 잘라낸다(프롬프트로 확인).
+    can_resume: 같은 세션을 이어받아 후속 작업을 보낼 수 있는지.
+    """
+    thread = []
+    if job["note_path"]:
+        note = memory.read_note(job["note_path"])
+        if note:
+            thread = memory.parse_thread(note["body"])
+            if (len(thread) >= 2 and thread[-2]["role"] == "user"
+                    and thread[-2]["content"].strip() == (job["prompt"] or "").strip()):
+                thread = thread[:-2]
+    # note_view와 같은 기준 — hermes(무상태)·antigravity/gemini(UUID 재개 불가)는
+    # 세션을 이어받을 수 없어 노트를 컨텍스트로 붙이는 폴백만 제공한다.
+    can_resume = bool(
+        job["status"] in ("done", "failed")
+        and job["session_id"] and job["provider"] in PROVIDERS
+        and job["provider"] not in ("hermes", "antigravity", "gemini")
+    )
+    can_follow_up = bool(
+        job["status"] in ("done", "failed")
+        and job["provider"] in PROVIDERS
+        and (can_resume or job["note_path"])
+    )
+    return {"job": job, "thread": thread,
+            "can_resume": can_resume, "can_follow_up": can_follow_up}
+
+
 @app.get("/jobs/{job_id}", response_class=HTMLResponse)
 def job_detail(request: Request, job_id: int):
     conn = db.get_conn()
     job = db.get_job(conn, job_id)
     if job is None:
         raise HTTPException(status_code=404)
-    return templates.TemplateResponse(request, "job.html", {"job": job})
+    return templates.TemplateResponse(request, "job.html", _job_view_ctx(job))
 
 
 @app.post("/jobs/{job_id}/cancel")
@@ -485,6 +868,20 @@ def delete_job_endpoint(request: Request, job_id: int):
     )
     resp.headers["HX-Trigger"] = "refresh-memory"   # 사이드바 메모리도 갱신
     return resp
+
+
+@app.api_route("/partials/job/{job_id}", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def partial_job(request: Request, job_id: int):
+    """작업 상세 조각 — 홈 중앙 워크스페이스가 탭 내용으로 불러온다.
+
+    HEAD도 받는다 — home.js가 새로고침 후 탭을 복원할 때 작업이 아직 존재하는지
+    본문 없이 확인한다(partial_task와 같은 계약)."""
+    conn = db.get_conn()
+    job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/job_view.html", _job_view_ctx(job))
 
 
 @app.get("/partials/jobs", response_class=HTMLResponse)
@@ -710,6 +1107,84 @@ def board_page(request: Request):
          "council_enabled": settings.council_available()})
 
 
+_BOARD_TAB_KINDS = {"chat", "task", "workflow", "flow", "artifact", "diff", "preview"}
+_BOARD_TAB_STATUSES = {"pending", "running", "done", "error"}
+
+
+def _board_or_404(conn, board_id):
+    if db.get_project(conn, board_id) is None:
+        raise HTTPException(status_code=404, detail="보드를 찾을 수 없습니다")
+
+
+def _tab_or_404(conn, board_id, tab_id):
+    tab = db.get_board_tab(conn, tab_id)
+    if tab is None or tab["board_id"] != board_id:
+        raise HTTPException(status_code=404, detail="탭을 찾을 수 없습니다")
+    return tab
+
+
+@app.get("/api/boards/{board_id}/tabs")
+def list_board_tabs(board_id: int):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    return {"tabs": [dict(tab) for tab in db.list_board_tabs(conn, board_id)]}
+
+
+@app.post("/api/boards/{board_id}/tabs", status_code=201)
+def create_board_tab(board_id: int, payload: BoardTabCreate):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="탭 제목은 비울 수 없습니다")
+    if payload.kind not in _BOARD_TAB_KINDS or payload.status not in _BOARD_TAB_STATUSES:
+        raise HTTPException(status_code=400, detail="유효하지 않은 탭 종류 또는 상태입니다")
+    tab_id = db.get_or_create_board_tab(conn, board_id, title, payload.kind,
+                                        payload.ref_id, payload.status)
+    return {"tab": dict(db.get_board_tab(conn, tab_id))}
+
+
+@app.patch("/api/boards/{board_id}/tabs/{tab_id}")
+def rename_board_tab(board_id: int, tab_id: int, payload: BoardTabRename):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    _tab_or_404(conn, board_id, tab_id)
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="탭 제목은 비울 수 없습니다")
+    db.update_board_tab(conn, tab_id, title=title)
+    return {"tab": dict(db.get_board_tab(conn, tab_id))}
+
+
+@app.delete("/api/boards/{board_id}/tabs/{tab_id}")
+def close_board_tab(board_id: int, tab_id: int):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    if not db.close_board_tab(conn, board_id, tab_id):
+        raise HTTPException(status_code=404, detail="탭을 찾을 수 없습니다")
+    return {"ok": True}
+
+
+@app.put("/api/boards/{board_id}/tabs/order")
+def reorder_board_tabs(board_id: int, payload: BoardTabOrder):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    try:
+        db.reorder_board_tabs(conn, board_id, payload.tab_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"tabs": [dict(tab) for tab in db.list_board_tabs(conn, board_id)]}
+
+
+@app.post("/api/boards/{board_id}/tabs/{tab_id}/activate")
+def activate_board_tab(board_id: int, tab_id: int):
+    conn = db.get_conn()
+    _board_or_404(conn, board_id)
+    _tab_or_404(conn, board_id, tab_id)
+    db.set_active_board_tab(conn, board_id, tab_id)
+    return {"tab": dict(db.get_board_tab(conn, tab_id))}
+
+
 @app.post("/projects")
 async def create_project(
     goal: str = Form(...),
@@ -743,8 +1218,13 @@ async def create_project(
 def project_page(request: Request, project_id: int):
     conn = db.get_conn()
     project = _project_or_404(conn, project_id)
+    channel = db.get_or_create_project_channel(conn, project)
+    tasks = db.list_tasks(conn, project_id)
     return templates.TemplateResponse(
-        request, "project.html", {"project": project})
+        request, "project.html",
+        {"project": project, "channel": dict(channel),
+         "tasks": [dict(t) for t in tasks],
+         "agent_order": settings.enabled_providers()})
 
 
 @app.get("/partials/projects", response_class=HTMLResponse)
@@ -755,28 +1235,58 @@ def partial_projects(request: Request):
         {"projects": _project_progress(conn, db.list_projects(conn))})
 
 
-@app.get("/partials/board/{project_id}", response_class=HTMLResponse)
-def partial_board(request: Request, project_id: int):
-    conn = db.get_conn()
+def _board_partial(request, conn, project_id, orientation="lr"):
+    """보드 조각 렌더 — 폴링과 모든 편집 액션이 같은 응답을 돌려준다."""
     project = _project_or_404(conn, project_id)
     tasks = db.list_tasks(conn, project_id)
+    if orientation not in orchestrator.ORIENTATIONS:
+        orientation = "lr"
     return templates.TemplateResponse(
         request, "partials/board.html",
         {"project": project, "tasks": tasks,
-         "graph": orchestrator.layout_graph(tasks)})
+         "graph": orchestrator.layout_graph(tasks, orientation=orientation),
+         # '완료'지만 결과가 오류 안내문인 태스크 — 캔버스에서도 눈에 띄어야
+         # 사용자가 그 노드를 열어 조치할 수 있다
+         "warn_ids": {t["id"] for t in tasks
+                      if orchestrator.output_error_hint(t)},
+         "editable": orchestrator.project_editable(project),
+         "editable_task_statuses": orchestrator.EDITABLE_TASK_STATUSES,
+         "task_types": orchestrator.TASK_TYPES,
+         "agent_order": settings.enabled_providers()})
 
 
-@app.get("/partials/task/{task_id}", response_class=HTMLResponse)
+@app.get("/partials/board/{project_id}", response_class=HTMLResponse)
+def partial_board(request: Request, project_id: int, o: str = "lr"):
+    """o=lr(가로, 데스크톱) | tb(세로, 모바일) — 클라이언트가 뷰포트 폭으로 정한다."""
+    return _board_partial(request, db.get_conn(), project_id, orientation=o)
+
+
+@app.api_route("/partials/task/{task_id}", methods=["GET", "HEAD"], response_class=HTMLResponse)
 def partial_task(request: Request, task_id: int):
     conn = db.get_conn()
     task = db.get_task(conn, task_id)
     if task is None:
         raise HTTPException(status_code=404)
+    project = db.get_project(conn, task["project_id"])
     artifact_name = (Path(task["artifact_path"]).name
                      if task["artifact_path"] else None)
+    siblings = [t for t in db.list_tasks(conn, task["project_id"])
+                if t["seq"] != task["seq"]]
+    agents = settings.enabled_providers()
     return templates.TemplateResponse(
         request, "partials/task_detail.html",
-        {"task": task, "artifact_name": artifact_name})
+        {"task": task, "artifact_name": artifact_name, "project": project,
+         "siblings": siblings, "deps": orchestrator.task_deps(task),
+         "editable": orchestrator.task_editable(project, task),
+         "task_types": orchestrator.TASK_TYPES,
+         "agent_order": agents,
+         # 오류 조치 패널 — 모델 교체용 목록과 '완료지만 오류' 감지 결과
+         "recoverable": orchestrator.task_recoverable(project, task),
+         "output_error": orchestrator.output_error_hint(task),
+         "has_dependents": bool(
+             orchestrator.dependent_seqs(siblings + [task], task["seq"])),
+         "provider_models": {p: v for p, v in
+                             models.get_provider_models().items() if p in agents}})
 
 
 def _project_action(project_id, fn):
@@ -823,17 +1333,332 @@ def delete_project_endpoint(project_id: int):
     return RedirectResponse("/board", status_code=303)
 
 
+def _remove_project_artifacts(project_id):
+    artifacts = config.ARTIFACTS_DIR / str(project_id)
+    if artifacts.is_dir():
+        import shutil
+        shutil.rmtree(artifacts, ignore_errors=True)
+
+
+@app.post("/projects/cancelled/clear")
+def clear_cancelled_projects_endpoint():
+    """취소된 프로젝트를 모두 하드 삭제 — 실행 중/대기 중 프로젝트는 건드리지 않는다."""
+    conn = db.get_conn()
+    projects = db.list_projects_by_status(conn, "cancelled")
+    for p in projects:
+        db.delete_project(conn, p["id"])
+        _remove_project_artifacts(p["id"])
+    return {"deleted": len(projects)}
+
+
+@app.post("/projects/{project_id}/delete-cancelled")
+def delete_cancelled_project_endpoint(project_id: int):
+    """취소된 프로젝트만 삭제를 허용 — 실행 중인 프로젝트를 실수로 지우지 않게 막는다."""
+    conn = db.get_conn()
+    project = _project_or_404(conn, project_id)
+    if project["status"] != "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail="취소된 프로젝트만 삭제할 수 있습니다")
+    db.delete_project(conn, project_id)
+    _remove_project_artifacts(project_id)
+    return RedirectResponse("/board", status_code=303)
+
+
+# --- 다이어그램 편집 (n8n식 캔버스) ---
+# 편집 액션은 리다이렉트가 아니라 보드 조각을 그대로 돌려준다 — htmx가 #board를
+# 제자리 교체하므로 캔버스의 팬/줌·선택 상태가 유지된다.
+
+def _edit_action(request, project_id, fn, orientation="lr"):
+    conn = db.get_conn()
+    try:
+        fn(conn)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return _board_partial(request, conn, project_id, orientation=orientation)
+
+
+def _task_project_id(conn, task_id):
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404)
+    return task["project_id"]
+
+
+@app.post("/tasks/{task_id}/edit", response_class=HTMLResponse)
+def edit_task_endpoint(
+    request: Request,
+    task_id: int,
+    title: str = Form(...),
+    description: str = Form(...),
+    task_type: str = Form("text"),
+    agent: str = Form("auto"),
+    model: str = Form(""),
+    extra_instruction: str = Form(""),
+    o: str = Form("lr"),
+):
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    return _edit_action(
+        request, pid,
+        lambda c: orchestrator.update_task_fields(
+            c, task_id, title=title, description=description,
+            task_type=task_type, agent=agent, model=model,
+            extra_instruction=extra_instruction,
+            enabled=settings.enabled_providers()),
+        orientation=o)
+
+
+@app.post("/tasks/{task_id}/deps", response_class=HTMLResponse)
+def task_deps_endpoint(request: Request, task_id: int,
+                       deps: list[str] = Form([]), o: str = Form("lr")):
+    """선행 목록 전체 교체 — 엣지 추가와 삭제가 같은 엔드포인트를 쓴다.
+    체크박스 폼(반복 필드)과 캔버스 JS(FormData.append) 둘 다 같은 형태로 보낸다."""
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    try:
+        parsed = [int(d) for d in deps if str(d).strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="deps는 정수 목록이어야 합니다")
+    return _edit_action(request, pid,
+                        lambda c: orchestrator.set_task_deps(c, task_id, parsed),
+                        orientation=o)
+
+
+@app.post("/tasks/{task_id}/move", response_class=HTMLResponse)
+def move_task_endpoint(request: Request, task_id: int, x: float = Form(...),
+                       y: float = Form(...), o: str = Form("lr")):
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    return _edit_action(request, pid,
+                        lambda c: orchestrator.move_task(c, task_id, x, y),
+                        orientation=o)
+
+
+@app.post("/tasks/{task_id}/delete", response_class=HTMLResponse)
+def delete_task_endpoint(request: Request, task_id: int, o: str = Form("lr")):
+    conn = db.get_conn()
+    pid = _task_project_id(conn, task_id)
+    return _edit_action(request, pid,
+                        lambda c: orchestrator.delete_task(c, task_id),
+                        orientation=o)
+
+
+@app.post("/projects/{project_id}/tasks", response_class=HTMLResponse)
+def add_task_endpoint(
+    request: Request,
+    project_id: int,
+    title: str = Form(...),
+    description: str = Form(""),
+    task_type: str = Form("text"),
+    agent: str = Form("auto"),
+    x: str = Form(""),
+    y: str = Form(""),
+    o: str = Form("lr"),
+    message_id: int | None = Form(None),
+):
+    conn = db.get_conn()
+    _project_or_404(conn, project_id)
+    # 좌표는 캔버스 JS가 채운다. 비어 있으면(폼 직접 제출) 자동 배치에 맡긴다.
+    try:
+        pos = (float(x), float(y)) if x.strip() and y.strip() else None
+    except ValueError:
+        pos = None
+    return _edit_action(
+        request, project_id,
+        lambda c: orchestrator.add_task(
+            c, project_id, title, description=description, task_type=task_type,
+            agent=agent, pos=pos, enabled=settings.enabled_providers(),
+            source_message_id=message_id),
+        orientation=o)
+
+
+@app.post("/projects/{project_id}/relayout", response_class=HTMLResponse)
+def relayout_project_endpoint(request: Request, project_id: int,
+                              o: str = Form("lr")):
+    conn = db.get_conn()
+    _project_or_404(conn, project_id)
+    return _edit_action(request, project_id,
+                        lambda c: orchestrator.reset_layout(c, project_id),
+                        orientation=o)
+
+
 @app.post("/tasks/{task_id}/retry")
-def retry_task_endpoint(task_id: int):
+def retry_task_endpoint(
+    task_id: int,
+    agent: str = Form(""),
+    model: str = Form(None),
+    instruction: str = Form(None),
+    cascade: bool = Form(False),
+):
+    """실패·오류 태스크 조치 — 모델 교체와 추가 지시를 함께 받아 다시 실행한다.
+
+    폼 필드를 안 보내면(상단 '재시도' 버튼) 기존 설정 그대로 재실행한다.
+    """
     conn = db.get_conn()
     task = db.get_task(conn, task_id)
     if task is None:
         raise HTTPException(status_code=404)
     try:
-        orchestrator.retry_task(conn, task_id)
+        orchestrator.retry_task(
+            conn, task_id, agent=agent or None, model=model,
+            instruction=instruction, cascade=cascade,
+            enabled=settings.enabled_providers())
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return RedirectResponse(f"/projects/{task['project_id']}", status_code=303)
+
+
+# --- 사이드바 태스크 편집·채팅 API ---
+# 다이어그램 편집(/tasks/{id}/edit 등)과 달리 이 JSON API는 사이드바에서 태스크
+# 하나를 열어 편집/대화하는 용도라 편집 가능 범위가 더 넓다(완료된 태스크도
+# 재편집 가능) — 유일한 제약은 "지금 실행 중인 프로젝트를 건드리지 않는다".
+
+def _task_or_404(conn, task_id):
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404)
+    return task
+
+
+@app.get("/api/tasks/{task_id}")
+def api_get_task(task_id: int):
+    conn = db.get_conn()
+    task = _task_or_404(conn, task_id)
+    project = db.get_project(conn, task["project_id"])
+    recent_job = None
+    if task["job_id"]:
+        job = db.get_job(conn, task["job_id"])
+        if job is not None:
+            recent_job = {
+                "id": job["id"], "status": job["status"],
+                "output": job["output"][-2000:] if job["output"] else "",
+                "error": job["error"], "started_at": job["started_at"],
+                "finished_at": job["finished_at"],
+            }
+    return {
+        "id": task["id"], "project_id": task["project_id"], "seq": task["seq"],
+        "title": task["title"], "description": task["description"],
+        "task_type": task["task_type"], "provider": task["provider"],
+        "model": task["model"], "status": task["status"],
+        "depends_on": orchestrator.task_deps(task),
+        "output": task["output"], "artifact_path": task["artifact_path"],
+        "error": task["error"], "extra_instruction": task["extra_instruction"],
+        "editable": project is None or project["status"] != "running",
+        "recent_job": recent_job,
+    }
+
+
+@app.patch("/api/tasks/{task_id}")
+def api_update_task(task_id: int, payload: TaskUpdate):
+    conn = db.get_conn()
+    task = _task_or_404(conn, task_id)
+    project = db.get_project(conn, task["project_id"])
+    if project is not None and project["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="프로젝트 실행 중에는 태스크를 편집할 수 없습니다. 일시정지 후 편집하세요")
+
+    fields = {}
+    if payload.title is not None:
+        title = payload.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="제목은 비울 수 없습니다")
+        fields["title"] = title
+    if payload.description is not None:
+        description = payload.description.strip()
+        if not description:
+            raise HTTPException(status_code=400, detail="설명은 비울 수 없습니다")
+        fields["description"] = description
+    if payload.task_type is not None:
+        if payload.task_type not in orchestrator.TASK_TYPES:
+            raise HTTPException(
+                status_code=400, detail=f"알 수 없는 type {payload.task_type!r}")
+        fields["task_type"] = payload.task_type
+
+    if payload.agent is not None:
+        task_type = fields.get("task_type", task["task_type"])
+        description = fields.get("description", task["description"])
+        try:
+            provider = orchestrator.resolve_provider(
+                task_type, payload.agent, description,
+                usage_state=usage_state()["usage"],
+                enabled=settings.enabled_providers())
+        except orchestrator.PlanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        fields["provider"] = provider
+        if payload.model:
+            if not models.is_valid_model(provider, payload.model):
+                raise HTTPException(
+                    status_code=400, detail=f"알 수 없는 model {payload.model!r}")
+            fields["model"] = payload.model
+        else:
+            fields["model"] = None
+    elif payload.model is not None:
+        if payload.model:
+            if not models.is_valid_model(task["provider"], payload.model):
+                raise HTTPException(
+                    status_code=400, detail=f"알 수 없는 model {payload.model!r}")
+            fields["model"] = payload.model
+        else:
+            fields["model"] = None
+
+    if not fields and not payload.reset_status:
+        raise HTTPException(status_code=400, detail="변경할 내용이 없습니다")
+    if payload.reset_status:
+        fields["status"] = "pending"
+
+    db.update_task(conn, task_id, **fields)
+    return dict(db.get_task(conn, task_id))
+
+
+@app.get("/api/tasks/{task_id}/messages")
+def api_list_task_messages(task_id: int):
+    conn = db.get_conn()
+    _task_or_404(conn, task_id)
+    return [dict(r) for r in db.list_task_messages(conn, task_id)]
+
+
+async def _generate_task_reply(conn, task, history, message):
+    """태스크 채팅 메시지 하나를 에이전트에게 넘겨 답변/설명 수정 제안을 얻는다.
+
+    채널 채팅과 달리 잡을 큐에 남겨 두지 않고 그 자리에서 실행한다 — 응답에
+    수정 제안을 바로 담아 돌려줘야 사이드바가 '적용' 버튼을 즉시 띄울 수 있다.
+    """
+    enabled = settings.enabled_providers()
+    provider_name = task["provider"] if task["provider"] in PROVIDERS else None
+    model = task["model"] if provider_name else None
+    if provider_name not in enabled:
+        provider_name = enabled[0] if enabled else "claude"
+        model = None
+    prompt = orchestrator.build_task_chat_prompt(task, history, message)
+    job_id = db.create_job(conn, prompt, provider_name, model=model)
+    job = db.get_job(conn, job_id)
+    await worker.run_job(conn, job, save=False)
+    job = db.get_job(conn, job_id)
+    if job["status"] != "done":
+        return job["error"] or "에이전트 호출에 실패했습니다", None
+    return orchestrator.parse_task_chat_reply(job["output"])
+
+
+@app.post("/api/tasks/{task_id}/messages", status_code=201)
+async def api_create_task_message(task_id: int, payload: TaskMessageCreate):
+    conn = db.get_conn()
+    task = _task_or_404(conn, task_id)
+    content = (payload.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="내용을 입력하세요")
+
+    db.create_task_message(conn, task_id, role="user", content=content)
+    history = db.list_task_messages(conn, task_id)
+    reply, suggested_description = await _generate_task_reply(
+        conn, task, history, content)
+    assistant_id = db.create_task_message(
+        conn, task_id, role="assistant", content=reply,
+        suggested_description=suggested_description)
+
+    return {"message_id": assistant_id, "reply": reply,
+            "suggested_description": suggested_description}
 
 
 @app.get("/artifacts/{project_id}/{filename}")

@@ -114,6 +114,7 @@ EN = {
     "첨부·도구": "Attach / tools",
     "전송": "Send",
     "사이드바 열기/닫기": "Toggle sidebar",
+    "사이드바 닫기": "Close sidebar",
     "라이트/다크 테마 전환": "Toggle light/dark theme",
     "테마 전환": "Toggle theme",
     "언어 전환 (한국어/English)": "Switch language (English/한국어)",
@@ -126,6 +127,7 @@ EN = {
     "📁 폴더 선택": "📁 Folder",
     "⑂ GitHub 리포": "⑂ GitHub repo",
     "닫기": "Close",
+    "연결 끊김 · 재연결 중…": "Disconnected · reconnecting…",
 
     # --- 작업 상세 에러 배너 ---
     "CLI를 찾을 수 없습니다.": "CLI not found.",
@@ -189,10 +191,9 @@ EN = {
     "Agentic OS에 오신 것을 환영합니다": "Welcome to Agentic OS",
     "구독 중인 AI CLI들을 하나의 대시보드로 — 실측 남은 사용량으로 자동 배분하고, 결과는 노트로 쌓입니다.":
         "All your AI CLIs in one dashboard — routed by real remaining quota, with results saved as notes.",
-    "자동 라우팅": "Auto-routing",
+    "자동 배분": "Auto-routing",
     "남은 사용량이 가장 많은 에이전트로 작업을 배분합니다":
         "Sends work to whichever agent has the most quota left",
-    "작업 큐": "Job queue",
     "사용 제한에 걸리면 큐에 두었다가 자동으로 재개합니다":
         "Queues work through rate limits and resumes automatically",
     "노트 메모리": "Note memory",
@@ -226,7 +227,7 @@ EN = {
     "개 이상이 필요해 비활성화됩니다": "agents, so it's disabled",
     "확인 중…": "Checking…",
     "시작하기": "Get started",
-    "완료": "Finish",
+    "마침": "Finish",
     "다음": "Next",
     "이전": "Back",
     "건너뛰기": "Skip",
@@ -244,21 +245,41 @@ EN = {
     "로컬": "Local",
     "코딩·분석·글쓰기에 강한 범용 에이전트":
         "Versatile agent, strong at coding, analysis, and writing",
+    "ChatGPT/Codex 구독 CLI — 코딩·자동화에 강함":
+        "ChatGPT/Codex subscription CLI — strong at coding and automation",
     "Gemini 기반 에이전트 — Google 계정으로 로그인":
         "Gemini-based agent — sign in with a Google account",
+    "공식 Gemini 터미널 CLI — OAuth 또는 Vertex AI":
+        "Official Gemini terminal CLI — OAuth or Vertex AI",
     "xAI Grok — SuperGrok 구독 CLI": "xAI Grok — SuperGrok subscription CLI",
+    "로컬 Gateway 에이전트 — 여러 클라우드 모델 프로필 연결":
+        "Local Gateway agent — connects multiple cloud model profiles",
     "로컬 실행 모델 — 무제한·개인 데이터에 적합":
         "Local model — unlimited, good for private data",
-    "터미널에서 claude 를 한 번 실행하면 브라우저 로그인(구독 계정 OAuth)이 열립니다. 로그인 후 재확인을 누르세요.":
-        "Run claude once in your terminal to open the browser login (subscription OAuth). Then hit Re-check.",
+    "터미널에서 claude auth login 으로 Anthropic/Claude 구독 계정 OAuth를 완료하세요. 로그인 후 재확인을 누르세요.":
+        "Run claude auth login in your terminal for Anthropic/Claude subscription OAuth. Then hit Re-check.",
+    "터미널에서 codex login 으로 ChatGPT 계정 OAuth 로그인을 완료하세요. (API 키가 아니라 구독 세션을 씁니다. 상태 확인: codex login status)":
+        "Run codex login for ChatGPT OAuth (subscription session, not an API key). Check with: codex login status.",
     "agy 첫 실행 시 Google 계정 OAuth 로그인이 진행되고 시스템 키체인에 저장됩니다.":
         "On first run, agy walks you through Google OAuth and stores it in the system keychain.",
+    "권장(업무/Workspace·Vertex): 1) gcloud auth application-default login  2) ~/.gemini/.env 에 GOOGLE_CLOUD_PROJECT·GOOGLE_CLOUD_LOCATION (예: global)·GOOGLE_GENAI_USE_VERTEXAI=true  3) ~/.gemini/settings.json 의 security.auth.selectedType 을 vertex-ai 로. 또는 터미널에서 gemini 실행 후 Sign in with Google (oauth-personal) — Workspace는 GOOGLE_CLOUD_PROJECT 필요. API 키 모드는 워커가 키를 제거해 동작하지 않습니다. (Antigravity와 별도 CLI)":
+        "Recommended (Workspace/Vertex): 1) gcloud auth application-default login  2) set GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION (e.g. global), GOOGLE_GENAI_USE_VERTEXAI=true in ~/.gemini/.env  3) set security.auth.selectedType to vertex-ai in ~/.gemini/settings.json. Or run gemini and Sign in with Google (oauth-personal); Workspace needs GOOGLE_CLOUD_PROJECT. API key mode will not work — the worker strips keys. (Separate from Antigravity.)",
     "grok CLI 자체 로그인 절차(브라우저 인증)를 완료하세요.":
         "Complete the grok CLI's own login (browser auth).",
+    "터미널에서 openclaw models auth login 으로 모델 프로바이더(OAuth/키)를 연결하세요. 프로필이 없으면 작업이 실패합니다. Gateway가 필요하면 openclaw gateway 를 실행해 두세요.":
+        "Run openclaw models auth login to connect a model provider. Without a profile, jobs fail. Start openclaw gateway if needed.",
     "로컬 실행 — 로그인 불필요, 사용량 무제한입니다.":
         "Runs locally — no login needed, unlimited usage.",
-    "사용량 실측 표시 (claude·grok 잔여 사용량 기반 자동 라우팅)":
-        "Real usage display (auto-routing by claude/grok remaining quota)",
+    "✓ 로그인됨": "✓ Signed in",
+    "✗ 로그인 필요": "✗ Sign-in required",
+    "? 상태 미확인": "? Status unknown",
+    "상태:": "Status:",
+    "로그인 전에는 이 에이전트 작업이 실패합니다. 아래 명령을 터미널에서 실행한 뒤 재확인하세요.":
+        "Jobs for this agent will fail until you sign in. Run the command below in a terminal, then Re-check.",
+    "Agentic OS가 대신 로그인할 수는 없습니다. 각 CLI의 OAuth 로그인을 터미널에서 마친 뒤 재확인을 누르세요. 로그인 없이 진행해도 되지만 해당 에이전트 작업은 실패합니다.":
+        "Agentic OS cannot sign in for you. Finish each CLI's OAuth in a terminal, then Re-check. You can continue without signing in, but those agents' jobs will fail.",
+    "사용량 실측 표시 (claude·codex·gemini·grok 등 잔여 사용량 기반 자동 라우팅)":
+        "Real usage display (auto-routing by remaining quota for claude/codex/gemini/grok etc.)",
     "GitHub 리포를 작업 위치로 연동": "Use a GitHub repo as a workspace",
     "노트(메모리) 전문 검색": "Full-text search over notes (memory)",
 
@@ -302,4 +323,123 @@ EN = {
     "실행 로그 →": "Run log →",
     "프로젝트와 모든 태스크·산출물을 삭제할까요?":
         "Delete this project with all tasks and artifacts?",
+    "취소된 항목 모두 비우기": "Clear all cancelled",
+    "이 프로젝트를 삭제할까요? 되돌릴 수 없습니다.":
+        "Delete this project? This can't be undone.",
+    "취소된 프로젝트를 모두 삭제할까요? 되돌릴 수 없습니다.":
+        "Delete all cancelled projects? This can't be undone.",
+    "삭제하지 못했습니다": "Couldn't delete it",
+    "취소된 프로젝트 {n}개를 삭제했습니다": "Deleted {n} cancelled project(s)",
+    # --- 워크플로 다이어그램 편집기 ---
+    "노드를 끌어 배치하고, 포트를 이어 연결하세요.":
+        "Drag nodes to arrange them, and drag port to port to connect.",
+    "실행 중에는 그래프를 편집할 수 없습니다.":
+        "The graph can't be edited while the project is running.",
+    "태스크": "Task",
+    "자동 정렬": "Tidy up",
+    "화면 맞춤": "Fit to screen",
+    "확대": "Zoom in",
+    "축소": "Zoom out",
+    "제목": "Title",
+    "설명": "Description",
+    "종류": "Type",
+    "태스크 제목": "Task title",
+    "구체적 작업 지시 (비우면 제목을 씁니다)":
+        "Specific instructions (defaults to the title if left empty)",
+    "추가": "Add",
+    "편집": "Edit",
+    "저장": "Save",
+    "선행 태스크": "Depends on",
+    "연결 저장": "Save connections",
+    "저장 중…": "Saving…",
+    "연결을 저장했습니다": "Connections saved",
+    "연결을 삭제했습니다": "Connection deleted",
+    "이 태스크를 삭제할까요? 연결도 함께 끊어집니다.":
+        "Delete this task? Its connections will be removed too.",
+    "이 연결을 끊을까요?": "Remove this connection?",
+    "서버에 연결하지 못했습니다": "Couldn't reach the server",
+    # 편집 API가 400으로 돌려주는 검증 메시지 (캔버스가 그대로 띄운다).
+    # 태스크 수·순환 목록처럼 값이 끼는 메시지는 원문(한국어)으로 폴백된다.
+    "이미 실행된 태스크는 편집할 수 없습니다": "Tasks that already ran can't be edited",
+    "계획 검토 또는 일시정지 상태에서만 그래프를 편집할 수 있습니다":
+        "The graph can only be edited while awaiting approval or paused",
+    "프로젝트를 찾을 수 없습니다": "Project not found",
+    "태스크를 찾을 수 없습니다": "Task not found",
+    "제목과 설명은 비울 수 없습니다": "Title and description can't be empty",
+    "제목은 비울 수 없습니다": "Title can't be empty",
+    "자기 자신에 의존할 수 없습니다": "A task can't depend on itself",
+    "이미 연결되어 있습니다": "Already connected",
+    "순환 의존은 만들 수 없습니다": "Can't create a circular dependency",
+    "연결": "Connect",
+    "연결 삭제": "Delete connection",
+    "연결할 태스크를 탭하세요": "Tap a task to connect it",
+    "연결 모드를 취소했습니다": "Connect mode cancelled",
+
+    # --- 태스크 오류 조치 (모델 교체 · 지시 추가) ---
+    "완료로 기록됐지만 에이전트가 결과를 내놓지 않았습니다":
+        "Marked done, but the agent produced no result",
+    "완료로 기록됐지만 결과가 오류 안내문입니다":
+        "Marked done, but the result is an error notice",
+    "⟳ 조치하고 다시 실행": "⟳ Fix up and re-run",
+    "모델 교체": "Switch model",
+    "지시 추가": "Add instructions",
+    "예: 권한이 필요한 명령은 쓰지 말고 파일 편집만으로 끝내라":
+        "e.g. Don't run commands that need permission — finish with file edits only",
+    "이 태스크에 의존하는 후속 태스크도 다시 실행":
+        "Re-run downstream tasks that depend on this one",
+    "이 설정으로 다시 실행": "Re-run with these settings",
+    "완료 또는 실패한 태스크만 다시 실행할 수 있습니다":
+        "Only completed or failed tasks can be re-run",
+
+    # --- 채널: 사이드바 네비게이션 / 채널 상세 페이지 ---
+    "채널": "Channels",
+    "새 채널": "New channel",
+    "새 채널 만들기": "Create a channel",
+    "채널 이름": "Channel name",
+    "예: 결제 리팩터링": "e.g. Payment refactor",
+    "주제 (선택)": "Topic (optional)",
+    "이 채널에서 다룰 작업을 짧게 설명": "Briefly describe what this channel is for",
+    "주제별로 대화를 이어가며 답장으로 세션을 유지할 수 있어요":
+        "Keep a topic-focused conversation going — replies keep the same session alive",
+    "만들기": "Create",
+    "채널 이름을 입력하세요": "Enter a channel name",
+    "채널을 만들지 못했습니다": "Couldn't create the channel",
+    "아직 채널이 없습니다. + 를 눌러 만들어 보세요.": "No channels yet. Tap + to create one.",
+    "진행 중인 세션": "Active session",
+    "이 채널에 새 주제로 말을 걸어보세요…": "Start a new topic in this channel…",
+    "답장…": "Reply…",
+    "전송하지 못했습니다": "Couldn't send",
+    "실행 중…": "Working…",
+    "이 채널과 모든 대화를 삭제할까요? 되돌릴 수 없습니다.":
+        "Delete this channel and all its conversations? This can't be undone.",
+    "쓰레드로 답장하기": "Reply in thread",
+    "쓰레드": "Thread",
+    "개 답장": " replies",
+    # --- 홈 Orca 셸: 우측 채팅·세션 레일 / 중앙 탭 / 작업 큐 상태바 ---
+    # (레일·탭바 공통 문구는 프로젝트 상세 화면도 함께 쓴다)
+    "채팅": "Chat",
+    "채팅 열기": "Open chat",
+    "채팅 열기/닫기": "Toggle chat",
+    "다시 시도": "Retry",
+    "작업이 삭제되었거나 서버가 아직 이 화면을 모릅니다(재시작 필요).":
+        "The job was deleted, or the server hasn't picked up this view yet (restart needed).",
+    "보낼 수 없습니다.": "Couldn't send.",
+    "이 세션을 이어받아 같은 에이전트로 진행합니다":
+        "Continues this session with the same agent",
+    "이 대화를 컨텍스트로 붙여 같은 에이전트로 진행합니다":
+        "Continues with the same agent, attaching this conversation as context",
+    "세션": "Sessions",
+    "접기/펼치기": "Collapse/expand",
+    "패널 너비 조절": "Resize panel",
+    "작업 탭": "Job tabs",
+    "이전 탭": "Previous tab",
+    "다음 탭": "Next tab",
+    "작업": "Job",
+    "작업 없음": "No jobs",
+    "실행": "Running",
+    "불러올 수 없습니다.": "Couldn't load.",
+    "오른쪽에서 작업을 보내면 진행과정이 여기 탭으로 열립니다.":
+        "Send a job from the right and its progress opens here as a tab.",
+    "아직 작업이 없습니다. 아래에서 첫 작업을 보내 보세요.":
+        "No jobs yet. Send your first one below.",
 }

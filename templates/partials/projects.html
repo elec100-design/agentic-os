@@ -1,29 +1,41 @@
 {% set STATUS = {'planning': '계획 중', 'plan_failed': '계획 실패', 'plan_ready': '승인 대기',
                  'running': '실행 중', 'paused': '일시정지', 'done': '완료',
                  'failed': '실패', 'cancelled': '취소됨'} %}
-<h2>{{ '프로젝트' | t }}</h2>
+{% set has_cancelled = projects | selectattr('status', 'equalto', 'cancelled') | list %}
+<div class="board-flash" id="board-flash" hidden></div>
+<div class="projects-head">
+  <h2>{{ '프로젝트' | t }}</h2>
+  {% if has_cancelled %}
+  <button type="button" class="btn-ghost btn-del" id="clear-cancelled">{{ '취소된 항목 모두 비우기' | t }}</button>
+  {% endif %}
+</div>
 {% if not projects %}
 <p class="empty-note">{{ '아직 프로젝트가 없습니다. 위에서 첫 목표를 보내 보세요.' | t }}</p>
 {% else %}
 <div class="project-list">
   {% for p in projects %}
-  <a class="project-card" href="/projects/{{ p['id'] }}">
-    <div class="project-card-head">
-      <b class="project-title">{{ p['title'] or p['goal'][:60] }}</b>
-      <span class="badge badge-proj-{{ p['status'] }}">{{ STATUS[p['status']] | t }}</span>
-    </div>
-    <p class="project-goal">{{ p['goal'][:120] }}</p>
-    <div class="project-card-foot">
-      {% if p['total'] %}
-      <span class="project-progress">
-        <span class="progress-track"><span class="progress-fill" style="width: {{ (p['done'] * 100 / p['total']) | round | int }}%"></span></span>
-        {{ '완료' | t }} {{ p['done'] }}/{{ p['total'] }}
-      </span>
-      {% endif %}
-      {% if p['planner'] %}<span class="provider-name">{{ p['planner'] }}</span>{% endif %}
-      <span class="project-date">{{ p['created_at'][:10] }}</span>
-    </div>
-  </a>
+  <div class="project-item">
+    <a class="project-card" href="/projects/{{ p['id'] }}">
+      <div class="project-card-head">
+        <b class="project-title">{{ p['title'] or p['goal'][:60] }}</b>
+        <span class="badge badge-proj-{{ p['status'] }}">{{ STATUS[p['status']] | t }}</span>
+      </div>
+      <p class="project-goal">{{ p['goal'][:120] }}</p>
+      <div class="project-card-foot">
+        {% if p['total'] %}
+        <span class="project-progress">
+          <span class="progress-track"><span class="progress-fill" style="width: {{ (p['done'] * 100 / p['total']) | round | int }}%"></span></span>
+          {{ '완료' | t }} {{ p['done'] }}/{{ p['total'] }}
+        </span>
+        {% endif %}
+        {% if p['planner'] %}<span class="provider-name">{{ p['planner'] }}</span>{% endif %}
+        <span class="project-date">{{ p['created_at'][:10] }}</span>
+      </div>
+    </a>
+    {% if p['status'] == 'cancelled' %}
+    <button type="button" class="btn-ghost btn-del project-item-del" data-del-project="{{ p['id'] }}">{{ '삭제' | t }}</button>
+    {% endif %}
+  </div>
   {% endfor %}
 </div>
 {% endif %}
