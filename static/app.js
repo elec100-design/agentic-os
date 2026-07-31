@@ -732,3 +732,59 @@ async function loadGithub() {
     });
   }
 }
+
+// ---- 취소된 프로젝트 삭제 (비전 보드 목록) -------------------------------
+function flashBoard(msg, kind) {
+  const el = document.getElementById("board-flash");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("ok", kind === "ok");
+  el.hidden = false;
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => { el.hidden = true; }, 4000);
+}
+
+function refreshProjects() {
+  const el = document.getElementById("projects");
+  if (el && window.htmx) htmx.trigger(el, "load");
+}
+
+document.body.addEventListener("click", async (e) => {
+  const delBtn = e.target.closest("[data-del-project]");
+  if (delBtn) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!confirm(t("이 프로젝트를 삭제할까요? 되돌릴 수 없습니다."))) return;
+    delBtn.disabled = true;
+    try {
+      const res = await fetch(`/projects/${delBtn.dataset.delProject}/delete-cancelled`, { method: "POST" });
+      if (!res.ok) {
+        let msg = t("삭제하지 못했습니다");
+        try { msg = (await res.json()).detail || msg; } catch (_) { /* 본문 없음 */ }
+        flashBoard(msg);
+      }
+    } catch (_) {
+      flashBoard(t("서버에 연결하지 못했습니다"));
+    }
+    refreshProjects();
+    return;
+  }
+
+  const clearBtn = e.target.closest("#clear-cancelled");
+  if (clearBtn) {
+    if (!confirm(t("취소된 프로젝트를 모두 삭제할까요? 되돌릴 수 없습니다."))) return;
+    clearBtn.disabled = true;
+    try {
+      const res = await fetch("/projects/cancelled/clear", { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        flashBoard(t("취소된 프로젝트 {n}개를 삭제했습니다").replace("{n}", data.deleted), "ok");
+      } else {
+        flashBoard(t("삭제하지 못했습니다"));
+      }
+    } catch (_) {
+      flashBoard(t("서버에 연결하지 못했습니다"));
+    }
+    refreshProjects();
+  }
+});

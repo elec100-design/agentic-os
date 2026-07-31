@@ -439,6 +439,19 @@ class BoardTabOrder(BaseModel):
     tab_ids: list[int]
 
 
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    task_type: str | None = None
+    agent: str | None = None
+    model: str | None = None
+    reset_status: bool = False
+
+
+class TaskMessageCreate(BaseModel):
+    content: str
+
+
 @app.post("/api/test-goal", status_code=201)
 async def api_create_test_goal(payload: TestGoalCreate):
     conn = db.get_conn()
@@ -1320,6 +1333,38 @@ def delete_project_endpoint(project_id: int):
     return RedirectResponse("/board", status_code=303)
 
 
+def _remove_project_artifacts(project_id):
+    artifacts = config.ARTIFACTS_DIR / str(project_id)
+    if artifacts.is_dir():
+        import shutil
+        shutil.rmtree(artifacts, ignore_errors=True)
+
+
+@app.post("/projects/cancelled/clear")
+def clear_cancelled_projects_endpoint():
+    """취소된 프로젝트를 모두 하드 삭제 — 실행 중/대기 중 프로젝트는 건드리지 않는다."""
+    conn = db.get_conn()
+    projects = db.list_projects_by_status(conn, "cancelled")
+    for p in projects:
+        db.delete_project(conn, p["id"])
+        _remove_project_artifacts(p["id"])
+    return {"deleted": len(projects)}
+
+
+@app.post("/projects/{project_id}/delete-cancelled")
+def delete_cancelled_project_endpoint(project_id: int):
+    """취소된 프로젝트만 삭제를 허용 — 실행 중인 프로젝트를 실수로 지우지 않게 막는다."""
+    conn = db.get_conn()
+    project = _project_or_404(conn, project_id)
+    if project["status"] != "cancelled":
+        raise HTTPException(
+            status_code=400,
+            detail="취소된 프로젝트만 삭제할 수 있습니다")
+    db.delete_project(conn, project_id)
+    _remove_project_artifacts(project_id)
+    return RedirectResponse("/board", status_code=303)
+
+
 # --- 다이어그램 편집 (n8n식 캔버스) ---
 # 편집 액션은 리다이렉트가 아니라 보드 조각을 그대로 돌려준다 — htmx가 #board를
 # 제자리 교체하므로 캔버스의 팬/줌·선택 상태가 유지된다.
@@ -1348,6 +1393,8 @@ def edit_task_endpoint(
     description: str = Form(...),
     task_type: str = Form("text"),
     agent: str = Form("auto"),
+    model: str = Form(""),
+    extra_instruction: str = Form(""),
     o: str = Form("lr"),
 ):
     conn = db.get_conn()
@@ -1356,7 +1403,8 @@ def edit_task_endpoint(
         request, pid,
         lambda c: orchestrator.update_task_fields(
             c, task_id, title=title, description=description,
-            task_type=task_type, agent=agent,
+            task_type=task_type, agent=agent, model=model,
+            extra_instruction=extra_instruction,
             enabled=settings.enabled_providers()),
         orientation=o)
 
@@ -1459,6 +1507,158 @@ def retry_task_endpoint(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return RedirectResponse(f"/projects/{task['project_id']}", status_code=303)
+
+
+# --- 사이드바 태스크 편집·채팅 API ---
+# 다이어그램 편집(/tasks/{id}/edit 등)과 달리 이 JSON API는 사이드바에서 태스크
+# 하나를 열어 편집/대화하는 용도라 편집 가능 범위가 더 넓다(완료된 태스크도
+# 재편집 가능) — 유일한 제약은 "지금 실행 중인 프로젝트를 건드리지 않는다".
+
+def _task_or_404(conn, task_id):
+    task = db.get_task(conn, task_id)
+    if task is None:
+        raise HTTPException(status_code=404)
+    return task
+
+
+@app.get("/api/tasks/{task_id}")
+def api_get_task(task_id: int):
+    conn = db.get_conn()
+    task = _task_or_404(conn, task_id)
+    project = db.get_project(conn, task["project_id"])
+    recent_job = None
+    if task["job_id"]:
+        job = db.get_job(conn, task["job_id"])
+        if job is not None:
+            recent_job = {
+                "id": job["id"], "status": job["status"],
+                "output": job["output"][-2000:] if job["output"] else "",
+                "error": job["error"], "started_at": job["started_at"],
+                "finished_at": job["finished_at"],
+            }
+    return {
+        "id": task["id"], "project_id": task["project_id"], "seq": task["seq"],
+        "title": task["title"], "description": task["description"],
+        "task_type": task["task_type"], "provider": task["provider"],
+        "model": task["model"], "status": task["status"],
+        "depends_on": orchestrator.task_deps(task),
+        "output": task["output"], "artifact_path": task["artifact_path"],
+        "error": task["error"], "extra_instruction": task["extra_instruction"],
+        "editable": project is None or project["status"] != "running",
+        "recent_job": recent_job,
+    }
+
+
+@app.patch("/api/tasks/{task_id}")
+def api_update_task(task_id: int, payload: TaskUpdate):
+    conn = db.get_conn()
+    task = _task_or_404(conn, task_id)
+    project = db.get_project(conn, task["project_id"])
+    if project is not None and project["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail="프로젝트 실행 중에는 태스크를 편집할 수 없습니다. 일시정지 후 편집하세요")
+
+    fields = {}
+    if payload.title is not None:
+        title = payload.title.strip()
+        if not title:
+            raise HTTPException(status_code=400, detail="제목은 비울 수 없습니다")
+        fields["title"] = title
+    if payload.description is not None:
+        description = payload.description.strip()
+        if not description:
+            raise HTTPException(status_code=400, detail="설명은 비울 수 없습니다")
+        fields["description"] = description
+    if payload.task_type is not None:
+        if payload.task_type not in orchestrator.TASK_TYPES:
+            raise HTTPException(
+                status_code=400, detail=f"알 수 없는 type {payload.task_type!r}")
+        fields["task_type"] = payload.task_type
+
+    if payload.agent is not None:
+        task_type = fields.get("task_type", task["task_type"])
+        description = fields.get("description", task["description"])
+        try:
+            provider = orchestrator.resolve_provider(
+                task_type, payload.agent, description,
+                usage_state=usage_state()["usage"],
+                enabled=settings.enabled_providers())
+        except orchestrator.PlanError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        fields["provider"] = provider
+        if payload.model:
+            if not models.is_valid_model(provider, payload.model):
+                raise HTTPException(
+                    status_code=400, detail=f"알 수 없는 model {payload.model!r}")
+            fields["model"] = payload.model
+        else:
+            fields["model"] = None
+    elif payload.model is not None:
+        if payload.model:
+            if not models.is_valid_model(task["provider"], payload.model):
+                raise HTTPException(
+                    status_code=400, detail=f"알 수 없는 model {payload.model!r}")
+            fields["model"] = payload.model
+        else:
+            fields["model"] = None
+
+    if not fields and not payload.reset_status:
+        raise HTTPException(status_code=400, detail="변경할 내용이 없습니다")
+    if payload.reset_status:
+        fields["status"] = "pending"
+
+    db.update_task(conn, task_id, **fields)
+    return dict(db.get_task(conn, task_id))
+
+
+@app.get("/api/tasks/{task_id}/messages")
+def api_list_task_messages(task_id: int):
+    conn = db.get_conn()
+    _task_or_404(conn, task_id)
+    return [dict(r) for r in db.list_task_messages(conn, task_id)]
+
+
+async def _generate_task_reply(conn, task, history, message):
+    """태스크 채팅 메시지 하나를 에이전트에게 넘겨 답변/설명 수정 제안을 얻는다.
+
+    채널 채팅과 달리 잡을 큐에 남겨 두지 않고 그 자리에서 실행한다 — 응답에
+    수정 제안을 바로 담아 돌려줘야 사이드바가 '적용' 버튼을 즉시 띄울 수 있다.
+    """
+    enabled = settings.enabled_providers()
+    provider_name = task["provider"] if task["provider"] in PROVIDERS else None
+    model = task["model"] if provider_name else None
+    if provider_name not in enabled:
+        provider_name = enabled[0] if enabled else "claude"
+        model = None
+    prompt = orchestrator.build_task_chat_prompt(task, history, message)
+    job_id = db.create_job(conn, prompt, provider_name, model=model)
+    job = db.get_job(conn, job_id)
+    await worker.run_job(conn, job, save=False)
+    job = db.get_job(conn, job_id)
+    if job["status"] != "done":
+        return job["error"] or "에이전트 호출에 실패했습니다", None
+    return orchestrator.parse_task_chat_reply(job["output"])
+
+
+@app.post("/api/tasks/{task_id}/messages", status_code=201)
+async def api_create_task_message(task_id: int, payload: TaskMessageCreate):
+    conn = db.get_conn()
+    task = _task_or_404(conn, task_id)
+    content = (payload.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="내용을 입력하세요")
+
+    db.create_task_message(conn, task_id, role="user", content=content)
+    history = db.list_task_messages(conn, task_id)
+    reply, suggested_description = await _generate_task_reply(
+        conn, task, history, content)
+    assistant_id = db.create_task_message(
+        conn, task_id, role="assistant", content=reply,
+        suggested_description=suggested_description)
+
+    return {"message_id": assistant_id, "reply": reply,
+            "suggested_description": suggested_description}
 
 
 @app.get("/artifacts/{project_id}/{filename}")

@@ -307,6 +307,7 @@ CI(`.github/workflows/ci.yml`)가 push·PR마다 Python 3.11/3.12에서 전체 �
 - [작업 내역 (task.md)](docs/task.md)
 - [기여 가이드 (CONTRIBUTING.md)](CONTRIBUTING.md)
 - [새 에이전트 추가 (PROVIDERS.md)](docs/PROVIDERS.md)
+- [비전 보드 삭제·워크플로우 편집](docs/vision-board-editing.md)
 - [V1 설계 명세](docs/2026-07-05-agentic-os-v1-design.md)
 - [V1 구현 계획](docs/2026-07-05-agentic-os-v1.md)
 
@@ -316,5 +317,5 @@ CI(`.github/workflows/ci.yml`)가 push·PR마다 Python 3.11/3.12에서 전체 �
 - 비전 보드(V4/V4.1) 출시됨: 계획 → 편집 가능한 DAG → 다중 에이전트 실행·미디어.
   남은 다듬기(상태 오버레이, soft-delete 실행취소, 인라인 draft PATCH)는
   [plan.md](docs/plan.md) V4.2.
-- Antigravity 사용량 실측, 태스크별 모델 선택, 토큰·비용 추적 등은
+- Antigravity 사용량 실측, 토큰·비용 추적 등은
   [plan.md](docs/plan.md) V5 후보.

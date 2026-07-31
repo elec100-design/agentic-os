@@ -263,6 +263,64 @@ def test_delete_project_removes_tasks_and_jobs(tmp_env):
         assert db.get_job(conn, job_id) is None
 
 
+def test_delete_cancelled_project_removes_tasks_and_jobs(tmp_env):
+    with _client(tmp_env) as client:
+        conn = db.get_conn(config.DB_PATH)
+        pid = db.create_project(conn, "목표")
+        db.update_project(conn, pid, status="cancelled")
+        job_id = db.create_job(conn, "태스크 잡", "claude")
+        tid = db.create_task(conn, pid, 1, "태스크", "설명", "text", "claude")
+        db.update_task(conn, tid, job_id=job_id)
+        r = client.post(f"/projects/{pid}/delete-cancelled", follow_redirects=False)
+        assert r.status_code == 303
+        assert db.get_project(conn, pid) is None
+        assert db.list_tasks(conn, pid) == []
+        assert db.get_job(conn, job_id) is None
+
+
+def test_delete_cancelled_project_rejects_non_cancelled(tmp_env):
+    with _client(tmp_env) as client:
+        conn = db.get_conn(config.DB_PATH)
+        pid = db.create_project(conn, "목표")
+        db.update_project(conn, pid, status="running")
+        r = client.post(f"/projects/{pid}/delete-cancelled")
+        assert r.status_code == 400
+        assert "취소" in r.json()["detail"]
+        assert db.get_project(conn, pid) is not None
+
+
+def test_delete_cancelled_project_404_when_missing(tmp_env):
+    with _client(tmp_env) as client:
+        r = client.post("/projects/999/delete-cancelled")
+        assert r.status_code == 404
+
+
+def test_clear_cancelled_projects_deletes_only_cancelled(tmp_env):
+    with _client(tmp_env) as client:
+        conn = db.get_conn(config.DB_PATH)
+        cancelled_pid = db.create_project(conn, "취소된 목표")
+        db.update_project(conn, cancelled_pid, status="cancelled")
+        job_id = db.create_job(conn, "태스크 잡", "claude")
+        tid = db.create_task(conn, cancelled_pid, 1, "태스크", "설명",
+                             "text", "claude")
+        db.update_task(conn, tid, job_id=job_id)
+
+        running_pid = db.create_project(conn, "실행 중 목표")
+        db.update_project(conn, running_pid, status="running")
+        other_cancelled_pid = db.create_project(conn, "취소된 목표2")
+        db.update_project(conn, other_cancelled_pid, status="cancelled")
+
+        r = client.post("/projects/cancelled/clear")
+        assert r.status_code == 200
+        assert r.json() == {"deleted": 2}
+
+        assert db.get_project(conn, cancelled_pid) is None
+        assert db.get_project(conn, other_cancelled_pid) is None
+        assert db.list_tasks(conn, cancelled_pid) == []
+        assert db.get_job(conn, job_id) is None
+        assert db.get_project(conn, running_pid) is not None
+
+
 def test_artifact_route_blocks_traversal(tmp_env):
     with _client(tmp_env) as client:
         art_dir = config.ARTIFACTS_DIR / "1"
@@ -355,6 +413,70 @@ def test_edit_task_route_rejects_bad_input(tmp_env):
             "title": "t", "description": "d"}).status_code == 404
 
 
+def test_edit_task_route_rejects_unknown_agent(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "제목", "description": "설명",
+            "task_type": "text", "agent": "no-such-agent"})
+        assert r.status_code == 400
+
+
+def test_edit_task_route_updates_model_and_extra_instruction(tmp_env, monkeypatch):
+    from app import orchestrator
+    monkeypatch.setattr(orchestrator.models, "is_valid_model",
+                        lambda provider, model: True)
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "태스크1", "description": "설명1",
+            "task_type": "text", "agent": "claude", "model": "opus",
+            "extra_instruction": "파일 편집만으로 끝내라"})
+        assert r.status_code == 200
+    conn = db.get_conn(config.DB_PATH)
+    task = db.get_task(conn, ids[1])
+    assert task["model"] == "opus"
+    assert task["extra_instruction"] == "파일 편집만으로 끝내라"
+
+
+def test_edit_task_route_rejects_unknown_model(tmp_env, monkeypatch):
+    from app import orchestrator
+    monkeypatch.setattr(orchestrator.models, "is_valid_model",
+                        lambda provider, model: False)
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "태스크1", "description": "설명1",
+            "task_type": "text", "agent": "claude", "model": "no-such-model"})
+        assert r.status_code == 400
+
+
+def test_edit_task_route_clears_model_when_agent_changes(tmp_env):
+    pid, ids = _diagram_project()
+    conn = db.get_conn(config.DB_PATH)
+    db.update_task(conn, ids[1], provider="claude", model="opus")
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "태스크1", "description": "설명1",
+            "task_type": "text", "agent": "hermes"})
+        assert r.status_code == 200
+    assert db.get_task(conn, ids[1])["model"] is None
+
+
+def test_edit_task_route_clears_model_when_default_selected(tmp_env):
+    """편집 폼의 빈 model 값은 '기본값' 선택이므로 기존 선택을 제거한다."""
+    pid, ids = _diagram_project()
+    conn = db.get_conn(config.DB_PATH)
+    db.update_task(conn, ids[1], provider="claude", model="opus")
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/edit", data={
+            "title": "둘째", "description": "설명", "task_type": "text",
+            "agent": "claude", "model": "", "extra_instruction": "",
+        })
+    assert r.status_code == 200
+    assert db.get_task(conn, ids[1])["model"] is None
+
+
 def test_deps_route_adds_and_removes_edges(tmp_env):
     pid, ids = _diagram_project(specs=((1, []), (2, []), (3, [])))
     conn = db.get_conn(config.DB_PATH)
@@ -371,6 +493,13 @@ def test_deps_route_rejects_cycle(tmp_env):
     pid, ids = _diagram_project()          # 2가 1에 의존
     with _client(tmp_env) as client:
         r = client.post(f"/tasks/{ids[1]}/deps", data={"deps": ["2"]})
+        assert r.status_code == 400
+
+
+def test_deps_route_rejects_self_reference(tmp_env):
+    pid, ids = _diagram_project(specs=((1, []),))
+    with _client(tmp_env) as client:
+        r = client.post(f"/tasks/{ids[1]}/deps", data={"deps": ["1"]})
         assert r.status_code == 400
 
 
@@ -457,3 +586,164 @@ def test_task_detail_edit_form_only_when_editable(tmp_env):
         assert "task-edit" not in locked
         assert "task-deps" not in locked
         assert "data-task-close" in locked             # 읽기 전용에서도 닫을 수 있다
+
+
+# --- 사이드바 태스크 편집·채팅 JSON API -------------------------------------
+
+def test_get_task_route_returns_detail(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.get(f"/api/tasks/{ids[1]}")
+        assert r.status_code == 200
+        body = r.json()
+        assert body["id"] == ids[1]
+        assert body["title"] == "태스크1"
+        assert body["description"] == "설명1"
+        assert body["depends_on"] == []
+        assert body["editable"] is True
+        assert body["recent_job"] is None
+
+
+def test_get_task_route_404(tmp_env):
+    with _client(tmp_env) as client:
+        assert client.get("/api/tasks/999").status_code == 404
+
+
+def test_patch_task_route_updates_fields(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={
+            "title": "고친 제목", "description": "고친 설명"})
+        assert r.status_code == 200
+        assert r.json()["title"] == "고친 제목"
+    conn = db.get_conn(config.DB_PATH)
+    task = db.get_task(conn, ids[1])
+    assert task["title"] == "고친 제목"
+    assert task["description"] == "고친 설명"
+
+
+def test_patch_task_route_rejects_while_running(tmp_env):
+    pid, ids = _diagram_project(status="running")
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={"title": "새 제목"})
+        assert r.status_code == 409
+
+
+def test_patch_task_route_allows_when_paused(tmp_env):
+    pid, ids = _diagram_project(status="paused")
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={"title": "새 제목"})
+        assert r.status_code == 200
+
+
+def test_patch_task_route_allows_when_done(tmp_env):
+    pid, ids = _diagram_project(status="done")
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={"title": "새 제목"})
+        assert r.status_code == 200
+
+
+def test_patch_task_route_rejects_empty_title(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={"title": "   "})
+        assert r.status_code == 400
+
+
+def test_patch_task_route_rejects_unknown_agent(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={"agent": "bogus"})
+        assert r.status_code == 400
+
+
+def test_patch_task_route_rejects_no_fields(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={})
+        assert r.status_code == 400
+
+
+def test_patch_task_route_reset_status_flag(tmp_env):
+    pid, ids = _diagram_project(status="paused")
+    conn = db.get_conn(config.DB_PATH)
+    db.update_task(conn, ids[1], status="failed")
+    with _client(tmp_env) as client:
+        r = client.patch(f"/api/tasks/{ids[1]}", json={
+            "description": "고친 설명", "reset_status": True})
+        assert r.status_code == 200
+        assert r.json()["status"] == "pending"
+
+
+def test_task_messages_route_empty_initially(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.get(f"/api/tasks/{ids[1]}/messages")
+        assert r.status_code == 200
+        assert r.json() == []
+
+
+def test_task_messages_route_404_for_missing_task(tmp_env):
+    with _client(tmp_env) as client:
+        assert client.get("/api/tasks/999/messages").status_code == 404
+        assert client.post("/api/tasks/999/messages",
+                           json={"content": "안녕"}).status_code == 404
+
+
+def test_task_messages_route_rejects_empty_content(tmp_env):
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/api/tasks/{ids[1]}/messages", json={"content": "  "})
+        assert r.status_code == 400
+
+
+def test_task_messages_route_creates_reply_and_suggestion(tmp_env, monkeypatch):
+    """에이전트 호출을 모킹해, 사용자 메시지 저장 → 답변·제안 생성 →
+    assistant 메시지 저장까지의 흐름을 검증한다."""
+    from app import main, worker
+
+    async def fake_run_job(conn, job, providers=None, save=True):
+        db.update_job(
+            conn, job["id"], status="done",
+            output=('```json\n{"reply": "설명을 구체화했습니다", '
+                    '"description": "더 구체적인 새 설명"}\n```'),
+            finished_at=db.now_iso())
+
+    monkeypatch.setattr(worker, "run_job", fake_run_job)
+    monkeypatch.setattr(main.worker, "run_job", fake_run_job)
+
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/api/tasks/{ids[1]}/messages",
+                        json={"content": "더 구체적으로 써줘"})
+        assert r.status_code == 201
+        body = r.json()
+        assert body["reply"] == "설명을 구체화했습니다"
+        assert body["suggested_description"] == "더 구체적인 새 설명"
+
+        messages = client.get(f"/api/tasks/{ids[1]}/messages").json()
+    assert len(messages) == 2
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"] == "더 구체적으로 써줘"
+    assert messages[1]["role"] == "assistant"
+    assert messages[1]["content"] == "설명을 구체화했습니다"
+    assert messages[1]["suggested_description"] == "더 구체적인 새 설명"
+
+
+def test_task_messages_route_falls_back_to_plain_reply_without_json(tmp_env, monkeypatch):
+    from app import main, worker
+
+    async def fake_run_job(conn, job, providers=None, save=True):
+        db.update_job(conn, job["id"], status="done", output="그냥 답변입니다",
+                     finished_at=db.now_iso())
+
+    monkeypatch.setattr(worker, "run_job", fake_run_job)
+    monkeypatch.setattr(main.worker, "run_job", fake_run_job)
+
+    pid, ids = _diagram_project()
+    with _client(tmp_env) as client:
+        r = client.post(f"/api/tasks/{ids[1]}/messages", json={"content": "질문"})
+        assert r.status_code == 201
+        body = r.json()
+        assert body["reply"] == "그냥 답변입니다"
+        assert body["suggested_description"] is None

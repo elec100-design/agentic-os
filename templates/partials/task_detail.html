@@ -3,6 +3,8 @@
                   'done': '완료', 'failed': '실패'} %}
 <div class="task-panel" data-task="{{ task['id'] }}">
   <div class="task-sheet-handle" aria-hidden="true"></div>
+  {# 에이전트별 모델 목록 — 편집 폼과 오류 조치 폼이 같이 읽는다 (board-editor.js) #}
+  <script type="application/json" data-provider-models>{{ provider_models | tojson }}</script>
   <div class="task-panel-head">
     <b>{{ ICON[task['task_type']] }} [{{ task['seq'] }}] {{ task['title'] }}</b>
     <span class="badge badge-{{ task['status'] }}">{{ TSTATUS[task['status']] | t }}</span>
@@ -10,6 +12,8 @@
     <span class="spacer"></span>
     {% if editable %}
     <button type="button" class="btn-ghost" data-task-edit>{{ '편집' | t }}</button>
+    {# 드래그로 잇기 어려운 터치 환경의 대안 — 누르면 다음에 탭하는 노드로 연결한다 #}
+    <button type="button" class="btn-ghost" data-task-link data-seq="{{ task['seq'] }}">{{ '연결' | t }}</button>
     <button type="button" class="btn-ghost btn-del"
             hx-post="/tasks/{{ task['id'] }}/delete"
             hx-target="#board" hx-swap="innerHTML"
@@ -76,6 +80,20 @@
         {% endfor %}
       </select>
     </label>
+    {% if task['task_type'] == 'text' %}
+    {# 미디어 태스크는 media.py가 CLI를 고르므로 모델 선택이 없다 — 오류 조치 패널과 동일 조건 #}
+    <label class="pal-row">
+      <span>{{ '모델' | t }}</span>
+      <select name="model" data-edit-model data-current="{{ task['model'] or '' }}">
+        <option value="">{{ '기본값' | t }}</option>
+      </select>
+    </label>
+    {% endif %}
+    <label class="pal-row">
+      <span>{{ '세부 계획' | t }}</span>
+      <textarea name="extra_instruction" rows="3"
+                placeholder="{{ '예: 권한이 필요한 명령은 쓰지 말고 파일 편집만으로 끝내라' | t }}">{{ task['extra_instruction'] or '' }}</textarea>
+    </label>
     <div class="pal-foot">
       <button type="button" class="btn-ghost" data-task-edit-cancel>{{ '취소' | t }}</button>
       <button type="submit" class="btn-primary">{{ '저장' | t }}</button>
@@ -116,8 +134,6 @@
   <details class="task-recover" data-recover="{{ task['id'] }}"
            {% if task['status'] == 'failed' or output_error %}open{% endif %}>
     <summary>{{ '⟳ 조치하고 다시 실행' | t }}</summary>
-    {# 에이전트별 모델 목록 — board-editor.js가 읽어 모델 <select>를 채운다 #}
-    <script type="application/json" data-recover-models>{{ provider_models | tojson }}</script>
     <form method="post" action="/tasks/{{ task['id'] }}/retry">
       {% if task['task_type'] == 'text' %}
       <label class="pal-row">

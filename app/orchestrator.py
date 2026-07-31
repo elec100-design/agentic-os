@@ -317,6 +317,54 @@ def build_task_prompt(project, task, upstream_tasks):
                               upstream=upstream, extra=extra)
 
 
+def build_task_chat_prompt(task, history, message):
+    """사이드바 태스크 채팅 프롬프트 — 현재 설명 + 대화 맥락 + 새 사용자 메시지.
+
+    에이전트가 설명을 새로 쓰는 게 낫다고 판단하면 JSON으로 제안을 실어
+    보내도록 요청한다(parse_task_chat_reply가 그 형식을 기대한다).
+    """
+    convo = ""
+    if history:
+        lines = [f"- {h['role']}: {h['content']}" for h in history]
+        convo = "## 이전 대화\n" + "\n".join(lines) + "\n\n"
+    return (
+        "당신은 태스크 편집을 돕는 어시스턴트입니다. 사용자가 태스크 하나를 두고 "
+        "대화하며 설명을 다듬으려 합니다.\n\n"
+        f"## 태스크 제목\n{task['title']}\n\n"
+        f"## 현재 설명\n{task['description']}\n\n"
+        f"{convo}"
+        f"## 사용자 메시지\n{message}\n\n"
+        "## 지시\n"
+        "사용자 메시지에 답하세요. 설명을 새로 쓰는 게 좋다면 아래 JSON 코드블록에 "
+        "새 description 전체를 담아 제안하세요. 제안이 필요 없으면 description 없이 "
+        "답변만 하세요.\n\n"
+        "```json\n"
+        '{"reply": "사용자에게 보여줄 답변", '
+        '"description": "새 설명 전체(제안이 있을 때만 포함)"}\n'
+        "```"
+    )
+
+
+def parse_task_chat_reply(text):
+    """에이전트 출력에서 (답변, 제안된 새 description|None)을 뽑는다.
+
+    JSON 블록이 없거나 파싱에 실패하면 원문 전체를 답변으로 쓰고 제안 없음으로
+    처리한다 — 채팅은 자유 형식 응답도 허용해야 하므로 계획 파싱과 달리
+    실패를 예외로 올리지 않는다.
+    """
+    stripped = (text or "").strip()
+    try:
+        data = json.loads(_extract_json(text))
+    except (PlanError, json.JSONDecodeError, TypeError):
+        return stripped, None
+    if not isinstance(data, dict):
+        return stripped, None
+    reply = str(data.get("reply") or "").strip() or stripped
+    description = data.get("description")
+    description = description.strip() if isinstance(description, str) else None
+    return reply, (description or None)
+
+
 # 잡 상태 → 태스크 상태 매핑 (rate_limited는 재개 대기 = 큐 대기로 표시)
 _JOB_TO_TASK = {"queued": "queued", "running": "running",
                 "rate_limited": "queued", "done": "done", "failed": "failed"}
@@ -363,20 +411,32 @@ def _sync_tasks(conn, project, tasks):
 
 def _advance_running(conn, project):
     """실행 중 프로젝트 1틱: 동기화 → 실패 시 일시정지 → ready 태스크 디스패치
-    → 전부 완료면 done. 멱등 — 언제든 다시 불러도 안전하다."""
+    → 전부 완료면 done. 멱등 — 언제든 다시 불러도 안전하다.
+
+    수동 일시정지(pause_reason="manual")가 걸려 있으면 동기화는 계속하되(진행
+    중이던 태스크는 끝까지 두어야 하므로) 새 태스크 디스패치만 건너뛴다. 인플라이트
+    태스크가 다 빠지면 그 틱에 status를 paused로 내린다.
+    """
     tasks = db.list_tasks(conn, project["id"])
     if _sync_tasks(conn, project, tasks):
         db.update_project(conn, project["id"], status="paused",
+                          pause_reason="task_failed",
                           error="태스크 실패 — 재시도하거나 재계획하세요")
         return
     tasks = db.list_tasks(conn, project["id"])
     by_seq = {t["seq"]: t for t in tasks}
 
     if all(t["status"] == "done" for t in tasks):
-        db.update_project(conn, project["id"], status="done", error=None)
+        db.update_project(conn, project["id"], status="done",
+                          pause_reason=None, error=None)
         return
 
     inflight = sum(1 for t in tasks if t["status"] in ("queued", "running"))
+    if _opt(project, "pause_reason") == "manual":
+        if inflight == 0:
+            db.update_project(conn, project["id"], status="paused")
+        return
+
     for task in tasks:
         if inflight >= config.ORCH_MAX_INFLIGHT:
             break
@@ -531,7 +591,8 @@ def retry_task(conn, task_id, *, agent=None, model=None, instruction=None,
 
     project = db.get_project(conn, task["project_id"])
     if project and project["status"] in ("paused", "done", "cancelled"):
-        db.update_project(conn, project["id"], status="running", error=None)
+        db.update_project(conn, project["id"], status="running",
+                          pause_reason=None, error=None)
 
 
 def retry_plan(conn, project_id):
@@ -638,6 +699,7 @@ def _resolve_or_400(task_type, agent, description, usage_state=None, enabled=Non
 
 
 def update_task_fields(conn, task_id, *, title, description, task_type, agent,
+                       model="", extra_instruction="",
                        usage_state=None, enabled=None):
     """편집 폼이 보낸 필드로 태스크를 갱신한다. 검증 규칙은 계획 파싱과 동일."""
     _project, task = _editable_task(conn, task_id)
@@ -649,8 +711,21 @@ def update_task_fields(conn, task_id, *, title, description, task_type, agent,
         raise ValueError(f"알 수 없는 type {task_type!r}")
     provider = _resolve_or_400(task_type, agent, description,
                                usage_state=usage_state, enabled=enabled)
-    db.update_task(conn, task["id"], title=title, description=description,
-                   task_type=task_type, provider=provider)
+    fields = {"title": title, "description": description,
+              "task_type": task_type, "provider": provider}
+    # retry_task와 동일한 규칙: 에이전트가 바뀌면 이전 모델은 무효
+    if provider != task["provider"]:
+        fields["model"] = None
+    elif model:
+        if not models.is_valid_model(provider, model):
+            raise ValueError(f"알 수 없는 model {model!r}")
+        fields["model"] = model
+    else:
+        # 편집 UI의 "기본값"은 빈 값으로 제출된다. 이전에 고른 모델을
+        # 그대로 남기면 사용자가 기본 모델로 되돌릴 방법이 없어진다.
+        fields["model"] = None
+    fields["extra_instruction"] = extra_instruction.strip() or None
+    db.update_task(conn, task["id"], **fields)
 
 
 def set_task_deps(conn, task_id, deps):

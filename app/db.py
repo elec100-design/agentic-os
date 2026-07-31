@@ -140,6 +140,39 @@ CREATE INDEX IF NOT EXISTS idx_board_tabs_board_order
   ON board_tabs(board_id, deleted_at, order_index);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_board_tabs_active_ref
   ON board_tabs(board_id, kind, ref_id) WHERE deleted_at IS NULL AND ref_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS task_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  role TEXT NOT NULL,
+  content TEXT NOT NULL DEFAULT '',
+  suggested_description TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_messages_task ON task_messages(task_id, id);
+CREATE TABLE IF NOT EXISTS workflow_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  status TEXT NOT NULL DEFAULT 'running',
+  started_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  heartbeat_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_project ON workflow_runs(project_id, id);
+CREATE TABLE IF NOT EXISTS task_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL REFERENCES tasks(id),
+  run_id INTEGER NOT NULL REFERENCES workflow_runs(id),
+  status TEXT NOT NULL DEFAULT 'pending',
+  attempt INTEGER NOT NULL DEFAULT 1,
+  output TEXT NOT NULL DEFAULT '',
+  agent TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT,
+  finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_task_runs_run ON task_runs(run_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_task_runs_task ON task_runs(task_id, attempt);
 """
 
 
@@ -175,6 +208,11 @@ def _migrate(conn):
     # 처음 상세 페이지를 열 때 get_or_create_project_channel()이 채워준다.
     if "channel_id" not in project_cols:
         conn.execute("ALTER TABLE projects ADD COLUMN channel_id INTEGER")
+    # 일시정지 원인 — "manual"(사용자가 일시정지 버튼을 누름) vs "task_failed"
+    # (태스크 실패로 자동 정지). status="paused"는 둘 다 쓰지만 배너 문구와
+    # 재개 가능 여부 판단에 원인 구분이 필요하다. NULL이면 일시정지 아님.
+    if "pause_reason" not in project_cols:
+        conn.execute("ALTER TABLE projects ADD COLUMN pause_reason TEXT")
     # 다이어그램 편집기가 저장하는 노드 좌표 (NULL이면 자동 배치)
     task_cols = {r["name"] for r in conn.execute("PRAGMA table_info(tasks)")}
     for col in ("pos_x", "pos_y"):
@@ -195,6 +233,10 @@ def _migrate(conn):
     message_cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
     if "created_task_id" not in message_cols:
         conn.execute("ALTER TABLE messages ADD COLUMN created_task_id INTEGER REFERENCES tasks(id)")
+    # 태스크 사이드바 채팅의 '적용' 제안 — 초기 배포판에는 없었을 수 있는 컬럼.
+    task_msg_cols = {r["name"] for r in conn.execute("PRAGMA table_info(task_messages)")}
+    if "suggested_description" not in task_msg_cols:
+        conn.execute("ALTER TABLE task_messages ADD COLUMN suggested_description TEXT")
     conn.commit()
 
 
@@ -353,6 +395,12 @@ def list_projects(conn, limit=50):
         "SELECT * FROM projects ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
 
 
+def list_projects_by_status(conn, status):
+    return conn.execute(
+        "SELECT * FROM projects WHERE status = ? ORDER BY id DESC", (status,)
+    ).fetchall()
+
+
 def active_projects(conn):
     """오케스트레이터 루프가 전진시켜야 하는 프로젝트들."""
     return conn.execute(
@@ -433,6 +481,171 @@ def next_task_seq(conn, project_id):
         "SELECT MAX(seq) AS m FROM tasks WHERE project_id = ?", (project_id,)
     ).fetchone()
     return (row["m"] or 0) + 1
+
+
+def create_task_message(conn, task_id, role, content, suggested_description=None):
+    cur = conn.execute(
+        "INSERT INTO task_messages (task_id, role, content, suggested_description, "
+        "created_at) VALUES (?, ?, ?, ?, ?)",
+        (task_id, role, content, suggested_description, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def list_task_messages(conn, task_id):
+    return conn.execute(
+        "SELECT * FROM task_messages WHERE task_id = ? ORDER BY id", (task_id,)
+    ).fetchall()
+
+
+
+# --- 워크플로우 실행 세션(재개용): workflow_runs + task_runs --------------------
+# workflow_runs = 프로젝트 한 번의 "전체 실행" 세션(일시정지/재개/중단 이력).
+# task_runs = 그 세션 안에서 태스크별 시도 이력(부분 출력·에이전트·에러 보존).
+# 서버가 중간에 죽어도 이 두 테이블만으로 "어디까지 끝났는지"를 복원해
+# 완료된 태스크는 건너뛰고 미완료 태스크부터 재개할 수 있다.
+
+def create_workflow_run(conn, project_id):
+    now = now_iso()
+    cur = conn.execute(
+        "INSERT INTO workflow_runs (project_id, status, started_at, updated_at, "
+        "heartbeat_at) VALUES (?, 'running', ?, ?, ?)",
+        (project_id, now, now, now),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_workflow_run(conn, run_id):
+    return conn.execute(
+        "SELECT * FROM workflow_runs WHERE id = ?", (run_id,)).fetchone()
+
+
+def list_workflow_runs(conn, project_id):
+    return conn.execute(
+        "SELECT * FROM workflow_runs WHERE project_id = ? ORDER BY id DESC",
+        (project_id,)).fetchall()
+
+
+def get_resumable_run(conn, project_id):
+    """재개 가능한 최신 실행 세션(running/paused/interrupted 중 가장 최근).
+    completed/failed로 마감된 세션은 재개 대상이 아니다."""
+    return conn.execute(
+        "SELECT * FROM workflow_runs WHERE project_id = ? AND status IN "
+        "('running', 'paused', 'interrupted') ORDER BY id DESC LIMIT 1",
+        (project_id,)).fetchone()
+
+
+def update_workflow_run(conn, run_id, **fields):
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE workflow_runs SET {cols} WHERE id = ?",
+                 (*fields.values(), run_id))
+    conn.commit()
+
+
+def heartbeat_workflow_run(conn, run_id):
+    now = now_iso()
+    conn.execute(
+        "UPDATE workflow_runs SET heartbeat_at = ?, updated_at = ? WHERE id = ?",
+        (now, now, run_id))
+    conn.commit()
+
+
+def mark_interrupted_workflow_runs(conn):
+    """서버 재시작 시 'running'으로 남은 세션을 'interrupted'로 표시한다.
+    재시작 후 get_resumable_run()이 이 세션을 여전히 재개 대상으로 찾는다."""
+    now = now_iso()
+    conn.execute(
+        "UPDATE workflow_runs SET status = 'interrupted', updated_at = ? "
+        "WHERE status = 'running'", (now,))
+    conn.commit()
+
+
+def get_pending_tasks_for_run(conn, run_id):
+    """이 세션에서 아직 완료(done)로 기록되지 않은 태스크를 seq 순으로 반환한다.
+    완료된 태스크는 건너뛰고 여기서부터 재개하면 된다."""
+    run = get_workflow_run(conn, run_id)
+    if run is None:
+        return []
+    return conn.execute(
+        "SELECT t.* FROM tasks t WHERE t.project_id = ? AND t.id NOT IN "
+        "(SELECT task_id FROM task_runs WHERE run_id = ? AND status = 'done') "
+        "ORDER BY t.seq", (run["project_id"], run_id),
+    ).fetchall()
+
+
+def create_task_run(conn, task_id, run_id, agent=None):
+    """태스크의 새 시도를 기록한다. attempt는 이 태스크 전체 이력에서 이어진다
+    (세션이 바뀌어도 몇 번째 시도인지 연속으로 셀 수 있도록)."""
+    row = conn.execute(
+        "SELECT MAX(attempt) AS m FROM task_runs WHERE task_id = ?",
+        (task_id,)).fetchone()
+    attempt = (row["m"] or 0) + 1
+    now = now_iso()
+    cur = conn.execute(
+        "INSERT INTO task_runs (task_id, run_id, status, attempt, agent, "
+        "created_at, updated_at) VALUES (?, ?, 'running', ?, ?, ?, ?)",
+        (task_id, run_id, attempt, agent, now, now),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_task_run(conn, task_run_id):
+    return conn.execute(
+        "SELECT * FROM task_runs WHERE id = ?", (task_run_id,)).fetchone()
+
+
+def get_active_task_run(conn, task_id, run_id):
+    """해당 세션에서 그 태스크의 가장 최근 시도(진행 중이든 마감됐든)."""
+    return conn.execute(
+        "SELECT * FROM task_runs WHERE task_id = ? AND run_id = ? "
+        "ORDER BY id DESC LIMIT 1", (task_id, run_id)).fetchone()
+
+
+def list_task_runs(conn, task_id):
+    """태스크의 전체 시도 이력(세션 무관), attempt 순."""
+    return conn.execute(
+        "SELECT * FROM task_runs WHERE task_id = ? ORDER BY attempt",
+        (task_id,)).fetchall()
+
+
+def append_task_run_output(conn, task_run_id, text):
+    now = now_iso()
+    conn.execute(
+        "UPDATE task_runs SET output = output || ?, updated_at = ? WHERE id = ?",
+        (text, now, task_run_id))
+    conn.commit()
+
+
+def mark_task_run_done(conn, task_run_id):
+    now = now_iso()
+    conn.execute(
+        "UPDATE task_runs SET status = 'done', finished_at = ?, updated_at = ? "
+        "WHERE id = ?", (now, now, task_run_id))
+    conn.commit()
+
+
+def mark_task_run_failed(conn, task_run_id, error=None):
+    now = now_iso()
+    conn.execute(
+        "UPDATE task_runs SET status = 'failed', error = ?, finished_at = ?, "
+        "updated_at = ? WHERE id = ?", (error, now, now, task_run_id))
+    conn.commit()
+
+
+def mark_interrupted_task_runs(conn):
+    """서버 재시작 시 'running'으로 남은 태스크 시도를 'interrupted'로 표시한다.
+    다음 재개는 새 create_task_run() 호출(attempt+1)로 이어간다."""
+    now = now_iso()
+    conn.execute(
+        "UPDATE task_runs SET status = 'interrupted', "
+        "error = COALESCE(error, 'interrupted: server restarted'), "
+        "finished_at = ?, updated_at = ? WHERE status = 'running'",
+        (now, now))
+    conn.commit()
 
 
 def delete_tasks(conn, project_id, statuses=None):

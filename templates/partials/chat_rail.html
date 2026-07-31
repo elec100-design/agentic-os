@@ -12,6 +12,9 @@
   <div class="orca-rail-resize-handle" id="orca-rail-resize" role="separator" aria-orientation="vertical" aria-label="{{ '패널 너비 조절' | t }}" tabindex="0"></div>
   <div class="orca-rail-head">
     <span class="orca-rail-title">{{ channel['title'] if channel else ('에이전트' | t) }}</span>
+    <button type="button" class="orca-task-context-back" id="orca-task-context-back" hidden>
+      ← {{ '프로젝트 채팅' | t }}
+    </button>
     <button type="button" class="orca-rail-collapse-btn" id="orca-rail-collapse" aria-label="{{ '접기/펼치기' | t }}">
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3 5 8l5 5"/></svg>
     </button>
@@ -23,6 +26,11 @@
   </div>
 
   <div class="orca-rail-panels">
+    {# 노드 선택 시 같은 좌측 레일이 태스크 인스펙터로 전환된다. 중앙 캔버스는
+       어떤 경우에도 워크플로우 화면으로 남는다. #}
+    <section class="orca-task-context" id="orca-task-context" hidden aria-live="polite">
+      <div class="orca-task-context-body" id="orca-task-context-body"></div>
+    </section>
     <section class="orca-rail-panel" data-rail-panel="chat">
       <div class="orca-rail-scroll" id="orca-chat-scroll"></div>
       <form class="orca-rail-composer" id="orca-chat-form">
@@ -52,6 +60,7 @@
 <script>
   window.ORCA_CHAT_RAIL = {
     channelId: {{ channel['id'] if channel else 'null' }},
+    channelTitle: {{ (channel['title'] if channel else ('프로젝트 채팅' | t)) | tojson }},
     tasks: {{ (tasks or []) | tojson }},
   };
 </script>

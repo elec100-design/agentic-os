@@ -128,6 +128,119 @@
   });
   activateTab(localStorage.getItem(TAB_KEY) || "chat");
 
+  // ═══ 노드 선택 → 태스크 컨텍스트 ════════════════════════════════════════
+  // 프로젝트 채팅 레일 자체를 전환하므로 중앙 워크플로우의 탭/패널을 열지 않는다.
+  const taskContext = document.getElementById("orca-task-context");
+  const taskContextBody = document.getElementById("orca-task-context-body");
+  const taskBack = document.getElementById("orca-task-context-back");
+  const railTitle = rail.querySelector(".orca-rail-title");
+  let activeTaskId = null;
+
+  function taskEscape(value) { return escapeHtml(String(value || "")); }
+  function taskArtifact(task) {
+    if (!task.artifact_path) return "";
+    const name = task.artifact_path.split("/").pop();
+    return `<a class="orca-task-artifact-link" target="_blank" href="/artifacts/${task.project_id}/${encodeURIComponent(name)}">${taskEscape(name)} ↗</a>`;
+  }
+  function taskMessageEl(message) {
+    const row = document.createElement("article");
+    row.className = `orca-task-message is-${message.role}`;
+    const who = document.createElement("span");
+    who.className = "orca-task-message-who";
+    who.textContent = message.role === "user" ? tt("나") : tt("에이전트");
+    const content = document.createElement("div");
+    content.className = "orca-task-message-content";
+    paintMarkdown(content, message.content || message.reply || "");
+    row.append(who, content);
+    if (message.suggested_description) {
+      const apply = document.createElement("button");
+      apply.type = "button"; apply.className = "btn-ghost orca-task-suggestion";
+      apply.textContent = tt("제안 설명 적용");
+      apply.addEventListener("click", () => {
+        const desc = taskContextBody.querySelector("[name=description]");
+        if (desc) { desc.value = message.suggested_description; desc.focus(); }
+      });
+      row.appendChild(apply);
+    }
+    return row;
+  }
+  function closeTaskContext() {
+    activeTaskId = null;
+    if (taskContext) taskContext.hidden = true;
+    if (taskContextBody) taskContextBody.textContent = "";
+    if (taskBack) taskBack.hidden = true;
+    if (railTitle) railTitle.textContent = CFG.channelTitle || tt("프로젝트 채팅");
+    panels.forEach((p) => { p.hidden = p.dataset.railPanel !== "chat"; });
+    activateTab("chat");
+  }
+  taskBack?.addEventListener("click", closeTaskContext);
+  document.body.addEventListener("orca-task-context-close", closeTaskContext);
+
+  async function showTaskContext(id) {
+    if (!taskContext || !taskContextBody) return;
+    activeTaskId = +id;
+    taskContext.hidden = false;
+    panels.forEach((p) => { p.hidden = true; });
+    if (taskBack) taskBack.hidden = false;
+    taskContextBody.innerHTML = `<p class="orca-task-loading">${taskEscape(tt("태스크를 불러오는 중…"))}</p>`;
+    try {
+      const [taskRes, messagesRes] = await Promise.all([
+        fetch(`/api/tasks/${id}`), fetch(`/api/tasks/${id}/messages`),
+      ]);
+      if (!taskRes.ok) throw new Error("task load failed");
+      const task = await taskRes.json();
+      const messages = messagesRes.ok ? await messagesRes.json() : [];
+      if (activeTaskId !== +id) return;
+      if (railTitle) railTitle.textContent = tt("태스크");
+      renderTaskContext(task, messages);
+    } catch (err) {
+      if (activeTaskId === +id) taskContextBody.innerHTML = `<p class="orca-task-error">${taskEscape(tt("태스크를 불러오지 못했습니다."))}</p>`;
+    }
+  }
+
+  function renderTaskContext(task, messages) {
+    const disabled = task.editable ? "" : "disabled";
+    taskContextBody.innerHTML = `
+      <form class="orca-task-edit-form" data-task-id="${task.id}">
+        <div class="orca-task-context-top"><span class="badge badge-${taskEscape(task.status)}">${taskEscape(task.status)}</span><span class="provider-name">${taskEscape(task.provider || "auto")}</span></div>
+        <label><span>${taskEscape(tt("제목"))}</span><input name="title" required value="${taskEscape(task.title)}" ${disabled}></label>
+        <label><span>${taskEscape(tt("작업 내용"))}</span><textarea name="description" rows="5" required ${disabled}>${taskEscape(task.description)}</textarea></label>
+        <label><span>${taskEscape(tt("담당 에이전트"))}</span><input name="agent" value="${taskEscape(task.provider || "auto")}" ${disabled}></label>
+        <div class="orca-task-meta"><span>${taskEscape(tt("상태"))}: ${taskEscape(task.status)}</span>${taskArtifact(task)}</div>
+        ${task.editable ? `<button class="btn-primary" type="submit">${taskEscape(tt("저장"))}</button>` : `<p class="orca-task-locked">${taskEscape(tt("실행 중에는 편집할 수 없습니다. 일시정지 후 수정하세요."))}</p>`}
+      </form>
+      <section class="orca-task-chat"><h3>${taskEscape(tt("태스크 채팅"))}</h3><div class="orca-task-messages"></div>
+        <form class="orca-task-chat-form"><textarea rows="3" required placeholder="${taskEscape(tt("이 태스크에 대한 수정 또는 커멘트를 입력하세요…"))}"></textarea><button class="orca-rail-send" type="submit" aria-label="${taskEscape(tt("전송"))}">↑</button></form>
+      </section>`;
+    const list = taskContextBody.querySelector(".orca-task-messages");
+    messages.forEach((m) => list.appendChild(taskMessageEl(m)));
+    list.scrollTop = list.scrollHeight;
+    const editForm = taskContextBody.querySelector(".orca-task-edit-form");
+    editForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const data = new FormData(editForm);
+      const save = editForm.querySelector("button[type=submit]"); save.disabled = true;
+      try {
+        const res = await fetch(`/api/tasks/${task.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: data.get("title"), description: data.get("description"), agent: data.get("agent") }) });
+        if (!res.ok) throw new Error((await res.json()).detail || "save failed");
+        document.body.dispatchEvent(new Event("orca-refresh-board"));
+        showTaskContext(task.id);
+      } catch (err) { alert(err.message || tt("저장하지 못했습니다.")); save.disabled = false; }
+    });
+    const chatForm = taskContextBody.querySelector(".orca-task-chat-form");
+    chatForm.addEventListener("submit", async (e) => {
+      e.preventDefault(); const ta = chatForm.querySelector("textarea"); const content = ta.value.trim(); if (!content) return;
+      const submit = chatForm.querySelector("button"); submit.disabled = true;
+      list.appendChild(taskMessageEl({ role: "user", content })); ta.value = ""; list.scrollTop = list.scrollHeight;
+      try {
+        const res = await fetch(`/api/tasks/${task.id}/messages`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }) });
+        if (!res.ok) throw new Error((await res.json()).detail || "chat failed");
+        const reply = await res.json(); list.appendChild(taskMessageEl({ role: "assistant", content: reply.reply, suggested_description: reply.suggested_description })); list.scrollTop = list.scrollHeight;
+      } catch (err) { list.appendChild(taskMessageEl({ role: "assistant", content: err.message || tt("응답을 받지 못했습니다.") })); }
+      finally { submit.disabled = false; }
+    });
+  }
+
   // ═══ 채팅 탭 ══════════════════════════════════════════════════════════
   const chatScroll = document.getElementById("orca-chat-scroll");
   const chatForm = document.getElementById("orca-chat-form");
@@ -481,22 +594,7 @@
   // 중이면 실행 로그 탭으로 따라가고, 완료된 태스크라면 채팅 쪽에서 같은 job의
   // 메시지를 찾아 짧게 반짝여 "이게 그 대화였다"를 보여준다.
   document.body.addEventListener("orca-task-selected", (e) => {
-    const { jobId, status } = e.detail || {};
-    if (!jobId) return;
-    if (status === "running" || status === "queued") {
-      tabs.find((b) => b.dataset.railTab === "log")?.click();
-      if (logSelect && [...logSelect.options].some((o) => o.value === String(jobId))) {
-        logSelect.value = String(jobId);
-        streamJobLog(jobId);
-      }
-    } else {
-      const row = chatScroll?.querySelector(`[data-job-id="${jobId}"]`);
-      if (row) {
-        tabs.find((b) => b.dataset.railTab === "chat")?.click();
-        row.scrollIntoView({ block: "center", behavior: "smooth" });
-        row.classList.add("orca-live-flash");
-        setTimeout(() => row.classList.remove("orca-live-flash"), 1200);
-      }
-    }
+    const { id } = e.detail || {};
+    if (id != null) showTaskContext(id);
   });
 })();

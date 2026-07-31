@@ -416,6 +416,7 @@ on every push and PR.
 - [Task history (task.md)](docs/task.md)
 - [Contributing guide](CONTRIBUTING.md)
 - [Adding a provider (PROVIDERS.md)](docs/PROVIDERS.md)
+- [Vision-board deletion and workflow editing](docs/vision-board-editing.md)
 - [V1 design spec](docs/2026-07-05-agentic-os-v1-design.md)
 - [V1 implementation plan](docs/2026-07-05-agentic-os-v1.md)
 
@@ -426,5 +427,5 @@ on every push and PR.
 - Vision board (V4/V4.1) is shipped: plan → editable DAG → multi-agent
   run with media. Remaining polish (live status overlay, soft-delete undo,
   inline draft PATCH) is V4.2 in [plan.md](docs/plan.md).
-- Antigravity real usage tracking, per-task model pick, token/cost tracking,
+- Antigravity real usage tracking, token/cost tracking,
   and other extensions live under V5 in [plan.md](docs/plan.md).

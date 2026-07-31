@@ -22,6 +22,8 @@
   let view = null;           // {x, y, w, h} — null이면 다음 렌더에서 화면 맞춤
   let lastOrientation = null;
   let selTask = null, selStatus = null;
+  let selEdge = null;        // 선택된 화살표 {from, to, el} — Delete/버튼으로 지운다
+  let linkMode = null;       // {seq} — 터치 대안: '연결' 버튼을 누른 뒤 다음 노드 탭을 기다린다
   let busy = false;          // 제스처 진행 중 — 폴링을 막는다
   let paletteOpen = false;
   let drag = null, pinch = null;
@@ -164,6 +166,22 @@
     [...svg().querySelectorAll(`.graph-edge-g[data-to="${seq}"]`)]
       .map((eg) => +eg.dataset.from);
 
+  // fromSeq에서 기존 화살표(from→to 방향)만 따라가서 toSeq에 닿을 수 있는지 —
+  // 닿는다면 toSeq→fromSeq 새 화살표는 순환을 만든다.
+  function reachable(fromSeq, toSeq) {
+    const seen = new Set();
+    const stack = [fromSeq];
+    while (stack.length) {
+      const cur = stack.pop();
+      if (cur === toSeq) return true;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      svg().querySelectorAll(`.graph-edge-g[data-from="${cur}"]`)
+        .forEach((eg) => stack.push(+eg.dataset.to));
+    }
+    return false;
+  }
+
   // --- 서버 왕복 -----------------------------------------------------------
 
   function flash(msg, kind) {
@@ -220,7 +238,7 @@
     afterBoardRender();
   }
 
-  // --- 태스크 상세 패널 -----------------------------------------------------
+  // --- 태스크 사이드바 컨텍스트 --------------------------------------------
   //
   // window.OrcaWorkspace(board-workspace.js)가 있으면 폭에 상관없이 태스크
   // 상세를 메인 탭바의 탭으로 연다 — 데스크톱은 사이드바 옆 탭바로, 태블릿은
@@ -393,25 +411,12 @@
 
   async function selectTask(id) {
     selTask = id;
-    const res = await fetch(`/partials/task/${id}`);
-    if (!res.ok) return;
     const node = document.querySelector(`.graph-node[data-task="${id}"]`);
     selStatus = node ? node.dataset.status : null;
-    const desktop = isTabWorkspace();
-    const panel = taskContainerFor(id, node);
-    stopTaskLog(panel);
-    panel.innerHTML = await res.text();
-    if (desktop) panel.dataset.contentStatus = selStatus;
-    if (window.htmx) window.htmx.process(panel);
-    const src = panel.querySelector(".task-src");
-    if (src) renderMarkdown(panel.querySelector(".task-out"), src.textContent);
-    syncRecoverModels(panel);
-    initTaskLog(panel);
-    if (!desktop) setPanelOpen(true);
     highlightSel();
     const key = selKey();
     if (key) localStorage.setItem(key, String(id));
-    // chat-rail이 이 태스크의 잡을 실행 로그 탭에서 바로 따라가도록 알린다.
+    // 좌측 레일이 태스크 상세·편집·전용 대화로 전환한다. 중앙은 계속 캔버스다.
     document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
       detail: {
         id, status: selStatus,
@@ -422,19 +427,12 @@
   window.selectTask = selectTask;
 
   function closePanel() {
-    if (isTabWorkspace()) {
-      const root = currentTaskRoot();
-      const tabId = root && root.dataset.tabId;
-      if (tabId && tabId !== "canvas") { window.OrcaWorkspace.closeTab(tabId); return; }
-    }
     selTask = null;
     selStatus = null;
-    const panel = taskPanel();
-    if (panel) { stopTaskLog(panel); panel.innerHTML = ""; }
-    setPanelOpen(false);
     highlightSel();
     const key = selKey();
     if (key) localStorage.removeItem(key);
+    document.body.dispatchEvent(new CustomEvent("orca-task-context-close"));
   }
   window.closeTaskPanel = closePanel;
 
@@ -479,7 +477,11 @@
   function refreshPanel() {
     if (selTask === null) return;
     if (document.querySelector(`.graph-node[data-task="${selTask}"]`)) {
-      selectTask(selTask);
+      const node = document.querySelector(`.graph-node[data-task="${selTask}"]`);
+      document.body.dispatchEvent(new CustomEvent("orca-task-selected", {
+        detail: { id: selTask, status: node?.dataset.status || null,
+          jobId: node?.dataset.job ? +node.dataset.job : null },
+      }));
     } else {
       closePanel();
     }
@@ -489,11 +491,8 @@
   // 모델 목록은 에이전트마다 다르다 — 서버가 패널에 실어 보낸 JSON에서 지금 고른
   // 에이전트의 목록만 뽑아 <select>를 다시 채운다.
 
-  function syncRecoverModels(root) {
-    const panel = root || currentTaskRoot();
-    const box = panel && panel.querySelector("[data-recover-models]");
-    const agentSel = panel && panel.querySelector("[data-recover-agent]");
-    const modelSel = panel && panel.querySelector("[data-recover-model]");
+  function fillModelSelect(panel, agentSel, modelSel) {
+    const box = panel && panel.querySelector("[data-provider-models]");
     if (!box || !agentSel || !modelSel) return;
     let byProvider = {};
     try { byProvider = JSON.parse(box.textContent) || {}; } catch (err) { return; }
@@ -516,6 +515,21 @@
     modelSel.disabled = modelSel.options.length < 2;
   }
 
+  function syncRecoverModels(root) {
+    const panel = root || currentTaskRoot();
+    fillModelSelect(panel,
+      panel && panel.querySelector("[data-recover-agent]"),
+      panel && panel.querySelector("[data-recover-model]"));
+  }
+
+  // 정규 편집 폼용 — 오류 조치 패널과 같은 목록(data-provider-models)을 읽는다
+  function syncEditModels(root) {
+    const panel = root || currentTaskRoot();
+    fillModelSelect(panel,
+      panel && panel.querySelector(".task-edit select[name=agent]"),
+      panel && panel.querySelector("[data-edit-model]"));
+  }
+
   function toggleEdit(on, root) {
     const scope = root || currentTaskRoot();
     if (!scope) return;
@@ -531,6 +545,7 @@
     const panel = scope.querySelector(".task-panel");
     if (panel) panel.classList.toggle("is-editing", on);
     if (on) {
+      syncEditModels(scope);
       // 모바일 시트에서 입력란이 보이도록 패널 상단으로 스크롤
       form.scrollIntoView({ block: "nearest", behavior: "smooth" });
       const title = form.querySelector("input[name=title]");
@@ -573,6 +588,9 @@
   function afterBoardRender() {
     const c = canvas();
     paletteOpen = false;
+    // 새 조각은 엣지 엘리먼트를 새로 그리므로 낡은 선택 참조를 들고 있을 수 없다
+    selEdge = null;
+    cancelLinkMode(false);
     if (!c) { prevNodeStatus = new Map(); return; }
     if (window.htmx) window.htmx.process(c.parentElement || c);
     // 서버가 이 폭에 맞지 않는 방향으로 그려 보냈으면(o 파라미터가 빠졌거나
@@ -655,6 +673,9 @@
     const p = toSvg(e);
     busy = true;
 
+    // 다른 대상을 만지기 시작했다면 이전에 선택해 둔 화살표는 놓는다
+    if (!edge) clearEdgeSelection();
+
     if (port && node && port.classList.contains("port-out") && editable()) {
       drag = { kind: "link", from: +node.dataset.seq };
     } else if (node) {
@@ -664,15 +685,15 @@
         grabX: p.x, grabY: p.y, moved: false,
         // 모바일(tb)은 서버가 항상 한 줄 스택으로 다시 쌓으므로 옮겨도 제자리로
         // 돌아온다 — 끌기는 화면 이동에만 쓰고, 탭은 그대로 선택으로 둔다.
-        movable: node.dataset.editable === "1" && orientation() !== "tb",
+        movable: node.dataset.editable === "1",
         startX: e.clientX, startY: e.clientY,
         vx: view ? view.x : 0, vy: view ? view.y : 0,
       };
     } else if (edge && editable()) {
-      drag = { kind: "edge", from: +edge.dataset.from, to: +edge.dataset.to };
+      drag = { kind: "edge", from: +edge.dataset.from, to: +edge.dataset.to, el: edge };
     } else {
       drag = {
-        kind: "pan", startX: e.clientX, startY: e.clientY,
+        kind: "pan", moved: false, startX: e.clientX, startY: e.clientY,
         vx: view ? view.x : 0, vy: view ? view.y : 0,
       };
     }
@@ -708,6 +729,9 @@
       rubber.classList.add("active");
       rubber.setAttribute("d", edgePath(anchor(drag.from, "out"), toSvg(e)));
     } else if (drag.kind === "pan") {
+      if (!drag.moved && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > DRAG_SLOP) {
+        drag.moved = true;
+      }
       panBy(drag, e);
     }
   }
@@ -723,7 +747,9 @@
     if (!d) { busy = false; return; }
     try {
       if (d.kind === "node") {
-        if (d.moved && !d.movable) {
+        if (linkMode && !d.moved) {
+          await finishLinkMode(d.el);
+        } else if (d.moved && !d.movable) {
           /* 화면만 움직였다 — 저장할 것도, 열 것도 없다 */
         } else if (d.moved) {
           d.el.dataset.x = d.nx;
@@ -738,9 +764,14 @@
         if (rubber) { rubber.classList.remove("active"); rubber.setAttribute("d", ""); }
         const el = document.elementFromPoint(e.clientX, e.clientY);
         const target = el && el.closest && el.closest(".graph-node");
-        if (target && +target.dataset.seq !== d.from) await connect(d.from, target);
+        if (target) await connect(d.from, target);
       } else if (d.kind === "edge") {
-        await disconnect(d.from, d.to);
+        selectEdge(d.el);
+      } else if (d.kind === "pan" && linkMode && !d.moved) {
+        cancelLinkMode(true);
+      } else if (d.kind === "pan" && !d.moved && selTask !== null) {
+        // 빈 캔버스를 다시 누르면 태스크 컨텍스트를 닫고 프로젝트 채팅으로 돌아간다.
+        closePanel();
       }
     } finally {
       busy = false;
@@ -769,24 +800,96 @@
 
   // --- 연결 편집 -----------------------------------------------------------
 
+  // 자기참조·중복·순환은 서버도 400으로 막지만(set_task_deps), 왕복 없이 바로
+  // 이유를 보여주려고 같은 규칙을 클라이언트에서 먼저 검사한다.
   async function connect(fromSeq, targetNode) {
     if (targetNode.dataset.editable !== "1") {
       flash(tr("이미 실행된 태스크는 편집할 수 없습니다"));
       return;
     }
     const to = +targetNode.dataset.seq;
+    if (to === fromSeq) {
+      flash(tr("자기 자신에 의존할 수 없습니다"));
+      return;
+    }
     const deps = depsOf(to);
-    if (deps.includes(fromSeq)) return;
+    if (deps.includes(fromSeq)) {
+      flash(tr("이미 연결되어 있습니다"));
+      return;
+    }
+    if (reachable(to, fromSeq)) {
+      flash(tr("순환 의존은 만들 수 없습니다"));
+      return;
+    }
     await post(`/tasks/${targetNode.dataset.task}/deps`,
                { deps: deps.concat(fromSeq) });
   }
 
   async function disconnect(fromSeq, toSeq) {
     const g = svg().querySelector(`.graph-node[data-seq="${toSeq}"]`);
-    if (!g || g.dataset.editable !== "1") return;
-    if (!confirm(tr("이 연결을 끊을까요?"))) return;
-    await post(`/tasks/${g.dataset.task}/deps`,
-               { deps: depsOf(toSeq).filter((d) => d !== fromSeq) });
+    if (!g || g.dataset.editable !== "1") return false;
+    return post(`/tasks/${g.dataset.task}/deps`,
+                { deps: depsOf(toSeq).filter((d) => d !== fromSeq) });
+  }
+
+  // --- 화살표 선택 · 삭제 (키보드 Delete/Backspace 또는 툴바 버튼) ------------
+
+  function clearEdgeSelection() {
+    if (selEdge) selEdge.el.classList.remove("selected");
+    selEdge = null;
+    const btn = document.querySelector("#board .graph-toolbar .graph-edge-del");
+    if (btn) btn.hidden = true;
+  }
+
+  function selectEdge(g) {
+    if (selEdge && selEdge.el === g) return;
+    clearEdgeSelection();
+    selEdge = { from: +g.dataset.from, to: +g.dataset.to, el: g };
+    g.classList.add("selected");
+    const bar = document.querySelector("#board .graph-toolbar");
+    if (!bar) return;
+    let btn = bar.querySelector(".graph-edge-del");
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-ghost graph-edge-del";
+      btn.textContent = tr("연결 삭제");
+      btn.addEventListener("click", disconnectSelected);
+      const spacer = bar.querySelector(".spacer");
+      if (spacer) bar.insertBefore(btn, spacer); else bar.appendChild(btn);
+    }
+    btn.textContent = tr("연결 삭제");
+    btn.hidden = false;
+  }
+
+  async function disconnectSelected() {
+    if (!selEdge) return;
+    const { from, to } = selEdge;
+    clearEdgeSelection();
+    if (await disconnect(from, to)) flash(tr("연결을 삭제했습니다"), "ok");
+  }
+
+  // --- 연결 모드 (터치 대안: 노드 선택 → '연결' 버튼 → 대상 노드 탭) --------
+
+  function updateLinkModeUI() {
+    document.body.classList.toggle("link-mode-active", !!linkMode);
+    document.querySelectorAll("[data-task-link]").forEach((btn) => {
+      btn.classList.toggle("is-active", !!linkMode && +btn.dataset.seq === linkMode.seq);
+    });
+  }
+
+  function cancelLinkMode(showMsg) {
+    if (!linkMode) return;
+    linkMode = null;
+    updateLinkModeUI();
+    if (showMsg) flash(tr("연결 모드를 취소했습니다"), "ok");
+  }
+
+  async function finishLinkMode(targetNode) {
+    const from = linkMode.seq;
+    linkMode = null;
+    updateLinkModeUI();
+    await connect(from, targetNode);
   }
 
   // --- 툴바 / 팔레트 --------------------------------------------------------
@@ -832,12 +935,26 @@
     if (btn) { onToolbar(btn.dataset.canvas); return; }
     if (e.target.closest("[data-task-close]")) { closePanel(); return; }
     if (e.target.closest("[data-task-edit]")) { toggleEdit(true, taskRootOf(e.target)); return; }
-    if (e.target.closest("[data-task-edit-cancel]")) { toggleEdit(false, taskRootOf(e.target)); }
+    if (e.target.closest("[data-task-edit-cancel]")) { toggleEdit(false, taskRootOf(e.target)); return; }
+    const linkBtn = e.target.closest("[data-task-link]");
+    if (linkBtn) {
+      const seq = +linkBtn.dataset.seq;
+      if (linkMode && linkMode.seq === seq) {
+        cancelLinkMode(true);
+      } else {
+        linkMode = { seq };
+        updateLinkModeUI();
+        flash(tr("연결할 태스크를 탭하세요"), "ok");
+      }
+    }
   });
 
   document.addEventListener("change", (e) => {
     if (e.target.closest && e.target.closest("[data-recover-agent]")) {
       syncRecoverModels(taskRootOf(e.target));
+    }
+    if (e.target.closest && e.target.closest(".task-edit select[name=agent]")) {
+      syncEditModels(taskRootOf(e.target));
     }
   });
 
@@ -850,10 +967,21 @@
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    if (paletteOpen) openPalette(false);
-    else if (editFormOpen()) toggleEdit(false);
-    else if (selTask !== null) closePanel();
+    if (e.key === "Escape") {
+      if (paletteOpen) openPalette(false);
+      else if (linkMode) cancelLinkMode(true);
+      else if (editFormOpen()) toggleEdit(false);
+      else if (selTask !== null) closePanel();
+      return;
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && selEdge) {
+      const tag = document.activeElement && document.activeElement.tagName;
+      // 입력란에서 타이핑 중인 Delete/Backspace는 그대로 텍스트 편집에 쓰게 둔다
+      if (tag === "INPUT" || tag === "TEXTAREA" ||
+          (document.activeElement && document.activeElement.isContentEditable)) return;
+      e.preventDefault();
+      disconnectSelected();
+    }
   });
 
   // 폴링이 편집을 방해하지 않게 한다. plan_ready/paused에서는 오케스트레이터가

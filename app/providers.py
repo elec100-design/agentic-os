@@ -334,8 +334,9 @@ _COMPLEX_KW = [
 # 자동 라우팅에 쓰는 에이전트 프로필.
 #
 # ``max_difficulty``는 해당 CLI에 맡길 수 있는 최대 작업 난이도다. 현재 등록된
-# 구독 CLI는 모두 complex 작업을 처리할 수 있고, Hermes는 로컬·무제한 실행을
-# 보존하기 위해 simple 작업 전용으로 둔다. ``affinities``는 *동일한 잔여 사용량*
+# 구독 CLI는 모두 complex 작업을 처리할 수 있다. Hermes도 cheap/balanced/heavy
+# 하위 프로필(heavy는 고사양 추론 모델)이 생기면서 complex 작업까지 처리할 수
+# 있게 되어 simple 전용 제한을 해제한다. ``affinities``는 *동일한 잔여 사용량*
 # 일 때만 쓰는 타이브레이커다. 따라서 특정 에이전트의 강점이 사용량이 더 많이
 # 남은 다른 에이전트를 제치지 않는다.
 #
@@ -348,7 +349,7 @@ AGENT_PROFILES = {
     "gemini": {"max_difficulty": "complex", "affinities": {"document", "multimodal", "analysis"}},
     "grok": {"max_difficulty": "complex", "affinities": {"research", "current", "analysis"}},
     "openclaw": {"max_difficulty": "complex", "affinities": {"automation", "analysis", "writing"}},
-    "hermes": {"max_difficulty": "simple", "affinities": {"local", "private"}},
+    "hermes": {"max_difficulty": "complex", "affinities": {"local", "private"}},
 }
 _DEFAULT_CLOUD_PROFILE = {"max_difficulty": "complex", "affinities": set()}
 
@@ -419,21 +420,28 @@ def rank_cloud(usage_state=None, enabled=None):
 
 
 def rank_auto_agents(prompt, usage_state=None, enabled=None):
-    """난이도에 맞는 모든 활성 클라우드 에이전트를 사용량순으로 정렬한다.
+    """난이도에 맞는 모든 활성 에이전트를 사용량순으로 정렬한다.
 
     실제 잔여 사용량이 최우선이며, 동률일 때만 프롬프트의 작업 성격과 provider
-    프로필을 적용한다. 반환 형식은 ``rank_cloud``와 동일하다.
+    프로필을 적용한다. Hermes는 클라우드 사용량 랭킹(``rank_cloud``)에는 안
+    잡히지만(무제한 로컬 실행) complex 작업에서도 정식 후보로 포함해, 클라우드
+    잔여 사용량이 낮을 때 우선 선택될 수 있게 한다. 반환 형식은 ``rank_cloud``
+    와 동일하다.
     """
     kinds = task_kinds(prompt)
+    candidates = list(rank_cloud(usage_state, enabled))
+    if (enabled is None or "hermes" in enabled) and not any(n == "hermes" for n, _ in candidates):
+        candidates.append(("hermes", None))
     ranked = []
-    for name, remaining in rank_cloud(usage_state, enabled):
+    for name, remaining in candidates:
         # 아직 세부 프로필이 없는 새 provider도 기본 complex 후보로 포함한다.
         profile = AGENT_PROFILES.get(name, _DEFAULT_CLOUD_PROFILE)
         if _DIFFICULTY_RANK[profile["max_difficulty"]] < _DIFFICULTY_RANK[task_difficulty(prompt)]:
             continue
         affinity = len(kinds & profile["affinities"])
+        idx = _CLOUD_ROUTED.index(name) if name in _CLOUD_ROUTED else len(_CLOUD_ROUTED)
         ranked.append((remaining is not None, remaining if remaining is not None else _UNKNOWN_REMAINING,
-                       affinity, _CLOUD_ROUTED.index(name), name, remaining))
+                       affinity, idx, name, remaining))
     ranked.sort(key=lambda x: (-x[0], -x[1], -x[2], x[3]))
     return [(name, remaining) for _, _, _, _, name, remaining in ranked]
 
@@ -442,7 +450,8 @@ def route_auto(prompt, usage_state=None, enabled=None):
     """자동 모드 라우팅. (provider, reason) 반환.
 
     - 단순 작업 → hermes (로컬·무제한, 클라우드 사용량 절약)
-    - 복잡 작업 → 소진되지 않은 클라우드 에이전트 중 잔여 사용량이 가장 많은 곳
+    - 복잡 작업 → 클라우드 에이전트와 hermes(heavy 프로필) 중 잔여 사용량이
+      가장 많은 곳. 클라우드 잔여 사용량이 낮으면 hermes가 선택될 수 있다.
     - 모두 소진 → hermes 폴백
 
     usage_state: {provider: {"remaining": int|None, "available": bool|None}}
@@ -471,6 +480,10 @@ def route_auto(prompt, usage_state=None, enabled=None):
     if not is_complex(prompt):
         reason = (f"Hermes disabled → {best}" if en
                   else f"Hermes 비활성 → {best}로 처리합니다")
+    elif best == "hermes":
+        reason = (
+            "Complex task, cloud quota low → Hermes (heavy profile)" if en
+            else "복잡한 작업이지만 클라우드 잔여 사용량이 낮아 Hermes(heavy 프로필)로 처리합니다")
     elif remaining is None:
         reason = (f"Complex task → {best} (no usage data, picked by priority)" if en
                   else f"복잡한 작업 → {best} (사용량 정보 없음, 우선순위로 선택)")

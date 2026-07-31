@@ -323,6 +323,13 @@ EN = {
     "실행 로그 →": "Run log →",
     "프로젝트와 모든 태스크·산출물을 삭제할까요?":
         "Delete this project with all tasks and artifacts?",
+    "취소된 항목 모두 비우기": "Clear all cancelled",
+    "이 프로젝트를 삭제할까요? 되돌릴 수 없습니다.":
+        "Delete this project? This can't be undone.",
+    "취소된 프로젝트를 모두 삭제할까요? 되돌릴 수 없습니다.":
+        "Delete all cancelled projects? This can't be undone.",
+    "삭제하지 못했습니다": "Couldn't delete it",
+    "취소된 프로젝트 {n}개를 삭제했습니다": "Deleted {n} cancelled project(s)",
     # --- 워크플로 다이어그램 편집기 ---
     "노드를 끌어 배치하고, 포트를 이어 연결하세요.":
         "Drag nodes to arrange them, and drag port to port to connect.",
@@ -346,6 +353,7 @@ EN = {
     "연결 저장": "Save connections",
     "저장 중…": "Saving…",
     "연결을 저장했습니다": "Connections saved",
+    "연결을 삭제했습니다": "Connection deleted",
     "이 태스크를 삭제할까요? 연결도 함께 끊어집니다.":
         "Delete this task? Its connections will be removed too.",
     "이 연결을 끊을까요?": "Remove this connection?",
@@ -360,6 +368,12 @@ EN = {
     "제목과 설명은 비울 수 없습니다": "Title and description can't be empty",
     "제목은 비울 수 없습니다": "Title can't be empty",
     "자기 자신에 의존할 수 없습니다": "A task can't depend on itself",
+    "이미 연결되어 있습니다": "Already connected",
+    "순환 의존은 만들 수 없습니다": "Can't create a circular dependency",
+    "연결": "Connect",
+    "연결 삭제": "Delete connection",
+    "연결할 태스크를 탭하세요": "Tap a task to connect it",
+    "연결 모드를 취소했습니다": "Connect mode cancelled",
 
     # --- 태스크 오류 조치 (모델 교체 · 지시 추가) ---
     "완료로 기록됐지만 에이전트가 결과를 내놓지 않았습니다":

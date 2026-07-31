@@ -105,6 +105,7 @@
      data-artifact="{{ n['artifact_path'].split('/')[-1] if n['artifact_path'] else '' }}"
      data-error="{{ '1' if n['error'] or n['id'] in warn_ids else '0' }}"
      data-job="{{ n['job_id'] or '' }}"
+     data-model="{{ n['model'] or '' }}"
      transform="translate({{ n['x'] }}, {{ n['y'] }})">
     <rect class="node-box" width="{{ n['w'] }}" height="{{ n['h'] }}" rx="10"/>
     {# 제목 줄바꿈은 서버(orchestrator.TITLE_WRAP)가 박스 폭에 맞춰 잘라 준다 —
@@ -113,7 +114,7 @@
     <text class="node-title" x="12" y="{{ 26 + 22 * loop.index0 }}">
       {%- if loop.first %}{{ ICON[n['task_type']] }} {% endif %}{{ line }}</text>
     {% endfor %}
-    <text class="node-meta" x="12" y="{{ n['h'] - 14 }}">{{ n['provider'] }}</text>
+    <text class="node-meta" x="12" y="{{ n['h'] - 14 }}">{{ n['provider'] }}{% if n['model'] %} · {{ n['model'] }}{% endif %}</text>
     <text class="node-status" x="{{ n['w'] - 12 }}" y="{{ n['h'] - 14 }}" text-anchor="end">{{ TSTATUS[n['status']] | t }}</text>
     {% if n['id'] in warn_ids %}
     <text class="node-warn" x="{{ n['w'] - 12 }}" y="26" text-anchor="end">⚠</text>
