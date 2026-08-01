@@ -16,7 +16,7 @@ class FakeProvider:
         self.resume_at = resume_at
         self._session_id = session_id
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return self.cmd
 
     def parse_output(self, stdout, stderr, exit_code):
@@ -164,7 +164,7 @@ class PromptSpyProvider(FakeProvider):
         super().__init__(["sh", "-c", "echo ok"])
         self.sent = None
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         self.sent = prompt
         return self.cmd
 
@@ -250,3 +250,162 @@ async def test_worker_loop_survives_run_job_exception(tmp_env):
     assert bad["status"] == "failed"
     assert "worker error" in bad["error"]
     assert good["status"] == "done"
+
+
+# --- git 체크포인트 통합 (app/gitcheckpoint.py) --------------------------
+# 세부 동작은 tests/test_gitcheckpoint.py 에서 검증한다. 여기서는 worker.run_job
+# 이 실제로 그 결과를 job.git_run 에 남기는지만 확인한다.
+
+def _git(args, cwd):
+    import subprocess
+    subprocess.run(["git", *args], cwd=cwd, check=True,
+                   capture_output=True, text=True)
+
+
+def _git_repo(tmp_path):
+    d = tmp_path / "repo"
+    d.mkdir()
+    _git(["init", "-q", "."], d)
+    _git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+         "--allow-empty", "-m", "init"], d)
+    return d
+
+
+async def test_run_job_records_git_diff_for_workdir_changes(tmp_env, tmp_path):
+    import json
+    d = _git_repo(tmp_path)
+    p = FakeProvider(["sh", "-c", 'echo "새 파일" > created.txt'])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(d))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    fresh = db.get_job(conn, job["id"])
+    git_run = json.loads(fresh["git_run"])
+    assert git_run["available"] is True
+    assert git_run["files"] == ["created.txt"]
+    assert "created.txt" in git_run["stat"]
+
+
+async def test_run_job_skips_git_checkpoint_when_workdir_dirty(tmp_env, tmp_path):
+    """이미 사람이 고치던 파일이 있으면 체크포인트를 잡지 않는다."""
+    import json
+    d = _git_repo(tmp_path)
+    (d / "already_editing.txt").write_text("사람이 만든 파일")
+    p = FakeProvider(["sh", "-c", "echo ok"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(d))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    git_run = json.loads(db.get_job(conn, job["id"])["git_run"])
+    assert git_run == {"available": False, "reason": "dirty_at_start"}
+
+
+async def test_run_job_records_git_diff_even_on_failure(tmp_env, tmp_path):
+    """중간에 실패해도(exit != 0) 그 전에 고친 파일은 diff 에 남아야 한다."""
+    import json
+    d = _git_repo(tmp_path)
+    p = FakeProvider(["sh", "-c", 'echo "부분 작업" > partial.txt; exit 1'])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(d))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    fresh = db.get_job(conn, job["id"])
+    assert fresh["status"] == "failed"
+    git_run = json.loads(fresh["git_run"])
+    assert git_run["files"] == ["partial.txt"]
+
+
+async def test_run_job_has_no_git_run_without_workdir(tmp_env):
+    p = FakeProvider(["sh", "-c", "echo ok"])
+    conn, job, providers = _setup(tmp_env, p)
+    await worker.run_job(conn, job, providers=providers, save=False)
+    fresh = db.get_job(conn, job["id"])
+    import json
+    assert json.loads(fresh["git_run"]) == {"available": False, "reason": "no_workdir"}
+
+
+# --- 워크스페이스 지침 주입 (app/instructions.py) -------------------------
+
+async def test_run_job_injects_workspace_instructions_into_prompt(tmp_env, tmp_path):
+    """PromptSpyProvider 가 실제로 build_command 에 받은 프롬프트를 기록한다
+    — 지침이 진짜 프롬프트 앞에 붙어서 CLI 로 넘어가는지 확인한다."""
+    import json
+    (tmp_path / ".agentic-os.md").write_text("항상 지켜야 할 규칙")
+    p = PromptSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "이 작업을 해줘", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    assert "항상 지켜야 할 규칙" in p.sent
+    assert p.sent.endswith("이 작업을 해줘")  # 지침 뒤에 원래 프롬프트가 그대로 온다
+    applied = json.loads(db.get_job(conn, job["id"])["instructions_applied"])
+    assert applied == [".agentic-os.md"]
+
+
+async def test_run_job_records_no_instructions_when_workspace_has_none(tmp_env, tmp_path):
+    p = FakeProvider(["sh", "-c", "echo ok"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+    assert db.get_job(conn, job["id"])["instructions_applied"] is None
+
+
+# --- MCP 서버 설정 주입 (app/mcp_servers.py) -------------------------------
+
+class _McpSpyProvider(FakeProvider):
+    """실제 claude 처럼 supports_mcp=True 를 선언하고, 받은 경로를 기록한다."""
+    supports_mcp = True
+
+    def __init__(self):
+        super().__init__(["sh", "-c", "echo ok"])
+        self.received_path = "unset"
+
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
+        self.received_path = mcp_config_path
+        return self.cmd
+
+
+async def test_run_job_passes_mcp_config_path_when_provider_supports_it(tmp_env, tmp_path):
+    from app import mcp_servers, workspace
+    ws = workspace.add_local("proj", str(tmp_path))
+    mcp_servers.add(ws["id"], "fs", "npx", ["-y", "server-fs"], {})
+
+    p = _McpSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    assert p.received_path is not None
+    import json
+    data = json.loads(open(p.received_path).read())
+    assert "fs" in data["mcpServers"]
+
+
+async def test_run_job_passes_none_mcp_config_when_provider_lacks_support(tmp_env, tmp_path):
+    """FakeProvider 는 supports_mcp 를 선언하지 않는다 — MCP 서버가 등록돼
+    있어도 파일을 만들거나 넘기지 않아야 한다."""
+    from app import mcp_servers, workspace
+    ws = workspace.add_local("proj", str(tmp_path))
+    mcp_servers.add(ws["id"], "fs", "npx")
+
+    p = FakeProvider(["sh", "-c", "echo ok"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)  # 에러 없이 끝나야 함
+    assert db.get_job(conn, job["id"])["status"] == "done"
+
+
+async def test_run_job_mcp_config_path_none_when_no_servers_registered(tmp_env, tmp_path):
+    p = _McpSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+    assert p.received_path is None

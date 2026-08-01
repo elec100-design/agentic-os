@@ -16,7 +16,7 @@ class _FakeProvider:
     name = "claude"
     supports_resume = True
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return ["sh", "-c", "echo 'hello from agent'"]
 
     def parse_output(self, stdout, stderr, code):

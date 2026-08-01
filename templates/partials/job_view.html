@@ -12,6 +12,14 @@
   </h1>
   {% if job['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ job['workdir'] }}</code></p>{% endif %}
   {% if job['route_reason'] %}<p class="route-reason">🔀 {{ '자동 라우팅' | t }} — {{ job['route_reason'] }}</p>{% endif %}
+  {#- 어느 지침 파일이 실제로 이 실행에 붙었는지 — auto 라우팅으로 에이전트가
+      바뀌어도 지침 적용 여부가 눈에 보이게. 붙이지 않은 CLAUDE.md 등은 provider
+      가 스스로 읽어서다(app/instructions.py). -#}
+  {% if instructions_applied %}
+  <p class="job-meta instructions-applied" title="{{ '이 에이전트가 스스로 읽는 파일은 중복으로 붙이지 않습니다' | t }}">
+    📋 {{ '적용된 지침' | t }}: {% for f in instructions_applied %}<code>{{ f }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+  {% endif %}
 
   <h2 class="section-label">{{ '대화' | t }}</h2>
   <div class="chat-thread job-thread">
@@ -47,6 +55,53 @@
     </p>
     <pre class="err-raw">{{ job['error'] }}</pre>
   </div>
+  {% endif %}
+
+  {#- 실행 타임라인 — 에이전트가 어떤 도구를 어떤 인자로 썼는지.
+      권한 거부(kind=error)는 exit 0 으로 묻히므로 여기서만 드러난다. -#}
+  {% if steps %}
+  <details class="run-timeline"{% if steps | selectattr('kind', 'equalto', 'error') | list %} open{% endif %}>
+    <summary class="section-label">
+      {{ '실행 과정' | t }} <span class="run-timeline-count">{{ steps | length }}</span>
+    </summary>
+    <ol class="run-steps">
+      {% for s in steps %}
+      <li class="run-step step-{{ s['kind'] }}">
+        <span class="run-step-icon" aria-hidden="true">{{
+          {'tool_call': '🔧', 'tool_result': '📋', 'thought': '💭',
+           'error': '⚠', 'text': '💬'}.get(s['kind'], '•') }}</span>
+        <span class="run-step-title">{{ s['title'] }}</span>
+        {% if s['detail'] %}<pre class="run-step-detail">{{ s['detail'] }}</pre>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </details>
+  {% endif %}
+
+  {#- 실제 git diff — 지금까지 유일한 "diff"는 에이전트 출력 평문에서 +/- 로
+      시작하는 줄에 색만 입히는 것이었다(진짜 diff 아님). 워크스페이스가 실행
+      시작 시점에 깨끗했을 때만 만들어진다(app/gitcheckpoint.py 참고) —
+      그래서 files 가 있을 때만 보여준다(없으면 애초에 비교 대상이 없거나
+      변경이 없었다는 뜻이라 조용히 생략). -#}
+  {% if git_run and git_run.available and git_run.files %}
+  <details class="git-diff" open data-job-id="{{ job['id'] }}">
+    <summary class="section-label">
+      {{ '변경된 파일' | t }} <span class="run-timeline-count">{{ git_run.files | length }}</span>
+    </summary>
+    <pre class="git-diff-stat">{{ git_run.stat }}</pre>
+    {% if git_run.reverted_at %}
+    <p class="git-diff-reverted">↩ {{ '되돌렸습니다' | t }} — {{ git_run.reverted_at }}</p>
+    {% else %}
+    <div class="git-diff-actions">
+      <button type="button" class="btn-ghost git-revert-btn"
+              data-confirm="{{ '이 작업이 만든, 아직 커밋되지 않은 변경을 실행 전 상태로 되돌릴까요? 그 사이 다른 작업이 같은 파일을 더 건드렸다면 그것도 함께 되돌아갑니다.' | t }}">
+        ↩ {{ '변경 되돌리기' | t }}
+      </button>
+      <span class="git-diff-error" hidden></span>
+    </div>
+    {% endif %}
+    {% if git_run.patch %}<pre class="git-diff-patch">{{ git_run.patch }}</pre>{% endif %}
+  </details>
   {% endif %}
 
   {% if embed_followup %}{% include 'partials/job_followup.html' %}{% endif %}

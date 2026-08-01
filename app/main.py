@@ -21,8 +21,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import (
-    codexbar, config, council, db, github_cli, health, i18n, memory, models,
-    orchestrator, settings, setup, stream_hub, workspace, worker,
+    codexbar, config, council, db, github_cli, gitcheckpoint, health, i18n,
+    mcp_servers, memory, models, orchestrator, settings, setup, stream_hub,
+    workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -255,6 +256,52 @@ def setup_page(request: Request):
          "council_members": config.COUNCIL_MEMBERS,
          "council_min": config.COUNCIL_MIN_MEMBERS},
     )
+
+
+def _mcp_settings_ctx(error=None):
+    workspaces = workspace.list_workspaces()
+    all_servers = mcp_servers.list_all()
+    servers_by_ws = {}
+    for s in all_servers:
+        servers_by_ws.setdefault(s["workspace_id"], []).append(s)
+    return {"workspaces": workspaces, "servers_by_ws": servers_by_ws, "error": error}
+
+
+@app.get("/settings/mcp", response_class=HTMLResponse)
+def mcp_settings_page(request: Request):
+    return templates.TemplateResponse(request, "mcp_settings.html", _mcp_settings_ctx())
+
+
+@app.post("/settings/mcp/add", response_class=HTMLResponse)
+def mcp_settings_add(
+    request: Request,
+    workspace_id: str = Form(...),
+    name: str = Form(...),
+    command: str = Form(...),
+    args: str = Form(""),
+    env: str = Form(""),
+):
+    arg_list = args.split()
+    env_map = {}
+    for line in env.splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip():
+            env_map[k.strip()] = v.strip()
+    try:
+        mcp_servers.add(workspace_id, name, command, arg_list, env_map)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "mcp_settings.html", _mcp_settings_ctx(error=str(e)), status_code=400)
+    return RedirectResponse("/settings/mcp", status_code=303)
+
+
+@app.post("/settings/mcp/{server_id}/remove")
+def mcp_settings_remove(server_id: str):
+    mcp_servers.remove(server_id)
+    return RedirectResponse("/settings/mcp", status_code=303)
 
 
 @app.get("/api/health")
@@ -794,7 +841,21 @@ def _job_view_ctx(job, embed_followup=True):
     )
     # embed_followup=False면 후속 지시 컴포저를 본문에 넣지 않는다 — 홈 대시보드는
     # 중앙 탭을 결과 전용으로 두고 우측 레일에서 편집한다(/partials/job/{id}/followup).
+    # 실행 타임라인(도구 호출·결과·권한 거부). 이벤트 스트림을 내보내는 CLI 만
+    # 채운다 — 끝나면 job.output 은 최종 답으로 덮이므로 여기서만 볼 수 있다.
+    conn = db.get_conn()
+    steps = (db.list_execution_steps(conn, job["message_id"])
+             if job["message_id"] else db.list_job_steps(conn, job["id"]))
+    instructions_applied = []
+    if job["instructions_applied"]:
+        try:
+            instructions_applied = json.loads(job["instructions_applied"])
+        except (json.JSONDecodeError, TypeError):
+            pass
     return {"job": job, "thread": thread,
+            "steps": [s for s in steps if s["kind"] != "output_chunk"],
+            "git_run": gitcheckpoint.summarize(job["git_run"]),
+            "instructions_applied": instructions_applied,
             "can_resume": can_resume, "can_follow_up": can_follow_up,
             "embed_followup": embed_followup}
 
@@ -817,6 +878,31 @@ def cancel_job(job_id: int):
                   finished_at=db.now_iso())
     worker.terminate_job_procs(job_id)
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/{job_id}/git-revert")
+async def revert_job_git_changes(job_id: int):
+    """이 잡이(커밋 없이) 워크스페이스에 남긴 변경을 실행 전 상태로 되돌린다.
+
+    승인 없이 파일을 고치는 잡이 많아 만든 안전판이다 — 사용자가 명시적으로
+    눌러야만 되돌아간다(자동 실행 안 함). 체크포인트가 없거나 이미 되돌렸으면
+    400으로 이유를 알린다.
+    """
+    conn = db.get_conn()
+    job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
+    checkpoint = gitcheckpoint.summarize(job["git_run"])
+    if not checkpoint or not checkpoint.get("available"):
+        raise HTTPException(status_code=400, detail="되돌릴 체크포인트가 없습니다")
+    if checkpoint.get("reverted_at"):
+        raise HTTPException(status_code=400, detail="이미 되돌렸습니다")
+    ok, message = await gitcheckpoint.revert(job["workdir"], checkpoint)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    checkpoint["reverted_at"] = db.now_iso()
+    db.update_job(conn, job_id, git_run=json.dumps(checkpoint))
+    return {"ok": True, "message": message}
 
 
 @app.get("/jobs/{job_id}/stream")

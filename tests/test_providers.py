@@ -24,12 +24,46 @@ def test_claude_build_new():
     # --allowedTools is variadic; prompt must follow `--` so it is not eaten as a tool
     cmd = ClaudeProvider().build_command("안녕")
     assert cmd == [
-        "claude", "-p", "--output-format", "json",
+        # stream-json: 도구 호출·결과가 한 줄에 하나씩 흘러 타임라인을 만든다
+        # (--print 와 함께 쓰려면 --verbose 가 필요하다)
+        "claude", "-p", "--output-format", "stream-json", "--verbose",
+        # 이게 없으면 Write/Edit/Bash 가 auto-deny 되고도 exit 0 으로 끝난다
+        "--permission-mode", "acceptEdits",
         # 사용자 전역 훅이 result를 덮어쓰지 않도록 훅 비활성
         "--settings", '{"disableAllHooks": true}',
-        "--allowedTools", "WebSearch", "WebFetch",
+        "--allowedTools", "WebSearch", "WebFetch", "Bash",
         "--", "안녕",
     ]
+
+
+def test_claude_can_edit_files_like_other_agents():
+    """claude 만 읽기 전용이면 route_auto 결과에 따라 작업이 조용히 실패한다.
+
+    2026-08-01 실측: --permission-mode 없이 파일 생성을 시키면
+    permission_denials=[Bash, Write] 로 아무것도 못 하고도 subtype="success",
+    result="...needs your permission approval" 로 끝난다. codex 는
+    --dangerously-bypass-approvals-and-sandbox 로 도는데 claude 만 막혀 있어
+    같은 작업이 그날 잔량에 따라 성공/실패가 갈렸다.
+    """
+    cmd = ClaudeProvider().build_command("파일 고쳐줘")
+    assert "--permission-mode" in cmd
+    mode = cmd[cmd.index("--permission-mode") + 1]
+    assert mode == "acceptEdits"
+    # acceptEdits 는 Bash 를 자동 승인하지 않는다(실측: permission_denials=[Bash]).
+    # 테스트 실행·빌드가 필요한 작업이 절반만 되므로 함께 사전 허용한다.
+    tools = cmd[cmd.index("--allowedTools") + 1:cmd.index("--")]
+    assert "Bash" in tools
+    # 모든 도구를 여는 방식으로 넓히지는 않는다
+    assert "bypassPermissions" not in cmd
+    assert "--dangerously-skip-permissions" not in cmd
+    # 권한 플래그가 `--` 앞에 있어야 프롬프트가 도구 이름으로 먹히지 않는다
+    assert cmd.index("--permission-mode") < cmd.index("--")
+
+
+def test_claude_keeps_permission_mode_on_resume():
+    cmd = ClaudeProvider().build_command("이어서", session_id="s1", model="opus")
+    assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+    assert cmd[cmd.index("--") + 1] == "이어서"
 
 
 def test_claude_build_allows_web_tools_on_resume():
@@ -450,3 +484,32 @@ def test_route_auto_all_enabled_exhausted_no_hermes():
 def test_route_auto_enabled_none_unchanged():
     from app.providers import route_auto
     assert route_auto("안녕")[0] == "hermes"
+
+
+def test_claude_supports_mcp_config():
+    assert ClaudeProvider.supports_mcp is True
+
+
+def test_claude_adds_mcp_config_flag_before_allowedtools():
+    cmd = ClaudeProvider().build_command("안녕", mcp_config_path="/tmp/mcp.json")
+    assert "--mcp-config" in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == "/tmp/mcp.json"
+    # 옵션 파싱이 `--` 에서 끝나므로, mcp-config 도 그 앞에 있어야 한다
+    assert cmd.index("--mcp-config") < cmd.index("--")
+
+
+def test_claude_omits_mcp_config_flag_when_none():
+    cmd = ClaudeProvider().build_command("안녕")
+    assert "--mcp-config" not in cmd
+
+
+def test_other_providers_do_not_declare_mcp_support():
+    for cls in (AntigravityProvider, GrokProvider, CodexProvider, GeminiProvider,
+               OpenClawProvider, HermesProvider):
+        assert getattr(cls, "supports_mcp", False) is False, cls
+
+
+def test_other_providers_accept_and_ignore_mcp_config_path():
+    """인터페이스는 모든 provider 가 같아야 worker 가 분기 없이 호출할 수 있다."""
+    assert CodexProvider().build_command("hi", mcp_config_path="/tmp/x.json")[:2] == ["codex", "exec"]
+    assert AntigravityProvider().build_command("hi", mcp_config_path="/tmp/x.json") == ["agy", "-p", "hi"]

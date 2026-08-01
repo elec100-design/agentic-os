@@ -20,6 +20,25 @@ class ParseResult:
     session_id: str | None = None
 
 
+@dataclass
+class RunEvent:
+    """실행 타임라인의 한 칸.
+
+    kind 는 execution_steps.kind 와 같은 어휘를 쓴다(프론트가 이미 아이콘을
+    가지고 있다: thought 💭 / tool_call 🔧 / tool_result 📋 / error ⚠).
+    display 는 사람이 읽는 실행 로그에 덧붙일 줄 — 비어 있으면 덧붙이지 않는다.
+    """
+    kind: str
+    title: str
+    detail: str = ""
+    display: str = ""
+
+
+def _clip(text, limit=2000):
+    text = str(text or "")
+    return text if len(text) <= limit else text[:limit] + " …(생략)"
+
+
 def _default_resume_at(now=None):
     now = now or datetime.now(timezone.utc)
     return now + timedelta(minutes=config.DEFAULT_RESUME_DELAY_MIN)
@@ -27,10 +46,17 @@ def _default_resume_at(now=None):
 
 class ClaudeProvider:
     name = "claude"
+    # 헤드리스(-p)에서도 CLAUDE.md 를 스스로 읽는 것을 실측 확인했다(2026-08-01,
+    # app/instructions.py 상단 주석 참고) — app.instructions 가 다시 붙이지 않는다.
+    self_reads = frozenset({"CLAUDE.md"})
+    # --mcp-config <file> 로 그 실행 한 번에만 적용되는 MCP 서버 목록을 줄 수
+    # 있다(실측 확인, app/mcp_servers.py 상단 주석). codex/gemini 는 전역
+    # 설정 파일에 영구히 쓰는 방식뿐이라 지원하지 않는다.
+    supports_mcp = True
     _limit_re = re.compile(r"usage limit reached|rate.?limit", re.I)
     _epoch_re = re.compile(r"limit reached\|(\d{9,})")
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # 헤드리스(-p)는 권한 프롬프트를 못 띄우므로 웹 도구를 사전 허용.
         # --allowedTools 는 <tools...> 가변 옵션이라, 뒤에 오는 비옵션 인자를
         # 전부 도구 이름으로 삼킨다. 프롬프트가 거기 끼면
@@ -38,25 +64,134 @@ class ClaudeProvider:
         # 도구를 먼저 두고 `--` 로 옵션 파싱을 끝낸 뒤 프롬프트를 넣는다.
         # 사용자 전역 훅(예: 세션 종료 시 위키 캡처)이 돌면 JSON result가
         # 실제 답 대신 훅 응답으로 덮인다(2026-07-25 실측) → 훅 전체 비활성.
-        cmd = ["claude", "-p", "--output-format", "json",
+        #
+        # --permission-mode 가 없으면 Write/Edit/Bash 가 전부 auto-deny 되어,
+        # 파일을 하나도 못 고쳐 놓고 exit 0 + subtype:"success" 로 끝난다
+        # (2026-08-01 실측: permission_denials=[Bash, Write]). acceptEdits 도
+        # Bash 는 거부하므로 Bash 를 사전 허용에 함께 넣는다.
+        #
+        # stream-json 은 한 줄에 이벤트 하나(JSONL)를 흘려 도구 호출·결과가
+        # 실시간으로 보인다. --print 와 함께 쓰려면 --verbose 가 필요하다.
+        cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose",
+               "--permission-mode", "acceptEdits",
                "--settings", '{"disableAllHooks": true}']
         if model:
             cmd += ["--model", model]
         if session_id:
             cmd += ["--resume", session_id]
-        cmd += ["--allowedTools", "WebSearch", "WebFetch", "--", prompt]
+        if mcp_config_path:
+            cmd += ["--mcp-config", str(mcp_config_path)]
+        cmd += ["--allowedTools", "WebSearch", "WebFetch", "Bash", "--", prompt]
         return cmd
 
-    def parse_output(self, stdout, stderr, exit_code):
+    # --- 실행 타임라인 --------------------------------------------------
+    # worker 가 stdout 한 줄마다 호출한다(_pump 가 readline 이라 항상 한 줄).
+    streams_events = True
+
+    # 도구별로 "무엇을 했는지" 한눈에 보이는 요약을 뽑는다.
+    _TOOL_SUMMARY = {
+        "Read": "file_path", "Write": "file_path", "Edit": "file_path",
+        "NotebookEdit": "notebook_path", "Bash": "command",
+        "Glob": "pattern", "Grep": "pattern",
+        "WebFetch": "url", "WebSearch": "query",
+    }
+
+    def iter_events(self, line):
+        """stream-json 한 줄 → RunEvent 목록 (없으면 빈 목록)."""
+        line = (line or "").strip()
+        if not line.startswith("{"):
+            return []
         try:
-            data = json.loads(stdout)
-            if not isinstance(data, dict):
-                return ParseResult(text=stdout or stderr)
-            return ParseResult(
-                text=data.get("result", stdout), session_id=data.get("session_id")
-            )
+            ev = json.loads(line)
         except (json.JSONDecodeError, TypeError):
-            return ParseResult(text=stdout or stderr)
+            return []
+        if not isinstance(ev, dict):
+            return []
+
+        out = []
+        etype = ev.get("type")
+        msg = ev.get("message") if isinstance(ev.get("message"), dict) else {}
+        blocks = msg.get("content") if isinstance(msg.get("content"), list) else []
+
+        if etype == "assistant":
+            for b in blocks:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use":
+                    name = b.get("name") or "tool"
+                    inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                    key = self._TOOL_SUMMARY.get(name)
+                    summary = str(inp.get(key, "")) if key else ""
+                    out.append(RunEvent(
+                        kind="tool_call",
+                        title=f"{name}: {summary}" if summary else name,
+                        detail=_clip(json.dumps(inp, ensure_ascii=False)),
+                        display=f"[{name}] {summary}" if summary else f"[{name}]",
+                    ))
+                elif b.get("type") == "thinking" and (b.get("thinking") or "").strip():
+                    out.append(RunEvent(kind="thought", title="생각",
+                                        detail=_clip(b["thinking"])))
+                elif b.get("type") == "text" and (b.get("text") or "").strip():
+                    out.append(RunEvent(kind="text", title="응답",
+                                        detail=_clip(b["text"]),
+                                        display=b["text"]))
+        elif etype == "user":
+            for b in blocks:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    content = b.get("content")
+                    if isinstance(content, list):  # 이미지 등 블록 형태
+                        content = " ".join(
+                            x.get("text", "") for x in content if isinstance(x, dict))
+                    out.append(RunEvent(
+                        kind="tool_result",
+                        title="오류" if b.get("is_error") else "결과",
+                        detail=_clip(content),
+                    ))
+        elif etype == "result":
+            # 승인 거부는 exit 0 으로 묻히므로 타임라인에 반드시 남긴다.
+            denied = [d.get("tool_name") for d in ev.get("permission_denials") or []]
+            if denied:
+                names = ", ".join(sorted(set(filter(None, denied))))
+                out.append(RunEvent(
+                    kind="error", title=f"권한 거부: {names}",
+                    detail=_clip(json.dumps(ev.get("permission_denials"),
+                                            ensure_ascii=False)),
+                    display=f"⚠ 권한이 거부된 도구: {names}"))
+        return out
+
+    def parse_output(self, stdout, stderr, exit_code):
+        # stream-json(JSONL): 마지막 result 이벤트가 최종 답과 session_id를 갖는다.
+        result_text, session_id = None, None
+        saw_json_line = False
+        for line in (stdout or "").splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                ev = json.loads(line)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(ev, dict):
+                continue
+            saw_json_line = True
+            if ev.get("session_id"):
+                session_id = ev["session_id"]
+            if ev.get("type") == "result" and ev.get("result") is not None:
+                result_text = ev["result"]
+        if saw_json_line:
+            # --output-format json(단일 객체)도 여기서 함께 처리된다:
+            # type 이 없어도 result/session_id 키를 그대로 읽는다.
+            if result_text is None:
+                try:
+                    single = json.loads(stdout)
+                    if isinstance(single, dict) and "result" in single:
+                        result_text = single["result"]
+                        session_id = single.get("session_id") or session_id
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            return ParseResult(text=result_text if result_text is not None
+                               else (stdout or stderr), session_id=session_id)
+        return ParseResult(text=stdout or stderr)
 
     def detect_rate_limit(self, output, exit_code, now=None):
         if exit_code == 0 or not self._limit_re.search(output):
@@ -74,7 +209,7 @@ class AntigravityProvider:
     supports_resume = False
     _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit", re.I)
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # agy는 헤드리스(-p)로 세션 ID를 얻거나 지정할 방법이 없다(JSON 출력·
         # 자가 발급 옵션 부재, -p 출력에 conversation ID 미포함). `-c`(전역 최신
         # 대화 이어가기)는 다른 대화가 끼면 오염되므로 이어가기를 지원하지 않는다
@@ -109,7 +244,7 @@ class GrokProvider:
         # 겹치지 않으므로, build_command→parse_output 사이 이 값은 안전하다.
         self._pending_session = None
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         cmd = ["grok"]
         if session_id:
             cmd += ["--resume", session_id]  # 그 세션을 정확히 재개
@@ -143,7 +278,7 @@ class CodexProvider:
         re.I,
     )
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # 무인 실행: 승인 프롬프트·샌드박스 대기로 행(hang) 나지 않게 한다.
         # 작업 위치(cwd)는 worker가 잡 workdir로 잡는다.
         if session_id:
@@ -202,7 +337,7 @@ class GeminiProvider:
         r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit|usage limit", re.I
     )
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # session_id는 CLI가 UUID 재개를 지원하지 않아 무시(오염 방지).
         # --skip-trust: 헤드리스에서 trusted-folder 프롬프트를 피한다.
         cmd = ["gemini", "-p", prompt, "-y", "-o", "json", "--skip-trust"]
@@ -243,7 +378,7 @@ class OpenClawProvider:
     def __init__(self):
         self._pending_session = None
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         sid = session_id or str(uuid.uuid4())
         self._pending_session = sid
         cmd = [
@@ -292,7 +427,7 @@ class OpenClawProvider:
 class HermesProvider:
     name = "hermes"
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return ["hermes", "-z", prompt]
 
     def parse_output(self, stdout, stderr, exit_code):

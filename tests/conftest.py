@@ -24,6 +24,7 @@ def tmp_env(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "MODELS_CACHE_PATH", tmp_path / "models_cache.json")
     monkeypatch.setattr(config, "NOTE_STATE_PATH", tmp_path / "note_state.json")
     monkeypatch.setattr(config, "WORKSPACES_PATH", tmp_path / "workspaces.json")
+    monkeypatch.setattr(config, "MCP_SERVERS_PATH", tmp_path / "mcp_servers.json")
     monkeypatch.setattr(config, "SETTINGS_PATH", tmp_path / "settings.json")
     monkeypatch.setattr(config, "WORKSPACES_DIR", tmp_path / "workspaces")
     monkeypatch.setattr(config, "ARTIFACTS_DIR", tmp_path / "artifacts")

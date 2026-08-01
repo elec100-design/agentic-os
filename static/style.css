@@ -1514,6 +1514,131 @@ h2.section-label {
   overflow-y: auto;
 }
 
+/* ---- 실행 타임라인 (도구 호출·결과·권한 거부) ---- */
+.run-timeline { margin: 1rem 0 0; }
+.run-timeline > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+}
+.run-timeline > summary::-webkit-details-marker { display: none; }
+.run-timeline > summary::before { content: "▸"; color: var(--muted); }
+.run-timeline[open] > summary::before { content: "▾"; }
+.run-timeline-count {
+  font-size: 0.72rem;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+.run-steps { list-style: none; margin: 0.5rem 0 0; padding: 0 0 0 0.2rem; }
+.run-step {
+  display: grid;
+  grid-template-columns: 1.3rem 1fr;
+  gap: 0.1rem 0.4rem;
+  padding: 0.28rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.82rem;
+}
+.run-step:first-child { border-top: none; }
+.run-step-icon { line-height: 1.5; }
+.run-step-title { word-break: break-all; }
+/* 도구 인자·결과는 길어서 기본은 접어 두고, 넘치면 그 안에서만 스크롤한다 */
+.run-step-detail {
+  grid-column: 2;
+  margin: 0.2rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: none;
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.run-step.step-error .run-step-title { color: var(--err); font-weight: 500; }
+
+/* ---- git 체크포인트 diff (진짜 git diff — 색만 입힌 평문 아님) ---- */
+.git-diff { margin: 1rem 0 0; }
+.git-diff > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+}
+.git-diff > summary::-webkit-details-marker { display: none; }
+.git-diff > summary::before { content: "▾"; color: var(--muted); }
+.git-diff:not([open]) > summary::before { content: "▸"; }
+.git-diff-stat {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: none;
+  white-space: pre-wrap;
+}
+.git-diff-actions { display: flex; align-items: center; gap: 0.6rem; margin: 0.5rem 0 0; }
+.git-diff-error { color: var(--err); font-size: 0.8rem; }
+.git-diff-reverted { color: var(--muted); font-size: 0.82rem; margin: 0.5rem 0 0; }
+.git-diff-patch {
+  margin: 0.6rem 0 0;
+  font-size: 0.72rem;
+  background: var(--surface);
+  border: none;
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---- MCP 서버 설정 페이지 ---- */
+.mcp-error { color: var(--err); font-size: 0.85rem; margin: 0.5rem 0; }
+.mcp-ws-group { margin: 0.8rem 0; }
+.mcp-ws-name { font-size: 0.9rem; margin: 0 0 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
+.mcp-ws-name code { font-size: 0.75rem; color: var(--muted); font-weight: normal; }
+.mcp-server-list { list-style: none; margin: 0; padding: 0; }
+.mcp-server-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+.mcp-server-name { font-weight: 500; }
+.mcp-server-cmd { font-size: 0.78rem; color: var(--muted); flex: 1; overflow-wrap: anywhere; }
+.mcp-remove-form { margin: 0; }
+.mcp-add-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  max-width: 30rem;
+  margin-top: 0.6rem;
+}
+.mcp-add-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+.mcp-add-form input,
+.mcp-add-form select,
+.mcp-add-form textarea {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+}
+.mcp-add-form textarea { resize: vertical; font-family: var(--font-mono); }
+.mcp-add-form .btn-primary { align-self: flex-start; }
+
 /* ---- 자동 라우팅 이유 표시 ---- */
 .route-reason {
   margin: 0.3rem 0 0.6rem;

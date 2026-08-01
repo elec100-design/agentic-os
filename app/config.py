@@ -35,6 +35,7 @@ USAGE_CACHE_PATH = DATA_DIR / "usage_cache.json"
 MODELS_CACHE_PATH = DATA_DIR / "models_cache.json"
 NOTE_STATE_PATH = DATA_DIR / "note_state.json"
 WORKSPACES_PATH = DATA_DIR / "workspaces.json"   # 등록된 작업 위치 목록
+MCP_SERVERS_PATH = DATA_DIR / "mcp_servers.json"  # 워크스페이스별 MCP 서버 설정(claude 전용)
 SETTINGS_PATH = DATA_DIR / "settings.json"       # 셋업(활성 에이전트) 설정
 WORKSPACES_DIR = DATA_DIR / "workspaces"         # GitHub 리포 클론 대상
 GIT_CLONE_TIMEOUT_SEC = 180

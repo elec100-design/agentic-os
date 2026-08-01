@@ -1,8 +1,12 @@
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 
-from app import config, db, memory, stream_hub, workspace
+from app import (
+    config, db, gitcheckpoint, instructions, mcp_servers, memory, stream_hub,
+    workspace,
+)
 from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 
 # 실행 중인 단일 CLI 잡의 프로세스 (job_id -> proc). 병렬 실행되므로 잡별로
@@ -133,6 +137,17 @@ async def run_job(conn, job, providers=None, save=True):
         return
     provider = providers[job["provider"]]
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
+
+    # 지침 주입은 workdir 을 읽어야 하므로 프롬프트 조립보다 먼저 확정한다.
+    workdir = job["workdir"] or None
+    if workdir:
+        for ws in workspace.list_workspaces():
+            if config.paths_equivalent(ws["path"], workdir):
+                workdir = ws["path"]
+                break
+        if not os.path.isdir(workdir):
+            workdir = None
+
     # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.
     # 없는데 session_id가 있으면 사용자가 만든 세션 이어가기 → 본인 프롬프트.
     # 단, CLI가 세션 재개를 지원하지 않으면(supports_resume=False) 이 호출은
@@ -145,18 +160,35 @@ async def run_job(conn, job, providers=None, save=True):
     if (job["session_id"] and getattr(provider, "supports_resume", True)
             and (job["resume_at"] or job["attempts"] > 1)):
         send_prompt = CONTINUE_PROMPT
+
+    # 워크스페이스 프로젝트 지침(CLAUDE.md/AGENTS.md/.agentic-os.md) 주입 —
+    # provider 가 스스로 읽는 파일은 instructions.build_context 가 알아서 뺀다
+    # (app/instructions.py 참고). 라우팅이 자동이라 어느 에이전트가 걸리든
+    # 지침이 똑같이 적용되게 하는 것이 목적이다.
+    instr_prefix, instr_applied = instructions.build_context(workdir, provider)
+    if instr_prefix:
+        send_prompt = instr_prefix + send_prompt
+    # 결과와 무관하게(도중에 죽어도) 무엇이 적용됐는지 남긴다 — 실행 전에
+    # 이미 확정되는 값이라 여기서 바로 기록한다.
+    db.update_job(conn, job["id"],
+                  instructions_applied=json.dumps(instr_applied) if instr_applied else None)
+
+    # 워크스페이스에 등록된 MCP 서버 — provider 가 지원할 때만(지금은 claude
+    # 뿐이다, app/mcp_servers.py 상단 주석 참고).
+    mcp_config_path = None
+    if getattr(provider, "supports_mcp", False):
+        mcp_config_path = mcp_servers.write_config_file(workdir)
+
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
-                                 model=job["model"])
+                                 model=job["model"], mcp_config_path=mcp_config_path)
     start = datetime.now(timezone.utc)
 
-    workdir = job["workdir"] or None
-    if workdir:
-        for ws in workspace.list_workspaces():
-            if config.paths_equivalent(ws["path"], workdir):
-                workdir = ws["path"]
-                break
-        if not os.path.isdir(workdir):
-            workdir = None
+    # 승인 없이 워크스페이스에 직접 쓰는 잡이 많다(codex는 샌드박스까지 끔) —
+    # 무엇이 바뀌었는지 실제 git diff 로 보여주고 되돌릴 수 있게, 시작 시점을
+    # 찍어 둔다. 시작할 때 이미 지저분한 워크스페이스는 "이 실행이 바꾼 것"과
+    # "원래 사용자가 고치던 것"을 구분할 수 없어 대상에서 뺀다(capture 참고).
+    checkpoint = await gitcheckpoint.capture(workdir)
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -175,17 +207,29 @@ async def run_job(conn, job, providers=None, save=True):
     running_procs[job["id"]] = proc
     stdout_parts, stderr_parts = [], []
     step_id = None  # 메시지에 연결된 잡이면, 출력 청크를 누적하는 실행 스텝 1개
+    # 이벤트 스트림을 내보내는 CLI(현재 claude)는 stdout 이 JSONL 이라 그대로
+    # 보여 주면 읽을 수 없다 → 원문은 파싱용으로만 모으고, 화면·DB 에는
+    # 사람이 읽는 줄만 남기며 도구 호출은 타임라인 스텝으로 적는다.
+    streams = getattr(provider, "streams_events", False)
 
     def on_stdout(text):
         nonlocal step_id
         stdout_parts.append(text)
-        db.append_output(conn, job["id"], text)
-        if job["message_id"]:
-            if step_id is None:
-                step_id = db.create_execution_step(
-                    conn, job["message_id"], kind="output_chunk",
-                    title="실행 로그", status="running", job_id=job["id"])
-            db.append_execution_step_detail(conn, step_id, text)
+        if streams:
+            for ev in provider.iter_events(text):
+                db.create_execution_step(
+                    conn, job["message_id"], kind=ev.kind, title=ev.title,
+                    detail=ev.detail, status="done", job_id=job["id"])
+                if ev.display:
+                    db.append_output(conn, job["id"], ev.display.rstrip("\n") + "\n")
+        else:
+            db.append_output(conn, job["id"], text)
+            if job["message_id"]:
+                if step_id is None:
+                    step_id = db.create_execution_step(
+                        conn, job["message_id"], kind="output_chunk",
+                        title="실행 로그", status="running", job_id=job["id"])
+                db.append_execution_step_detail(conn, step_id, text)
         # 구독 중인 SSE 스트림을 즉시 깨운다(프로세스 내 fast-path). DB 기록
         # '뒤에' 신호하므로, 깨어난 구독자는 방금 쓴 내용을 반드시 본다.
         stream_hub.publish(job["id"])
@@ -202,8 +246,12 @@ async def run_job(conn, job, providers=None, save=True):
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        # 죽이기 전에 파일을 이미 고쳤을 수 있다 — 타임아웃이어도 diff는 남긴다.
+        if checkpoint.get("available"):
+            diff = await gitcheckpoint.diff_since(workdir, checkpoint)
+            checkpoint = {**checkpoint, **diff}
         db.update_job(conn, job["id"], status="failed", error="timeout",
-                      finished_at=db.now_iso())
+                      finished_at=db.now_iso(), git_run=json.dumps(checkpoint))
         db.log_usage(conn, provider.name, timeout, "failed", job["id"])
         return
     finally:
@@ -218,6 +266,13 @@ async def run_job(conn, job, providers=None, save=True):
     if fresh["status"] == "failed" and fresh["error"] == "cancelled":
         return
 
+    # 실행 도중 프로세스가 죽었더라도(rate limit·오류) 파일은 이미 바뀌었을 수
+    # 있으므로, 아래 세 갈래(rate_limited/failed/done) 모두에 diff 를 남긴다.
+    if checkpoint.get("available"):
+        diff = await gitcheckpoint.diff_since(workdir, checkpoint)
+        checkpoint = {**checkpoint, **diff}
+    git_run = json.dumps(checkpoint)
+
     result = provider.parse_output(stdout, stderr, proc.returncode)
     resume_at = provider.detect_rate_limit(stdout + "\n" + stderr, proc.returncode)
 
@@ -226,6 +281,7 @@ async def run_job(conn, job, providers=None, save=True):
             conn, job["id"], status="rate_limited",
             resume_at=resume_at.isoformat(timespec="seconds"),
             session_id=result.session_id or job["session_id"],
+            git_run=git_run,
         )
         db.log_usage(conn, provider.name, duration, "rate_limited", job["id"])
         return
@@ -233,14 +289,14 @@ async def run_job(conn, job, providers=None, save=True):
     if proc.returncode != 0:
         db.update_job(conn, job["id"], status="failed",
                       error=(stderr or f"exit {proc.returncode}")[-2000:],
-                      finished_at=db.now_iso())
+                      finished_at=db.now_iso(), git_run=git_run)
         db.log_usage(conn, provider.name, duration, "failed", job["id"])
         return
 
     db.update_job(
         conn, job["id"], status="done", output=result.text,
         session_id=result.session_id or job["session_id"],
-        finished_at=db.now_iso(),
+        finished_at=db.now_iso(), git_run=git_run,
     )
     db.log_usage(conn, provider.name, duration, "ok", job["id"])
 
