@@ -25,11 +25,39 @@ def test_claude_build_new():
     cmd = ClaudeProvider().build_command("안녕")
     assert cmd == [
         "claude", "-p", "--output-format", "json",
+        # 이게 없으면 Write/Edit/Bash 가 auto-deny 되고도 exit 0 으로 끝난다
+        "--permission-mode", "acceptEdits",
         # 사용자 전역 훅이 result를 덮어쓰지 않도록 훅 비활성
         "--settings", '{"disableAllHooks": true}',
         "--allowedTools", "WebSearch", "WebFetch",
         "--", "안녕",
     ]
+
+
+def test_claude_can_edit_files_like_other_agents():
+    """claude 만 읽기 전용이면 route_auto 결과에 따라 작업이 조용히 실패한다.
+
+    2026-08-01 실측: --permission-mode 없이 파일 생성을 시키면
+    permission_denials=[Bash, Write] 로 아무것도 못 하고도 subtype="success",
+    result="...needs your permission approval" 로 끝난다. codex 는
+    --dangerously-bypass-approvals-and-sandbox 로 도는데 claude 만 막혀 있어
+    같은 작업이 그날 잔량에 따라 성공/실패가 갈렸다.
+    """
+    cmd = ClaudeProvider().build_command("파일 고쳐줘")
+    assert "--permission-mode" in cmd
+    mode = cmd[cmd.index("--permission-mode") + 1]
+    # acceptEdits 로 충분함을 실측 확인 — 더 넓은 권한을 줄 이유가 없다
+    assert mode == "acceptEdits"
+    assert "bypassPermissions" not in cmd
+    assert "--dangerously-skip-permissions" not in cmd
+    # 권한 플래그가 `--` 앞에 있어야 프롬프트가 도구 이름으로 먹히지 않는다
+    assert cmd.index("--permission-mode") < cmd.index("--")
+
+
+def test_claude_keeps_permission_mode_on_resume():
+    cmd = ClaudeProvider().build_command("이어서", session_id="s1", model="opus")
+    assert cmd[cmd.index("--permission-mode") + 1] == "acceptEdits"
+    assert cmd[cmd.index("--") + 1] == "이어서"
 
 
 def test_claude_build_allows_web_tools_on_resume():

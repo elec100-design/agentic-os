@@ -38,7 +38,17 @@ class ClaudeProvider:
         # 도구를 먼저 두고 `--` 로 옵션 파싱을 끝낸 뒤 프롬프트를 넣는다.
         # 사용자 전역 훅(예: 세션 종료 시 위키 캡처)이 돌면 JSON result가
         # 실제 답 대신 훅 응답으로 덮인다(2026-07-25 실측) → 훅 전체 비활성.
+        #
+        # --permission-mode 가 없으면 Write/Edit/Bash 가 전부 auto-deny 되어,
+        # 파일을 하나도 못 고쳐 놓고 exit 0 + subtype:"success" 로 끝난다
+        # (2026-08-01 실측: permission_denials=[Bash, Write],
+        #  result="...needs your permission approval"). codex 는
+        # --dangerously-bypass-approvals-and-sandbox 로 도는데 claude 만 사실상
+        # 읽기 전용이라, route_auto 가 그날 잔량으로 고르면 같은 작업이 성공하기도
+        # 조용히 실패하기도 했다. acceptEdits 로 최소 권한만 맞춘다 —
+        # bypassPermissions 도 통하지만 그만큼의 권한이 필요하지 않다.
         cmd = ["claude", "-p", "--output-format", "json",
+               "--permission-mode", "acceptEdits",
                "--settings", '{"disableAllHooks": true}']
         if model:
             cmd += ["--model", model]
