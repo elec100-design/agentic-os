@@ -71,7 +71,6 @@
     {#- 우측 작업 채팅과 같은 컨트롤. 한 페이지에 컴포저가 둘이라 여기서는
         id 없이(class만) 내보낸다 — app.js가 폼 단위로 각각 마운트한다. -#}
     {% with ids = false, send_label = '전송' %}{% include 'partials/composer_controls.html' %}{% endwith %}
-    <a class="side-nav-link vision-all-boards" href="/board">🗂 {{ '전체 보드' | t }}</a>
   </form>
 
   <div class="side-foot">

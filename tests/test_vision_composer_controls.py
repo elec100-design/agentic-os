@@ -74,11 +74,12 @@ def test_workspace_picker_partial_is_id_free():
 
 
 def test_composer_controls_partial_is_shared_by_every_composer():
-    """마크업이 세 곳에 복사되지 않고 한 조각에서 나온다."""
+    """마크업이 복사되지 않고 한 조각에서 나온다.
+
+    홈은 컴포저가 둘(우측 작업 채팅 + 좌측 비전보드 채팅)이라 두 번 include
+    되고, id는 우측만 내보낸다.
+    """
     include = "partials/composer_controls.html"
-    for page in ("templates/index.html", "templates/board.html"):
-        assert include in Path(page).read_text(), f"{page}가 공용 조각을 쓰지 않는다"
-    # 홈은 컴포저가 둘이라 두 번 include 된다 (우측 id 있음 / 좌측 id 없음)
     home = Path("templates/index.html").read_text()
     assert home.count(include) == 2
     assert "ids = true" in home and "ids = false" in home

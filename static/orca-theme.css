@@ -1401,7 +1401,6 @@ body.orca-home .side-task-inspector .orca-task-context {
 .vision-composer .file-chips { font-size: 0.72rem; }
 /* 팝업이 좁은 사이드바 밖으로 넘치지 않게 (placePopup이 뷰포트로 다시 잡아준다) */
 .vision-composer .cbar-popup { max-width: min(20rem, calc(100vw - 1.5rem)); }
-.vision-all-boards { display: inline-block; margin: 0.4rem 0 0; padding: 0.1rem 0.3rem; font-size: 0.72rem; }
 
 @media (min-width: 901px) {
   /* 300px — 태스크 인스펙터 폼(제목·설명·의존성·태스크 채팅)이 260px에서는 못 쓴다 */
