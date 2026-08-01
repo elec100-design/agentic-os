@@ -450,6 +450,9 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { project_id } = await res.json();
       ta.value = "";
+      // 폼이 그대로 남으므로 첨부 파일 칩을 비운다 (작업 위치·에이전트 선택은
+      // 다음 보드에도 그대로 쓰는 게 자연스러워 유지한다)
+      visionForm.__composer?.clearAttachments();
       openTab({ kind: "project", refId: project_id, title: goal.slice(0, 40) });
       document.body.dispatchEvent(new Event("refresh-projects"));
     } catch (err) {
