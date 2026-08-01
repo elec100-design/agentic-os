@@ -325,3 +325,31 @@ async def test_run_job_has_no_git_run_without_workdir(tmp_env):
     fresh = db.get_job(conn, job["id"])
     import json
     assert json.loads(fresh["git_run"]) == {"available": False, "reason": "no_workdir"}
+
+
+# --- 워크스페이스 지침 주입 (app/instructions.py) -------------------------
+
+async def test_run_job_injects_workspace_instructions_into_prompt(tmp_env, tmp_path):
+    """PromptSpyProvider 가 실제로 build_command 에 받은 프롬프트를 기록한다
+    — 지침이 진짜 프롬프트 앞에 붙어서 CLI 로 넘어가는지 확인한다."""
+    import json
+    (tmp_path / ".agentic-os.md").write_text("항상 지켜야 할 규칙")
+    p = PromptSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "이 작업을 해줘", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    assert "항상 지켜야 할 규칙" in p.sent
+    assert p.sent.endswith("이 작업을 해줘")  # 지침 뒤에 원래 프롬프트가 그대로 온다
+    applied = json.loads(db.get_job(conn, job["id"])["instructions_applied"])
+    assert applied == [".agentic-os.md"]
+
+
+async def test_run_job_records_no_instructions_when_workspace_has_none(tmp_env, tmp_path):
+    p = FakeProvider(["sh", "-c", "echo ok"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+    assert db.get_job(conn, job["id"])["instructions_applied"] is None

@@ -46,6 +46,9 @@ def _default_resume_at(now=None):
 
 class ClaudeProvider:
     name = "claude"
+    # 헤드리스(-p)에서도 CLAUDE.md 를 스스로 읽는 것을 실측 확인했다(2026-08-01,
+    # app/instructions.py 상단 주석 참고) — app.instructions 가 다시 붙이지 않는다.
+    self_reads = frozenset({"CLAUDE.md"})
     _limit_re = re.compile(r"usage limit reached|rate.?limit", re.I)
     _epoch_re = re.compile(r"limit reached\|(\d{9,})")
 

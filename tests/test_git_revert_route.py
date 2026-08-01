@@ -135,3 +135,26 @@ def test_job_view_js_wires_revert_button():
     assert "wireGitRevert" in js
     assert "/git-revert" in js
     assert "confirm(" in js  # 되돌리기는 확인 없이 자동 실행되면 안 된다
+
+
+# --- 적용된 지침 표시 (app/instructions.py 연동) --------------------------
+
+def test_job_view_shows_applied_instructions_badge(tmp_env, tmp_path):
+    conn = db.get_conn(config.DB_PATH)
+    job_id = db.create_job(conn, prompt="테스트", provider="claude", workdir=str(tmp_path))
+    db.update_job(conn, job_id, status="done", output="끝",
+                  instructions_applied=json.dumps(["AGENTS.md", ".agentic-os.md"]))
+    with _client() as client:
+        html = client.get(f"/partials/job/{job_id}").text
+    assert "Instructions applied" in html  # 기본 언어는 영어
+    assert "<code>AGENTS.md</code>" in html
+    assert "<code>.agentic-os.md</code>" in html
+
+
+def test_job_view_hides_instructions_badge_when_nothing_applied(tmp_env, tmp_path):
+    conn = db.get_conn(config.DB_PATH)
+    job_id = db.create_job(conn, prompt="테스트", provider="claude")
+    db.update_job(conn, job_id, status="done", output="끝")
+    with _client() as client:
+        html = client.get(f"/partials/job/{job_id}").text
+    assert "instructions-applied" not in html

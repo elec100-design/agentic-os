@@ -12,6 +12,14 @@
   </h1>
   {% if job['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ job['workdir'] }}</code></p>{% endif %}
   {% if job['route_reason'] %}<p class="route-reason">🔀 {{ '자동 라우팅' | t }} — {{ job['route_reason'] }}</p>{% endif %}
+  {#- 어느 지침 파일이 실제로 이 실행에 붙었는지 — auto 라우팅으로 에이전트가
+      바뀌어도 지침 적용 여부가 눈에 보이게. 붙이지 않은 CLAUDE.md 등은 provider
+      가 스스로 읽어서다(app/instructions.py). -#}
+  {% if instructions_applied %}
+  <p class="job-meta instructions-applied" title="{{ '이 에이전트가 스스로 읽는 파일은 중복으로 붙이지 않습니다' | t }}">
+    📋 {{ '적용된 지침' | t }}: {% for f in instructions_applied %}<code>{{ f }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+  </p>
+  {% endif %}
 
   <h2 class="section-label">{{ '대화' | t }}</h2>
   <div class="chat-thread job-thread">

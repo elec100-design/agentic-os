@@ -799,9 +799,16 @@ def _job_view_ctx(job, embed_followup=True):
     conn = db.get_conn()
     steps = (db.list_execution_steps(conn, job["message_id"])
              if job["message_id"] else db.list_job_steps(conn, job["id"]))
+    instructions_applied = []
+    if job["instructions_applied"]:
+        try:
+            instructions_applied = json.loads(job["instructions_applied"])
+        except (json.JSONDecodeError, TypeError):
+            pass
     return {"job": job, "thread": thread,
             "steps": [s for s in steps if s["kind"] != "output_chunk"],
             "git_run": gitcheckpoint.summarize(job["git_run"]),
+            "instructions_applied": instructions_applied,
             "can_resume": can_resume, "can_follow_up": can_follow_up,
             "embed_followup": embed_followup}
 

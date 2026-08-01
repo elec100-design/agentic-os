@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime, timezone
 
-from app import config, db, gitcheckpoint, memory, stream_hub, workspace
+from app import config, db, gitcheckpoint, instructions, memory, stream_hub, workspace
 from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 
 # 실행 중인 단일 CLI 잡의 프로세스 (job_id -> proc). 병렬 실행되므로 잡별로
@@ -134,6 +134,17 @@ async def run_job(conn, job, providers=None, save=True):
         return
     provider = providers[job["provider"]]
     timeout = job["timeout_sec"] or config.JOB_TIMEOUT_SEC
+
+    # 지침 주입은 workdir 을 읽어야 하므로 프롬프트 조립보다 먼저 확정한다.
+    workdir = job["workdir"] or None
+    if workdir:
+        for ws in workspace.list_workspaces():
+            if config.paths_equivalent(ws["path"], workdir):
+                workdir = ws["path"]
+                break
+        if not os.path.isdir(workdir):
+            workdir = None
+
     # resume_at이 있으면 사용 제한 후 재개 → 이어서 완료하라는 고정 프롬프트.
     # 없는데 session_id가 있으면 사용자가 만든 세션 이어가기 → 본인 프롬프트.
     # 단, CLI가 세션 재개를 지원하지 않으면(supports_resume=False) 이 호출은
@@ -146,18 +157,22 @@ async def run_job(conn, job, providers=None, save=True):
     if (job["session_id"] and getattr(provider, "supports_resume", True)
             and (job["resume_at"] or job["attempts"] > 1)):
         send_prompt = CONTINUE_PROMPT
+
+    # 워크스페이스 프로젝트 지침(CLAUDE.md/AGENTS.md/.agentic-os.md) 주입 —
+    # provider 가 스스로 읽는 파일은 instructions.build_context 가 알아서 뺀다
+    # (app/instructions.py 참고). 라우팅이 자동이라 어느 에이전트가 걸리든
+    # 지침이 똑같이 적용되게 하는 것이 목적이다.
+    instr_prefix, instr_applied = instructions.build_context(workdir, provider)
+    if instr_prefix:
+        send_prompt = instr_prefix + send_prompt
+    # 결과와 무관하게(도중에 죽어도) 무엇이 적용됐는지 남긴다 — 실행 전에
+    # 이미 확정되는 값이라 여기서 바로 기록한다.
+    db.update_job(conn, job["id"],
+                  instructions_applied=json.dumps(instr_applied) if instr_applied else None)
+
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
                                  model=job["model"])
     start = datetime.now(timezone.utc)
-
-    workdir = job["workdir"] or None
-    if workdir:
-        for ws in workspace.list_workspaces():
-            if config.paths_equivalent(ws["path"], workdir):
-                workdir = ws["path"]
-                break
-        if not os.path.isdir(workdir):
-            workdir = None
 
     # 승인 없이 워크스페이스에 직접 쓰는 잡이 많다(codex는 샌드박스까지 끔) —
     # 무엇이 바뀌었는지 실제 git diff 로 보여주고 되돌릴 수 있게, 시작 시점을

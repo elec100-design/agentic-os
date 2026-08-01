@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   note_path TEXT,
   workdir TEXT,
   git_run TEXT,
+  instructions_applied TEXT,
   created_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT
@@ -206,6 +207,9 @@ def _migrate(conn):
     #  "files"?:[...], "patch"?:str, "reverted_at"?:str}
     if "git_run" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN git_run TEXT")
+    # 이 실행에 실제로 붙은 워크스페이스 지침 파일명 목록(JSON) — app/instructions.py.
+    if "instructions_applied" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN instructions_applied TEXT")
     # 채널/메시지 계층에서 잡을 역참조하기 위한 링크 (채널 기능 도입 전 잡에는 NULL)
     for col in ("channel_id", "message_id"):
         if col not in cols:

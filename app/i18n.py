@@ -96,6 +96,9 @@ EN = {
     "출력": "Output",
     "실행 과정": "Run steps",
     "변경된 파일": "Changed files",
+    "적용된 지침": "Instructions applied",
+    "이 에이전트가 스스로 읽는 파일은 중복으로 붙이지 않습니다":
+        "Files this agent already reads on its own aren't duplicated here",
     "변경 되돌리기": "Revert changes",
     "되돌렸습니다": "Reverted",
     "이 작업이 만든, 아직 커밋되지 않은 변경을 실행 전 상태로 되돌릴까요? 그 사이 다른 작업이 같은 파일을 더 건드렸다면 그것도 함께 되돌아갑니다.":
