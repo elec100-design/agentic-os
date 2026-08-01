@@ -29,7 +29,7 @@ def test_claude_build_new():
         "--permission-mode", "acceptEdits",
         # 사용자 전역 훅이 result를 덮어쓰지 않도록 훅 비활성
         "--settings", '{"disableAllHooks": true}',
-        "--allowedTools", "WebSearch", "WebFetch",
+        "--allowedTools", "WebSearch", "WebFetch", "Bash",
         "--", "안녕",
     ]
 
@@ -46,8 +46,12 @@ def test_claude_can_edit_files_like_other_agents():
     cmd = ClaudeProvider().build_command("파일 고쳐줘")
     assert "--permission-mode" in cmd
     mode = cmd[cmd.index("--permission-mode") + 1]
-    # acceptEdits 로 충분함을 실측 확인 — 더 넓은 권한을 줄 이유가 없다
     assert mode == "acceptEdits"
+    # acceptEdits 는 Bash 를 자동 승인하지 않는다(실측: permission_denials=[Bash]).
+    # 테스트 실행·빌드가 필요한 작업이 절반만 되므로 함께 사전 허용한다.
+    tools = cmd[cmd.index("--allowedTools") + 1:cmd.index("--")]
+    assert "Bash" in tools
+    # 모든 도구를 여는 방식으로 넓히지는 않는다
     assert "bypassPermissions" not in cmd
     assert "--dangerously-skip-permissions" not in cmd
     # 권한 플래그가 `--` 앞에 있어야 프롬프트가 도구 이름으로 먹히지 않는다

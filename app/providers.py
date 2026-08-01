@@ -45,8 +45,13 @@ class ClaudeProvider:
         #  result="...needs your permission approval"). codex 는
         # --dangerously-bypass-approvals-and-sandbox 로 도는데 claude 만 사실상
         # 읽기 전용이라, route_auto 가 그날 잔량으로 고르면 같은 작업이 성공하기도
-        # 조용히 실패하기도 했다. acceptEdits 로 최소 권한만 맞춘다 —
-        # bypassPermissions 도 통하지만 그만큼의 권한이 필요하지 않다.
+        # 조용히 실패하기도 했다.
+        #
+        # acceptEdits 는 Read/Edit/Write 만 자동 승인하고 Bash 는 여전히 거부한다
+        # (2026-08-01 실측: permission_denials=[Bash, Bash] — 파일은 고쳐 놓고
+        #  검증 명령을 못 돌려 "승인이 필요하다"로 끝났다). 테스트 실행·빌드가
+        # 필요한 작업이 절반만 되므로 Bash 를 사전 허용에 함께 넣는다.
+        # bypassPermissions 도 통하지만 모든 도구를 여는 것이라 쓰지 않는다.
         cmd = ["claude", "-p", "--output-format", "json",
                "--permission-mode", "acceptEdits",
                "--settings", '{"disableAllHooks": true}']
@@ -54,7 +59,7 @@ class ClaudeProvider:
             cmd += ["--model", model]
         if session_id:
             cmd += ["--resume", session_id]
-        cmd += ["--allowedTools", "WebSearch", "WebFetch", "--", prompt]
+        cmd += ["--allowedTools", "WebSearch", "WebFetch", "Bash", "--", prompt]
         return cmd
 
     def parse_output(self, stdout, stderr, exit_code):
