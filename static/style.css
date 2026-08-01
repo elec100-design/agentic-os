@@ -179,6 +179,9 @@ body.with-sidebar main {
     transition: transform 0.2s ease;
     box-shadow: none;
     padding-top: 3.6rem;   /* 햄버거 버튼과 브랜드 로고 겹침 방지 */
+    /* 서랍일 때는 우측 레일과 같은 폭을 쓴다 — 데스크톱 도킹 폭(280px)을
+       그대로 두면 비전보드 컴포저의 칩들이 좁아 여러 줄로 접힌다. */
+    width: min(380px, 88vw);
   }
   body.nav-open .sidebar {
     transform: none;
@@ -2273,11 +2276,31 @@ h2.section-label {
      바닥에 붙는 입력창은 두 줄 높이로 줄여 작업 내용이 가려지는 면적을 줄인다. */
   .orca-task-chat-form .orca-rail-send { flex: 0 0 44px; }
   .orca-task-chat-form textarea { height: 3.4rem; min-height: 3.4rem; }
-  /* iOS 확대 방지 — 레일 컴포저와 같은 규칙 */
-  .orca-task-edit-form input,
-  .orca-task-edit-form textarea,
-  .orca-task-edit-form select,
-  .orca-task-chat-form textarea { font-size: 16px; }
+}
+
+/* ─── iOS 입력 확대 방지 (모든 화면 공통) ──────────────────────────────
+   사파리는 포커스된 입력의 계산 font-size가 16px 미만이면 페이지를 확대하고,
+   그 배율은 입력창을 벗어난 뒤에도 남는다 — 사용자가 매번 손으로 되돌려야 한다.
+   컴포넌트마다 따로 잡으면 새 입력창이 생길 때 빠지므로(좌측 비전보드 컴포저가
+   그랬다) 여기서 한 번에 잡는다. 각 컴포넌트가 좁은 화면용으로 폰트를 줄여 둔
+   경우가 많아 !important 로 바닥값을 강제한다 — 데스크톱은 이 쿼리 밖이라
+   영향이 없다.
+   viewport 에 maximum-scale=1 을 넣는 방식은 손가락 확대까지 막으므로 쓰지 않는다. */
+@media (max-width: 767px) {
+  textarea,
+  select,
+  input:not([type]),
+  input[type="text"],
+  input[type="search"],
+  input[type="number"],
+  input[type="email"],
+  input[type="password"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="date"],
+  input[type="datetime-local"] {
+    font-size: 16px !important;
+  }
 }
 
 /* ─── 채널: 사이드바 네비게이션 ──────────────────────────────────── */

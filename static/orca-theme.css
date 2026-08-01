@@ -1272,13 +1272,9 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     font-weight: 600;
   }
 
-  /* ── 터치 타깃/입력 확대 방지 ──────────────────────────────────────── */
+  /* ── 터치 타깃 ─────────────────────────────────────────────────────
+     입력 확대 방지(font-size:16px)는 style.css 가 모든 입력에 한꺼번에 건다. */
   .orca-rail-send { width: 44px; height: 44px; }
-  .orca-rail-composer textarea,
-  .orca-rail-agent-select,
-  .orca-log-picker select {
-    font-size: 16px;
-  }
   .orca-rail-tab { min-height: 44px; }
 }
 
@@ -1390,7 +1386,10 @@ body.orca-home .side-task-inspector .orca-task-context {
   gap: 0.3rem;
   margin-top: 0.35rem;
 }
-.vision-composer .composer-bar .spacer { flex: 1 1 auto; }
+/* 줄바꿈 컨테이너에서 flex 스페이서는 제 줄을 차지해 전송 버튼을 한 줄 더
+   아래로 밀어낸다 — 여백은 margin 으로 준다. */
+.vision-composer .composer-bar .spacer { display: none; }
+.vision-composer .composer-bar .send { margin-left: auto; }
 .vision-composer .cbar-chip { max-width: 8.5rem; font-size: 0.72rem; padding: 0.12rem 0.35rem; }
 .vision-composer .cbar-chip > span:not(.pill-caret) {
   overflow: hidden;
