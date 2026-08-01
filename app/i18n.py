@@ -94,6 +94,7 @@ EN = {
     "노트 메뉴": "Note menu",
     # --- 작업 상세 ---
     "출력": "Output",
+    "실행 과정": "Run steps",
     "작업 위치": "Workspace",
     "자동 라우팅": "Auto-routed",
     # --- 노트 / 대화 ---

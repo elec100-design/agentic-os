@@ -102,9 +102,11 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_channel_seq ON messages(channel_id, seq);
 CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_id);
 CREATE INDEX IF NOT EXISTS idx_messages_root ON messages(root_id);
+-- 실행 타임라인(도구 호출·결과·생각). 채널 메시지에서 온 잡은 message_id 로,
+-- 홈에서 바로 보낸 잡은 job_id 로 묶인다 → message_id 는 NULL 을 허용한다.
 CREATE TABLE IF NOT EXISTS execution_steps (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  message_id INTEGER NOT NULL REFERENCES messages(id),
+  message_id INTEGER REFERENCES messages(id),
   job_id INTEGER,
   seq INTEGER NOT NULL,
   kind TEXT NOT NULL,
@@ -115,6 +117,7 @@ CREATE TABLE IF NOT EXISTS execution_steps (
   finished_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_steps_message_seq ON execution_steps(message_id, seq);
+CREATE INDEX IF NOT EXISTS idx_steps_job_seq ON execution_steps(job_id, seq);
 CREATE TABLE IF NOT EXISTS test_goals (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
@@ -238,6 +241,62 @@ def _migrate(conn):
     if "suggested_description" not in task_msg_cols:
         conn.execute("ALTER TABLE task_messages ADD COLUMN suggested_description TEXT")
     conn.commit()
+    _migrate_steps_nullable_message(conn)
+
+
+def _migrate_steps_nullable_message(conn):
+    """execution_steps.message_id 의 NOT NULL 을 푼다.
+
+    실행 타임라인을 채널 메시지 없는 잡에도 남기려면 NULL 이 허용돼야 하는데,
+    SQLite 는 ALTER 로 NOT NULL 을 못 푸니 테이블을 다시 만들어야 한다.
+
+    get_conn 은 요청마다 불리고 WAL 이라 커넥션이 여러 개 뜬다. executescript 는
+    실행 전에 커밋해 버려 원자적이지 않아서, 테이블을 RENAME 한 순간에 다른
+    커넥션이 들어오면 "no such table: execution_steps" 로 죽는다(실측). 그래서
+    BEGIN IMMEDIATE 로 쓰기 잠금을 잡고 한 트랜잭션 안에서 끝낸다.
+    """
+    meta = {r["name"]: r for r in conn.execute("PRAGMA table_info(execution_steps)")}
+    if not meta or not meta["message_id"]["notnull"]:
+        return
+    prev = conn.isolation_level
+    conn.isolation_level = None          # 명시적 트랜잭션 제어
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        # 잠금을 잡는 사이 다른 커넥션이 먼저 끝냈을 수 있다 → 다시 확인
+        again = {r["name"]: r for r in conn.execute("PRAGMA table_info(execution_steps)")}
+        if again and again["message_id"]["notnull"]:
+            conn.execute("DROP TABLE IF EXISTS execution_steps_new")
+            conn.execute("""
+                CREATE TABLE execution_steps_new (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  message_id INTEGER REFERENCES messages(id),
+                  job_id INTEGER,
+                  seq INTEGER NOT NULL,
+                  kind TEXT NOT NULL,
+                  title TEXT NOT NULL DEFAULT '',
+                  detail TEXT NOT NULL DEFAULT '',
+                  status TEXT NOT NULL DEFAULT 'done',
+                  created_at TEXT NOT NULL,
+                  finished_at TEXT
+                )""")
+            conn.execute("""
+                INSERT INTO execution_steps_new
+                  (id, message_id, job_id, seq, kind, title, detail, status,
+                   created_at, finished_at)
+                SELECT id, message_id, job_id, seq, kind, title, detail, status,
+                       created_at, finished_at FROM execution_steps""")
+            conn.execute("DROP TABLE execution_steps")
+            conn.execute("ALTER TABLE execution_steps_new RENAME TO execution_steps")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_steps_message_seq "
+                         "ON execution_steps(message_id, seq)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_steps_job_seq "
+                         "ON execution_steps(job_id, seq)")
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.isolation_level = prev
 
 
 def create_job(conn, prompt, provider, timeout_sec=None, session_id=None,
@@ -962,16 +1021,22 @@ def latest_thread_session(conn, root_id):
 
 # --- 실행 트레이스: 메시지 하나의 실행 중간 과정(생각/도구 호출/로그) --------
 
-def next_step_seq(conn, message_id):
-    row = conn.execute(
-        "SELECT MAX(seq) AS m FROM execution_steps WHERE message_id = ?",
-        (message_id,)).fetchone()
+def next_step_seq(conn, message_id, job_id=None):
+    """채널 메시지에 묶인 스텝은 message_id 기준, 그 밖의 잡은 job_id 기준."""
+    if message_id is not None:
+        row = conn.execute(
+            "SELECT MAX(seq) AS m FROM execution_steps WHERE message_id = ?",
+            (message_id,)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT MAX(seq) AS m FROM execution_steps "
+            "WHERE message_id IS NULL AND job_id = ?", (job_id,)).fetchone()
     return (row["m"] or 0) + 1
 
 
 def create_execution_step(conn, message_id, kind, title="", detail="",
                            status="running", job_id=None):
-    seq = next_step_seq(conn, message_id)
+    seq = next_step_seq(conn, message_id, job_id)
     cur = conn.execute(
         "INSERT INTO execution_steps (message_id, job_id, seq, kind, title, "
         "detail, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1001,6 +1066,13 @@ def list_execution_steps(conn, message_id):
     return conn.execute(
         "SELECT * FROM execution_steps WHERE message_id = ? ORDER BY seq",
         (message_id,)).fetchall()
+
+
+def list_job_steps(conn, job_id):
+    """홈에서 바로 보낸 잡(채널 메시지 없음)의 실행 타임라인."""
+    return conn.execute(
+        "SELECT * FROM execution_steps WHERE message_id IS NULL AND job_id = ? "
+        "ORDER BY seq", (job_id,)).fetchall()
 
 
 def create_test_goal(conn, name):

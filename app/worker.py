@@ -175,17 +175,29 @@ async def run_job(conn, job, providers=None, save=True):
     running_procs[job["id"]] = proc
     stdout_parts, stderr_parts = [], []
     step_id = None  # 메시지에 연결된 잡이면, 출력 청크를 누적하는 실행 스텝 1개
+    # 이벤트 스트림을 내보내는 CLI(현재 claude)는 stdout 이 JSONL 이라 그대로
+    # 보여 주면 읽을 수 없다 → 원문은 파싱용으로만 모으고, 화면·DB 에는
+    # 사람이 읽는 줄만 남기며 도구 호출은 타임라인 스텝으로 적는다.
+    streams = getattr(provider, "streams_events", False)
 
     def on_stdout(text):
         nonlocal step_id
         stdout_parts.append(text)
-        db.append_output(conn, job["id"], text)
-        if job["message_id"]:
-            if step_id is None:
-                step_id = db.create_execution_step(
-                    conn, job["message_id"], kind="output_chunk",
-                    title="실행 로그", status="running", job_id=job["id"])
-            db.append_execution_step_detail(conn, step_id, text)
+        if streams:
+            for ev in provider.iter_events(text):
+                db.create_execution_step(
+                    conn, job["message_id"], kind=ev.kind, title=ev.title,
+                    detail=ev.detail, status="done", job_id=job["id"])
+                if ev.display:
+                    db.append_output(conn, job["id"], ev.display.rstrip("\n") + "\n")
+        else:
+            db.append_output(conn, job["id"], text)
+            if job["message_id"]:
+                if step_id is None:
+                    step_id = db.create_execution_step(
+                        conn, job["message_id"], kind="output_chunk",
+                        title="실행 로그", status="running", job_id=job["id"])
+                db.append_execution_step_detail(conn, step_id, text)
         # 구독 중인 SSE 스트림을 즉시 깨운다(프로세스 내 fast-path). DB 기록
         # '뒤에' 신호하므로, 깨어난 구독자는 방금 쓴 내용을 반드시 본다.
         stream_hub.publish(job["id"])

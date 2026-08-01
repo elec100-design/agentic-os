@@ -24,7 +24,9 @@ def test_claude_build_new():
     # --allowedTools is variadic; prompt must follow `--` so it is not eaten as a tool
     cmd = ClaudeProvider().build_command("안녕")
     assert cmd == [
-        "claude", "-p", "--output-format", "json",
+        # stream-json: 도구 호출·결과가 한 줄에 하나씩 흘러 타임라인을 만든다
+        # (--print 와 함께 쓰려면 --verbose 가 필요하다)
+        "claude", "-p", "--output-format", "stream-json", "--verbose",
         # 이게 없으면 Write/Edit/Bash 가 auto-deny 되고도 exit 0 으로 끝난다
         "--permission-mode", "acceptEdits",
         # 사용자 전역 훅이 result를 덮어쓰지 않도록 훅 비활성

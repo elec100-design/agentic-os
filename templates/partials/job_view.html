@@ -49,6 +49,27 @@
   </div>
   {% endif %}
 
+  {#- 실행 타임라인 — 에이전트가 어떤 도구를 어떤 인자로 썼는지.
+      권한 거부(kind=error)는 exit 0 으로 묻히므로 여기서만 드러난다. -#}
+  {% if steps %}
+  <details class="run-timeline"{% if steps | selectattr('kind', 'equalto', 'error') | list %} open{% endif %}>
+    <summary class="section-label">
+      {{ '실행 과정' | t }} <span class="run-timeline-count">{{ steps | length }}</span>
+    </summary>
+    <ol class="run-steps">
+      {% for s in steps %}
+      <li class="run-step step-{{ s['kind'] }}">
+        <span class="run-step-icon" aria-hidden="true">{{
+          {'tool_call': '🔧', 'tool_result': '📋', 'thought': '💭',
+           'error': '⚠', 'text': '💬'}.get(s['kind'], '•') }}</span>
+        <span class="run-step-title">{{ s['title'] }}</span>
+        {% if s['detail'] %}<pre class="run-step-detail">{{ s['detail'] }}</pre>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </details>
+  {% endif %}
+
   {% if embed_followup %}{% include 'partials/job_followup.html' %}{% endif %}
 
   <pre class="job-src" hidden>{% if job['status'] in ('done', 'failed') %}{{ job['output'] }}{% endif %}</pre>

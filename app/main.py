@@ -794,7 +794,13 @@ def _job_view_ctx(job, embed_followup=True):
     )
     # embed_followup=False면 후속 지시 컴포저를 본문에 넣지 않는다 — 홈 대시보드는
     # 중앙 탭을 결과 전용으로 두고 우측 레일에서 편집한다(/partials/job/{id}/followup).
+    # 실행 타임라인(도구 호출·결과·권한 거부). 이벤트 스트림을 내보내는 CLI 만
+    # 채운다 — 끝나면 job.output 은 최종 답으로 덮이므로 여기서만 볼 수 있다.
+    conn = db.get_conn()
+    steps = (db.list_execution_steps(conn, job["message_id"])
+             if job["message_id"] else db.list_job_steps(conn, job["id"]))
     return {"job": job, "thread": thread,
+            "steps": [s for s in steps if s["kind"] != "output_chunk"],
             "can_resume": can_resume, "can_follow_up": can_follow_up,
             "embed_followup": embed_followup}
 
