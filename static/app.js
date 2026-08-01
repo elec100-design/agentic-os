@@ -62,66 +62,11 @@ document.body.addEventListener("htmx:afterSwap", (e) => {
 });
 applyUsageState();
 
-// ---- ⌘/Ctrl+Enter 전송 --------------------------------------------------
-// 컴포저 textarea에서 ⌘Enter(맥)·Ctrl+Enter로 폼 제출 (채팅 UX 표준)
-// 메인(#prompt)과 비전 보드(#goal) 모두 지원
-for (const id of ["prompt", "goal"]) {
-  document.getElementById(id)?.addEventListener("keydown", (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      e.target.form?.requestSubmit();
-    }
-  });
-}
-
-// ---- 파일 첨부 칩 + 드래그 앤 드롭 -------------------------------------
-const composer = document.getElementById("composer");
-const fileInput = document.getElementById("file-input");
-const chips = document.getElementById("file-chips");
-
-function renderChips() {
-  if (!chips || !fileInput) return;
-  chips.innerHTML = "";
-  for (const f of fileInput.files) {
-    const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.textContent = f.name;
-    chips.appendChild(chip);
-  }
-}
-fileInput?.addEventListener("change", renderChips);
-// 파일 첨부 UI가 있는 페이지(메인)에서만 드래그 앤 드롭 활성화
-if (composer && fileInput) {
-  composer.addEventListener("dragover", (e) => {
-    e.preventDefault();
-    composer.classList.add("dragging");
-  });
-  composer.addEventListener("dragleave", (e) => {
-    if (e.target === composer) composer.classList.remove("dragging");
-  });
-  composer.addEventListener("drop", (e) => {
-    e.preventDefault();
-    composer.classList.remove("dragging");
-    const dt = new DataTransfer();
-    for (const f of fileInput.files) dt.items.add(f);
-    for (const f of e.dataTransfer.files) dt.items.add(f);
-    fileInput.files = dt.files;
-    renderChips();
-  });
-}
-
-// ---- 에이전트/모델 선택 + 도구(+) 메뉴 ---------------------------------
-const providerInput = document.getElementById("provider-input");
-const modelInput = document.getElementById("model-input");
-const agentBtn = document.getElementById("agent-btn");
-const agentLabel = document.getElementById("agent-label");
-const agentPopup = document.getElementById("agent-popup");
-const modelBtn = document.getElementById("model-btn");
-const modelChipLabel = document.getElementById("model-label");
-const modelPopup = document.getElementById("model-popup");
-const toolsBtn = document.getElementById("tools-btn");
-const toolsPopup = document.getElementById("tools-popup");
-const chosenModel = {};                     // provider -> model id ("" = 기본값)
+// ---- 컴포저 (첨부·에이전트·모델·작업위치) --------------------------------
+// 한 페이지에 컴포저가 둘 이상 있을 수 있다(홈: 우측 작업 채팅 + 좌측 비전보드
+// 채팅). 그래서 요소는 전부 폼 안에서 class로 찾고, 선택 상태(chosenModel,
+// 작업 위치)도 폼마다 따로 둔다.
+const COMPOSERS = [];
 
 // 팝업에 노출할 에이전트: 자동 + 활성 에이전트(서버가 /setup 선택을 반영해
 // AGENT_ORDER로 주입) + 협의. 협의(council)는 활성 멤버가 2명 이상일 때만
@@ -146,92 +91,256 @@ function modelLabel(p, id) {
   const m = (MODELS[p] || []).find((x) => (x.model || "") === (id || ""));
   return m ? m.label : "";
 }
-
 // 모델 칩: 자동이 아니고 모델이 2개 이상인 에이전트에서만 노출한다
 function modelChipVisible(p) {
   return p !== "auto" && (MODELS[p] || []).length > 1;
 }
 
-function refreshChips() {
-  if (!providerInput || !agentLabel || !modelBtn || !modelChipLabel) return;
-  const p = providerInput.value;
-  agentLabel.textContent = agentName(p);
-  if (modelChipVisible(p)) {
-    modelBtn.hidden = false;
-    const id = chosenModel[p] || defaultModel(p);
-    modelChipLabel.textContent = modelLabel(p, id) || t("모델");
-  } else {
-    modelBtn.hidden = true;
-  }
-}
+const WS_DEFAULT = t("기본(연동 안 함)");
 
-function selectProvider(p) {
-  providerInput.value = p;
-  modelInput.value = p === "auto" ? "" : (chosenModel[p] || "");
-  refreshChips();
+function mountComposer(form) {
+  const providerInput = form.querySelector(".composer-provider");
+  const modelInput = form.querySelector(".composer-model");
+  // 컨트롤이 없는 컴포저(후속 지시·새 스레드 등)는 마운트하지 않는다
+  if (!providerInput || !modelInput) return null;
+
+  const textarea = form.querySelector("textarea");
+  const fileInput = form.querySelector(".composer-files");
+  const chips = form.querySelector(".file-chips");
+  const agentBtn = form.querySelector(".agent-btn");
+  const agentLabel = form.querySelector(".agent-label");
+  const agentPopup = form.querySelector(".agent-popup:not(.model-popup)");
+  const modelBtn = form.querySelector(".model-btn");
+  const modelChipLabel = form.querySelector(".model-label");
+  const modelPopup = form.querySelector(".model-popup");
+  const toolsBtn = form.querySelector(".tools-btn");
+  const toolsPopup = form.querySelector(".tools-popup");
+  const autoHint = form.querySelector(".auto-hint");
+  const picker = form.querySelector(".workspace-picker");
+
+  const chosenModel = {};       // provider -> model id ("" = 기본값)
+  let wsSelectedPath = "";
+  let hintTimer = null;
+
+  // ── ⌘/Ctrl+Enter 전송 (채팅 UX 표준) ──────────────────────────────────
+  textarea?.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  // ── 파일 첨부 칩 + 드래그 앤 드롭 ─────────────────────────────────────
+  function renderChips() {
+    if (!chips || !fileInput) return;
+    chips.innerHTML = "";
+    for (const f of fileInput.files) {
+      const chip = document.createElement("span");
+      chip.className = "chip";
+      chip.textContent = f.name;
+      chips.appendChild(chip);
+    }
+  }
+  if (fileInput) {
+    fileInput.addEventListener("change", renderChips);
+    form.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      form.classList.add("dragging");
+    });
+    form.addEventListener("dragleave", (e) => {
+      if (e.target === form) form.classList.remove("dragging");
+    });
+    form.addEventListener("drop", (e) => {
+      e.preventDefault();
+      form.classList.remove("dragging");
+      const dt = new DataTransfer();
+      for (const f of fileInput.files) dt.items.add(f);
+      for (const f of e.dataTransfer.files) dt.items.add(f);
+      fileInput.files = dt.files;
+      renderChips();
+    });
+  }
+
+  // ── 에이전트/모델 칩 ──────────────────────────────────────────────────
+  function refreshChipLabels() {
+    if (!agentLabel || !modelBtn || !modelChipLabel) return;
+    const p = providerInput.value;
+    agentLabel.textContent = agentName(p);
+    if (modelChipVisible(p)) {
+      modelBtn.hidden = false;
+      const id = chosenModel[p] || defaultModel(p);
+      modelChipLabel.textContent = modelLabel(p, id) || t("모델");
+    } else {
+      modelBtn.hidden = true;
+    }
+  }
+
+  function selectProvider(p) {
+    providerInput.value = p;
+    modelInput.value = p === "auto" ? "" : (chosenModel[p] || "");
+    refreshChipLabels();
+    updateAutoHint();
+  }
+
+  function selectModel(p, id) {
+    chosenModel[p] = id;
+    modelInput.value = id;
+    refreshChipLabels();
+  }
+
+  function renderAgentPopup() {
+    const cur = providerInput.value;
+    agentPopup.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "popup-head";
+    head.textContent = t("에이전트");
+    agentPopup.appendChild(head);
+
+    for (const a of AGENTS) {
+      const multi = a.id !== "auto" && (MODELS[a.id] || []).length > 1;
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "popup-row";
+      row.innerHTML =
+        `<span class="popup-check">${a.id === cur ? "✓" : ""}</span>` +
+        `<span class="popup-label">${a.name}</span>` +
+        (a.id === "council"
+          ? `<span class="popup-tag" title="${t("여러 에이전트가 제안·비평하고 하나가 종합합니다 (사용량 다중 소모)")}">${t("토론")}</span>`
+          : multi ? `<span class="popup-tag">${t("모델")}</span>` : "");
+      row.addEventListener("click", () => { selectProvider(a.id); closeAllComposerPopups(); });
+      agentPopup.appendChild(row);
+    }
+  }
+
+  function renderModelPopup() {
+    const cur = providerInput.value;
+    modelPopup.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "popup-head";
+    head.textContent = agentName(cur) + " " + t("모델");
+    modelPopup.appendChild(head);
+
+    const curModel = chosenModel[cur] || "";
+    for (const m of MODELS[cur] || []) {
+      const id = m.model || "";
+      const sel = (id === curModel) || (!curModel && m.default);
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "popup-row";
+      row.innerHTML =
+        `<span class="popup-check">${sel ? "✓" : ""}</span>` +
+        `<span class="popup-label">${m.label}</span>` +
+        (m.default ? `<span class="popup-tag">${t("기본값")}</span>` : "");
+      row.addEventListener("click", () => { selectModel(cur, id); closeAllComposerPopups(); });
+      modelPopup.appendChild(row);
+    }
+  }
+
+  function closePopups() {
+    if (agentPopup) agentPopup.hidden = true;
+    if (modelPopup) modelPopup.hidden = true;
+    if (toolsPopup) toolsPopup.hidden = true;
+    const wsPopup = picker?.querySelector(".ws-popup");
+    if (wsPopup) wsPopup.hidden = true;
+  }
+
+  function openPopup(popup, anchor, fallbackW) {
+    closeAllComposerPopups();
+    popup.hidden = false;
+    placePopup(popup, anchor, fallbackW || 200);
+  }
+
+  agentBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!agentPopup.hidden) { closeAllComposerPopups(); return; }
+    renderAgentPopup();
+    openPopup(agentPopup, agentBtn);
+  });
+  modelBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!modelPopup.hidden) { closeAllComposerPopups(); return; }
+    renderModelPopup();
+    openPopup(modelPopup, modelBtn);
+  });
+  toolsBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (!toolsPopup.hidden) { closeAllComposerPopups(); return; }
+    openPopup(toolsPopup, toolsBtn);
+  });
+
+  // ── 자동 모드 코칭 힌트 (힌트 UI가 있는 컴포저에서만) ──────────────────
+  async function updateAutoHint() {
+    if (!autoHint) return;
+    if (providerInput.value !== "auto") { autoHint.hidden = true; return; }
+    try {
+      const q = encodeURIComponent(textarea?.value || "");
+      const res = await fetch(`/api/recommend?prompt=${q}`);
+      if (!res.ok) return;
+      const d = await res.json();
+      autoHint.innerHTML =
+        `<span class="hint-mark">${t("자동 추천")}</span> ${d.provider} — ${d.reason}`;
+      autoHint.hidden = false;
+    } catch (_) { /* 무시 */ }
+  }
+  if (autoHint) {
+    textarea?.addEventListener("input", () => {
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(updateAutoHint, 400);
+    });
+  }
+
+  // ── 작업 위치(폴더/리포) 선택 ─────────────────────────────────────────
+  function selectWorkspace(path) {
+    wsSelectedPath = path || "";
+    const input = picker?.querySelector(".ws-workdir");
+    if (input) input.value = wsSelectedPath;
+    const label = picker?.querySelector(".ws-label");
+    if (label) {
+      const row = wsSelectedPath
+        ? picker.querySelector(`.ws-row[data-path="${CSS.escape(wsSelectedPath)}"]`)
+        : null;
+      label.textContent = row?.dataset.name || WS_DEFAULT;
+    }
+    picker?.querySelectorAll(".ws-row").forEach((row) => {
+      const check = row.querySelector(".ws-check");
+      if (check) check.textContent = (row.dataset.path || "") === wsSelectedPath ? "✓" : "";
+    });
+  }
+
+  function initWsPicker(preferredPath) {
+    if (!picker || !picker.querySelector(".ws-row")) return;
+    let path = preferredPath ?? wsSelectedPath ?? "";
+    if (path && !picker.querySelector(`.ws-row[data-path="${CSS.escape(path)}"]`)) path = "";
+    selectWorkspace(path);
+  }
+
+  function openWsPopup() {
+    const btn = picker?.querySelector(".ws-chip");
+    const popup = picker?.querySelector(".ws-popup");
+    if (!btn || !popup) return;
+    openPopup(popup, btn, 240);
+  }
+
+  const handle = {
+    form, picker, closePopups, initWsPicker, openWsPopup,
+    currentWorkdir: () => wsSelectedPath,
+    // 전송 후 첨부를 비운다 (비전보드 채팅처럼 폼이 남아 있는 경우)
+    clearAttachments() {
+      if (fileInput) { fileInput.value = ""; renderChips(); }
+    },
+  };
+  form.__composer = handle;
+  COMPOSERS.push(handle);
+
+  refreshChipLabels();
   updateAutoHint();
+  return handle;
 }
 
-function selectModel(p, id) {
-  chosenModel[p] = id;
-  modelInput.value = id;
-  refreshChips();
+function closeAllComposerPopups() {
+  for (const c of COMPOSERS) c.closePopups();
 }
 
-function renderAgentPopup() {
-  const cur = providerInput.value;
-  agentPopup.innerHTML = "";
-  const head = document.createElement("div");
-  head.className = "popup-head";
-  head.textContent = t("에이전트");
-  agentPopup.appendChild(head);
-
-  for (const a of AGENTS) {
-    const multi = a.id !== "auto" && (MODELS[a.id] || []).length > 1;
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "popup-row";
-    row.innerHTML =
-      `<span class="popup-check">${a.id === cur ? "✓" : ""}</span>` +
-      `<span class="popup-label">${a.name}</span>` +
-      (a.id === "council"
-        ? `<span class="popup-tag" title="${t("여러 에이전트가 제안·비평하고 하나가 종합합니다 (사용량 다중 소모)")}">${t("토론")}</span>`
-        : multi ? `<span class="popup-tag">${t("모델")}</span>` : "");
-    row.addEventListener("click", () => { selectProvider(a.id); closeComposerPopups(); });
-    agentPopup.appendChild(row);
-  }
-}
-
-function renderModelPopup() {
-  const cur = providerInput.value;
-  modelPopup.innerHTML = "";
-  const head = document.createElement("div");
-  head.className = "popup-head";
-  head.textContent = agentName(cur) + " " + t("모델");
-  modelPopup.appendChild(head);
-
-  const curModel = chosenModel[cur] || "";
-  for (const m of MODELS[cur] || []) {
-    const id = m.model || "";
-    const sel = (id === curModel) || (!curModel && m.default);
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "popup-row";
-    row.innerHTML =
-      `<span class="popup-check">${sel ? "✓" : ""}</span>` +
-      `<span class="popup-label">${m.label}</span>` +
-      (m.default ? `<span class="popup-tag">${t("기본값")}</span>` : "");
-    row.addEventListener("click", () => { selectModel(cur, id); closeComposerPopups(); });
-    modelPopup.appendChild(row);
-  }
-}
-
-function closeComposerPopups() {
-  if (agentPopup) agentPopup.hidden = true;
-  if (modelPopup) modelPopup.hidden = true;
-  if (toolsPopup) toolsPopup.hidden = true;
-  closeWsPopup();
-}
 // 버튼 아래(공간이 없으면 위)에 팝업을 띄운다.
 // 컴포저는 홈에서 우측 레일(position:absolute) 안에, 다른 화면에서는 문서
 // 최상위에 있으므로 뷰포트 좌표로 자리를 잡은 뒤 offsetParent 기준으로 변환한다.
@@ -259,63 +368,18 @@ function placePopup(popup, anchor, fallbackW) {
   popup.style.left = `${left}px`;
 }
 
-function openComposerPopup(popup, anchor) {
-  closeComposerPopups();
-  popup.hidden = false;
-  placePopup(popup, anchor, 200);
-}
-
-agentBtn?.addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (!agentPopup.hidden) { closeComposerPopups(); return; }
-  renderAgentPopup();
-  openComposerPopup(agentPopup, agentBtn);
-});
-modelBtn?.addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (!modelPopup.hidden) { closeComposerPopups(); return; }
-  renderModelPopup();
-  openComposerPopup(modelPopup, modelBtn);
-});
-toolsBtn?.addEventListener("click", (e) => {
-  e.stopPropagation();
-  if (!toolsPopup.hidden) { closeComposerPopups(); return; }
-  openComposerPopup(toolsPopup, toolsBtn);
-});
+// 팝업/앵커 밖을 누르면 모두 닫는다
 document.addEventListener("click", (e) => {
-  if (e.target.closest("#agent-popup") || e.target.closest("#agent-btn")
-      || e.target.closest("#model-popup") || e.target.closest("#model-btn")
-      || e.target.closest("#tools-popup") || e.target.closest("#tools-btn")
-      || e.target.closest("#ws-popup") || e.target.closest("#ws-btn")) return;
-  closeComposerPopups();
+  if (e.target.closest(".agent-popup") || e.target.closest(".agent-btn")
+      || e.target.closest(".model-popup") || e.target.closest(".model-btn")
+      || e.target.closest(".tools-popup") || e.target.closest(".tools-btn")
+      || e.target.closest(".ws-popup") || e.target.closest(".ws-chip")) return;
+  closeAllComposerPopups();
 });
-window.addEventListener("resize", closeComposerPopups);
-refreshChips();
+window.addEventListener("resize", closeAllComposerPopups);
 
-// ---- 자동 모드 코칭 힌트 ------------------------------------------------
-const autoHint = document.getElementById("auto-hint");
-const promptEl = document.getElementById("prompt");
-let hintTimer = null;
-
-async function updateAutoHint() {
-  // 비전 보드 등 힌트 UI가 없는 페이지에서는 no-op
-  if (!providerInput || !autoHint) return;
-  if (providerInput.value !== "auto") { autoHint.hidden = true; return; }
-  try {
-    const q = encodeURIComponent((promptEl && promptEl.value) || "");
-    const res = await fetch(`/api/recommend?prompt=${q}`);
-    if (!res.ok) return;
-    const d = await res.json();
-    autoHint.innerHTML =
-      `<span class="hint-mark">${t("자동 추천")}</span> ${d.provider} — ${d.reason}`;
-    autoHint.hidden = false;
-  } catch (_) { /* 무시 */ }
-}
-promptEl?.addEventListener("input", () => {
-  clearTimeout(hintTimer);
-  hintTimer = setTimeout(updateAutoHint, 400);
-});
-updateAutoHint();
+// 페이지에 있는 모든 컴포저를 마운트한다 (컨트롤이 없는 폼은 알아서 건너뛴다)
+document.querySelectorAll("form.composer").forEach(mountComposer);
 
 // ---- 노트 컨텍스트 메뉴 (···) ------------------------------------------
 const dropdown = document.getElementById("note-dropdown");
@@ -457,53 +521,15 @@ window.addEventListener("resize", closeDropdown);
 // 메뉴가 따라오지 않는다(메뉴는 body 기준 절대배치) — 어떤 조상이 스크롤되든 닫는다.
 document.addEventListener("scroll", closeDropdown, true);
 
-// ---- 작업 위치(workspace) 선택·추가·제거 --------------------------------
-const WS_DEFAULT = t("기본(연동 안 함)");
-let wsSelectedPath = "";
-
-function selectWorkspace(path) {
-  wsSelectedPath = path || "";
-  const input = document.getElementById("ws-workdir");
-  if (input) input.value = wsSelectedPath;
-  const label = document.getElementById("ws-label");
-  if (label) {
-    if (!wsSelectedPath) {
-      label.textContent = WS_DEFAULT;
-    } else {
-      const row = document.querySelector(`.ws-row[data-path="${CSS.escape(wsSelectedPath)}"]`);
-      label.textContent = row?.dataset.name || WS_DEFAULT;
-    }
-  }
-  document.querySelectorAll(".ws-row").forEach((row) => {
-    const check = row.querySelector(".ws-check");
-    if (check) check.textContent = (row.dataset.path || "") === wsSelectedPath ? "✓" : "";
-  });
-}
-
-function closeWsPopup() {
-  const popup = document.getElementById("ws-popup");
-  if (popup) popup.hidden = true;
-}
-
-function openWsPopup() {
-  const btn = document.getElementById("ws-btn");
-  const popup = document.getElementById("ws-popup");
-  if (!btn || !popup) return;
-  closeComposerPopups();
-  popup.hidden = false;
-  placePopup(popup, btn, 240);
-}
-
-function initWsPicker(preferredPath) {
-  const rows = document.querySelectorAll(".ws-row");
-  if (!rows.length) return;
-  let path = preferredPath ?? wsSelectedPath ?? "";
-  if (path && !document.querySelector(`.ws-row[data-path="${CSS.escape(path)}"]`)) path = "";
-  selectWorkspace(path);
+// ---- 작업 위치(workspace) 추가·제거 -------------------------------------
+// 선택 상태는 컴포저마다 따로다(mountComposer). 목록 자체는 전역이라 추가·제거
+// 결과는 페이지의 모든 피커에 반영한다.
+function composerOf(el) {
+  const form = el.closest("form.composer");
+  return form?.__composer || null;
 }
 
 async function postWorkspace(url, data) {
-  const prevPath = document.getElementById("ws-workdir")?.value || "";
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -518,20 +544,30 @@ async function postWorkspace(url, data) {
     } catch (_) { /* plain-text error */ }
     return { ok: false, msg };
   }
-  const picker = document.getElementById("workspace-picker");
-  picker.innerHTML = await res.text();
-  if (window.htmx) htmx.process(picker);
-  const nextPath = res.headers.get("X-Workspace-Path") || prevPath;
-  initWsPicker(nextPath);
+  const html = await res.text();
+  const added = res.headers.get("X-Workspace-Path");
+  for (const c of COMPOSERS) {
+    if (!c.picker) continue;
+    // 새로 추가한 위치는 모달을 연 컴포저에서만 바로 선택되게 하고, 나머지는
+    // 각자 고르고 있던 경로를 유지한다(없어졌으면 initWsPicker가 기본으로 되돌림).
+    const prev = c.currentWorkdir();
+    c.picker.innerHTML = html;
+    if (window.htmx) htmx.process(c.picker);
+    c.initWsPicker(added && c === wsModalOwner ? added : prev);
+  }
   return { ok: true };
 }
 
 document.body.addEventListener("htmx:afterSwap", (e) => {
-  if (e.target && e.target.id === "workspace-picker") initWsPicker();
+  if (e.target && e.target.classList?.contains("workspace-picker")) {
+    composerOf(e.target)?.initWsPicker();
+  }
 });
 
 document.addEventListener("click", (e) => {
-  if (e.target.closest(".ws-add")) {
+  const addBtn = e.target.closest(".ws-add");
+  if (addBtn) {
+    wsModalOwner = composerOf(addBtn);
     openWsModal();
     return;
   }
@@ -545,16 +581,18 @@ document.addEventListener("click", (e) => {
       postWorkspace("/workspaces/remove", { id: btn.dataset.id });
     return;
   }
-  if (e.target.closest(".ws-row")) {
-    selectWorkspace(e.target.closest(".ws-row").dataset.path);
-    closeWsPopup();
+  const row = e.target.closest(".ws-row");
+  if (row) {
+    composerOf(row)?.initWsPicker(row.dataset.path || "");
+    closeAllComposerPopups();
     return;
   }
-  if (e.target.closest("#ws-btn")) {
+  const wsChip = e.target.closest(".ws-chip");
+  if (wsChip) {
     e.stopPropagation();
-    const popup = document.getElementById("ws-popup");
-    if (popup && !popup.hidden) closeWsPopup();
-    else openWsPopup();
+    const popup = wsChip.closest(".workspace-picker")?.querySelector(".ws-popup");
+    if (popup && !popup.hidden) closeAllComposerPopups();
+    else composerOf(wsChip)?.openWsPopup();
   }
 });
 
@@ -562,6 +600,8 @@ document.addEventListener("click", (e) => {
 const wsModal = document.getElementById("ws-modal");
 const wsBody = document.getElementById("ws-modal-body");
 const wsFoot = document.getElementById("ws-modal-foot");
+// 모달은 페이지에 하나뿐이라, 어느 컴포저의 ＋ 로 열었는지 기억해 둔다
+let wsModalOwner = null;
 
 function openWsModal() {
   wsModal.hidden = false;

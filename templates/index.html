@@ -66,17 +66,12 @@
   </section>
 
   <!-- 비전보드 전용 채팅 — 목표를 보내면 중앙에 비전보드 탭이 열린다 -->
-  <form class="composer vision-composer" id="vision-composer" method="post" action="/projects">
+  <form class="composer vision-composer" id="vision-composer" method="post" action="/projects" enctype="multipart/form-data">
     <textarea name="goal" id="goal" rows="2" required placeholder="{{ '비전 보드로 만들 목표를 적어 주세요…' | t }}"></textarea>
-    <div class="composer-bar">
-      <a class="side-nav-link" href="/board">🗂 {{ '전체 보드' | t }}</a>
-      <span class="spacer"></span>
-      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
-        </svg>
-      </button>
-    </div>
+    {#- 우측 작업 채팅과 같은 컨트롤. 한 페이지에 컴포저가 둘이라 여기서는
+        id 없이(class만) 내보낸다 — app.js가 폼 단위로 각각 마운트한다. -#}
+    {% with ids = false, send_label = '전송' %}{% include 'partials/composer_controls.html' %}{% endwith %}
+    <a class="side-nav-link vision-all-boards" href="/board">🗂 {{ '전체 보드' | t }}</a>
   </form>
 
   <div class="side-foot">
@@ -140,67 +135,7 @@
 
       <form class="composer" id="composer" method="post" action="/jobs" enctype="multipart/form-data">
         <textarea name="prompt" id="prompt" rows="3" required placeholder="{{ '작업을 설명해 주세요… 파일을 끌어다 놓을 수도 있어요' | t }}"></textarea>
-        <div class="file-chips" id="file-chips"></div>
-        <div class="auto-hint" id="auto-hint" hidden></div>
-
-        <input type="hidden" name="provider" id="provider-input" value="auto">
-        <input type="hidden" name="model" id="model-input" value="">
-
-        <div class="composer-bar">
-          <!-- 첨부·도구 메뉴 (+) -->
-          <button type="button" class="cbar-btn" id="tools-btn" aria-label="{{ '첨부·도구' | t }}" aria-haspopup="true">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
-          </button>
-
-          <!-- 에이전트 선택 칩 -->
-          <button type="button" class="cbar-chip" id="agent-btn" aria-haspopup="true">
-            <span class="chip-agent" id="agent-label">{{ '자동' | t }}</span>
-            <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
-          </button>
-
-          <!-- 모델 선택 칩 (에이전트가 자동이 아니고 모델이 여러 개일 때만 표시) -->
-          <button type="button" class="cbar-chip" id="model-btn" aria-haspopup="true" hidden>
-            <span class="chip-agent" id="model-label">{{ '모델' | t }}</span>
-            <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
-          </button>
-
-          <!-- 작업 위치 칩 -->
-          <span class="workspace-picker" id="workspace-picker" hx-get="/partials/workspaces" hx-trigger="load"></span>
-
-          <span class="spacer"></span>
-
-          <button type="submit" class="send" aria-label="{{ '전송' | t }}">
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
-            </svg>
-          </button>
-        </div>
-
-        <!-- 도구 팝업: 파일·메모리·타임아웃 (폼 안이라 그대로 제출된다) -->
-        <div class="cbar-popup tools-popup" id="tools-popup" hidden>
-          <label class="tools-row" title="{{ '사진·파일 첨부' | t }}">
-            <input type="file" name="files" id="file-input" multiple>
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M13.2 7.2 8.4 12a3.4 3.4 0 0 1-4.8-4.8l4.8-4.8a2.3 2.3 0 0 1 3.2 3.2L6.8 10.4a1.1 1.1 0 0 1-1.6-1.6l4.4-4.4"/>
-            </svg>
-            <span>{{ '파일 첨부…' | t }}</span>
-          </label>
-          <label class="tools-row">
-            <input type="checkbox" name="attach_memory" value="true">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 3 4.5v4c0 3 2.2 4.6 5 5.5 2.8-.9 5-2.5 5-5.5v-4z"/></svg>
-            <span>{{ '메모리 첨부' | t }}</span>
-          </label>
-          <label class="tools-row tools-timeout">
-            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="9" r="5"/><path d="M8 6.5V9l1.6 1M6 1.8h4"/></svg>
-            <span>{{ '타임아웃' | t }}</span>
-            <input type="number" name="timeout_min" min="1" placeholder="{{ '자동' | t }}"> {{ '분' | t }}
-          </label>
-        </div>
-
-        <!-- 에이전트 팝업 (JS가 채움) -->
-        <div class="cbar-popup agent-popup" id="agent-popup" hidden></div>
-        <!-- 모델 팝업 (JS가 채움) -->
-        <div class="cbar-popup agent-popup" id="model-popup" hidden></div>
+        {% with ids = true, hint = true, send_label = '전송' %}{% include 'partials/composer_controls.html' %}{% endwith %}
       </form>
     </section>
 

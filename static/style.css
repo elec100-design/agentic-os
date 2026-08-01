@@ -294,6 +294,9 @@ body.with-sidebar main {
   transition: all 0.12s ease;
 }
 .cbar-chip:hover { background: var(--surface-2); }
+/* display:inline-flex 가 브라우저 기본 [hidden] 규칙을 이겨 버린다 —
+   모델 칩은 에이전트가 자동이 아닐 때만 떠야 하므로 직접 되살린다. */
+.cbar-chip[hidden] { display: none; }
 .chip-agent { font-weight: 500; }
 .pill-caret { opacity: 0.6; margin-left: -0.1rem; }
 
