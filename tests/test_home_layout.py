@@ -28,7 +28,6 @@ HOME_ELEMENTS = [
     'id="home-rail-toggle"',
     'data-rail-tab="chat"',
     'data-rail-tab="notes"',
-    'data-rail-tab="sessions"',
     "orca-statusbar",      # 최하단 상태바 (사용량 + 작업 상태 칩)
     'id="statusbar-toggle"',
     'id="statusbar-body"',
@@ -126,15 +125,25 @@ def test_statusbar_keeps_job_poll_as_data_source(completed_setup):
         assert 'id="statusbar-counts"' in body
 
 
-def test_sessions_moved_from_sidebar_to_rail(completed_setup):
-    """채널(세션) 목록은 좌측 사이드바가 아니라 우측 레일의 세션 탭에 있다."""
+def test_sessions_tab_is_gone(completed_setup):
+    """'세션'(채널 목록) 탭은 제 역할을 못해 홈에서 걷어냈다.
+
+    채널 API/DB 는 그대로다 — 프로젝트 페이지 채팅 레일이 프로젝트마다 채널을
+    만들어 쓰고 있어서, 여기서 지우는 것은 홈 레일의 목록 UI 뿐이다.
+    """
     with _client() as client:
         body = client.get("/").text
-        rail_at = body.index("orca-side-rail")
-        channels_at = body.index('id="channels"')
-        assert channels_at > rail_at, "channels list must live inside the right rail"
-        sidebar = body[body.index('<aside class="sidebar">'):body.index("</aside>")]
-        assert 'id="channels"' not in sidebar
+    for gone in ('data-rail-tab="sessions"', 'data-rail-panel="sessions"',
+                 'id="channels"', "/partials/channels", "channels.js",
+                 'id="channel-modal"'):
+        assert gone not in body, f"세션 잔재가 남아 있다: {gone}"
+    # 남은 탭은 채팅·노트 둘뿐
+    assert len(re.findall(r'data-rail-tab="(\w+)"', body)) == 2
+
+
+def test_channel_partial_route_is_removed(completed_setup):
+    with _client() as client:
+        assert client.get("/partials/channels").status_code == 404
 
 
 def test_partial_job_returns_shared_view(completed_setup):
@@ -272,3 +281,21 @@ def test_job_page_still_renders_shared_view(completed_setup):
         assert r.status_code == 200
         assert 'class="job-view"' in r.text
         assert "job-view.js" in r.text
+
+
+def test_left_chat_is_bottom_aligned_and_40_percent():
+    """좌측 비전보드 채팅이 우측 레일 컴포저처럼 크고 바닥에 붙어야 한다.
+
+    기존에는 사이드바의 18% 뿐이었고, 설정·언어·테마 줄(.side-foot)이 아래에
+    깔려 있어 우측(28%, 바닥까지)보다 들려 보였다.
+    """
+    theme = Path("static/orca-theme.css").read_text(encoding="utf-8")
+    m = re.search(r"body\.orca-home \.vision-composer \{(.*?)\}", theme, re.S)
+    assert m, "홈 전용 vision-composer 규칙이 없다"
+    rule = m.group(1)
+    assert "flex: 0 0 40%" in rule, "사이드바의 40%를 차지해야 한다"
+    # .side-foot 을 위로 올려야 채팅이 바닥까지 내려온다
+    assert "order: 2" in rule
+    assert "body.orca-home .side-foot { order: 1; }" in theme
+    # 늘어난 높이는 입력 영역이 가져간다
+    assert re.search(r"body\.orca-home \.vision-composer textarea \{[^}]*flex: 1", theme)

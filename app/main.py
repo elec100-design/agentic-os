@@ -711,26 +711,6 @@ async def api_message_stream(message_id: int):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-@app.get("/partials/channels", response_class=HTMLResponse)
-def partials_channels(request: Request):
-    """사이드바 채널 목록: 워크스페이스 채널 + 실행 중인 액티브 세션(루트 메시지)을
-    계층으로 보여준다. 진행 중인 세션이 있는 채널이 먼저 오도록 정렬한다."""
-    conn = db.get_conn()
-    rows = []
-    for c in db.list_channels(conn, status="active"):
-        roots = db.list_root_messages(conn, c["id"], limit=8)
-        active = []
-        for root in roots:
-            thread = db.list_thread(conn, root["id"])
-            last = thread[-1] if thread else root
-            if last["status"] in ("queued", "running"):
-                active.append({**dict(root), "status": last["status"]})
-        rows.append({"channel": dict(c), "active": active})
-    rows.sort(key=lambda r: bool(r["active"]), reverse=True)
-    return templates.TemplateResponse(
-        request, "partials/channels.html", {"rows": rows})
-
-
 @app.get("/channels/{channel_id}", response_class=HTMLResponse)
 def channel_page(request: Request, channel_id: int):
     conn = db.get_conn()
@@ -764,6 +744,23 @@ def note_view(request: Request, path: str):
         {"note": note, "can_resume": can_resume,
          "provider_models": pm, "agents": agents,
          "turns": memory.parse_thread(note["body"])},
+    )
+
+
+@app.api_route("/partials/note", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def partial_note(request: Request, path: str):
+    """노트를 홈 대시보드 중앙 탭으로 여는 조각.
+
+    이어서 진행하기(세션 재개 컴포저)는 단독 페이지(/note)에만 둔다 — 조각은
+    innerHTML 로 꽂혀서 인라인 스크립트가 실행되지 않기 때문이다. 탭 안에서
+    '전체 페이지로 열기' 링크로 넘어간다.
+    """
+    note = memory.read_note(path)
+    if note is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(
+        request, "partials/note_view.html",
+        {"note": note, "turns": memory.parse_thread(note["body"])},
     )
 
 

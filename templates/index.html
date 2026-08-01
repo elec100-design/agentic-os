@@ -38,7 +38,7 @@
 <div class="orca-side-rail-scrim" id="home-rail-scrim" hidden></div>
 
 <!-- Orca ADE식 3분할 셸 — 좌: 내비 사이드바 / 중앙: 멀티 탭 워크스페이스 /
-     우: 채팅·세션 레일. 최하단은 접히는 작업 큐 상태바. -->
+     우: 채팅·노트 레일. 최하단은 접히는 작업 큐 상태바. -->
 <div class="orca-home-shell">
 <div class="orca-home-row">
 
@@ -107,7 +107,7 @@
   </div>
 </main>
 
-<!-- ══ 우측 레일 — 채팅창 + 세션 목록 ═══════════════════════════════════ -->
+<!-- ══ 우측 레일 — 채팅창 + 노트 목록 ═══════════════════════════════════ -->
 <aside class="orca-side-rail" id="home-rail">
   <div class="orca-side-rail-handle" id="home-rail-resize" role="separator" aria-orientation="vertical" aria-label="{{ '패널 너비 조절' | t }}" tabindex="0"></div>
   <div class="orca-rail-head">
@@ -124,7 +124,6 @@
   <div class="orca-rail-tabs">
     <button type="button" class="orca-rail-tab active" data-rail-tab="chat">{{ '채팅' | t }}</button>
     <button type="button" class="orca-rail-tab" data-rail-tab="notes">{{ '노트' | t }}</button>
-    <button type="button" class="orca-rail-tab" data-rail-tab="sessions">{{ '세션' | t }}</button>
   </div>
 
   <div class="orca-rail-panels">
@@ -149,13 +148,6 @@
          (.orca-rail-scroll로 한 번 더 감싸면 스크롤 컨테이너가 이중이 된다). -->
     <section class="orca-rail-panel" data-rail-panel="notes" hidden>
       <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
-    </section>
-
-    <!-- 세션 탭 — 주제별 채널 목록 -->
-    <section class="orca-rail-panel" data-rail-panel="sessions" hidden>
-      <div class="orca-rail-scroll">
-        <section class="side-channels" id="channels" hx-get="/partials/channels" hx-trigger="load, every 5s, refresh-channels from:body"></section>
-      </div>
     </section>
   </div>
 </aside>
@@ -201,29 +193,6 @@
 </div>
 
 <!-- 새 채널 만들기 모달 -->
-<div class="modal-overlay" id="channel-modal" hidden>
-  <div class="modal modal-sm" role="dialog" aria-modal="true" aria-labelledby="channel-modal-title">
-    <div class="modal-head">
-      <span id="channel-modal-title">{{ '새 채널 만들기' | t }}</span>
-      <button type="button" class="modal-close" id="channel-modal-close" aria-label="{{ '닫기' | t }}">✕</button>
-    </div>
-    <div class="modal-body">
-      <label class="ch-field">
-        <span>{{ '채널 이름' | t }}</span>
-        <input type="text" id="channel-title" placeholder="{{ '예: 결제 리팩터링' | t }}" maxlength="80">
-      </label>
-      <label class="ch-field">
-        <span>{{ '주제 (선택)' | t }}</span>
-        <input type="text" id="channel-topic" placeholder="{{ '이 채널에서 다룰 작업을 짧게 설명' | t }}" maxlength="200">
-      </label>
-      <div class="ch-error" id="channel-error" hidden></div>
-    </div>
-    <div class="modal-foot">
-      <span class="modal-hint">{{ '주제별로 대화를 이어가며 답장으로 세션을 유지할 수 있어요' | t }}</span>
-      <button type="button" class="btn-primary" id="channel-create-btn">{{ '만들기' | t }}</button>
-    </div>
-  </div>
-</div>
 
 <script>
 const MODELS = {{ provider_models | tojson }};
@@ -231,7 +200,6 @@ const AGENT_ORDER = {{ agent_order | tojson }};
 const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 </script>
 <script src="/static/app.js?v={{ asset_v() }}"></script>
-<script src="/static/channels.js?v={{ asset_v() }}"></script>
 <script src="/static/marked.min.js?v={{ asset_v() }}"></script>
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>

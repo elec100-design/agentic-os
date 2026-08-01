@@ -157,6 +157,47 @@
         return () => { clearInterval(timer); unmount?.(); };
       },
     },
+    note: {
+      icon: "📝",
+      // refId 가 파일 경로라 숫자로 바꾸면 안 된다
+      textRef: true,
+      defaultTitle: (path) => String(path).split("/").pop().replace(/\.md$/, ""),
+      probe: (path) => fetch(`/partials/note?path=${encodeURIComponent(path)}`,
+                             { method: "HEAD" }),
+      async mount(panel, tb) {
+        const res = await fetch(`/partials/note?path=${encodeURIComponent(tb.refId)}`);
+        if (!res.ok) throw new Error(res.status === 404
+          ? tt("노트를 찾을 수 없습니다.") : `HTTP ${res.status}`);
+        panel.innerHTML = await res.text();
+        // 조각은 innerHTML 로 꽂히므로 인라인 스크립트가 실행되지 않는다 —
+        // 마크다운 원문을 JSON 으로 받아 여기서 렌더한다(note.html과 같은 모양).
+        const holder = panel.querySelector("[data-note-data]");
+        if (!holder || !window.renderMarkdown) return null;
+        let data;
+        try { data = JSON.parse(holder.textContent); } catch (e) { return null; }
+        const thread = panel.querySelector("[data-note-thread]");
+        if (thread && data.turns?.length) {
+          const en = window.LANG === "en";
+          for (const turn of data.turns) {
+            const row = document.createElement("div");
+            row.className = "chat-turn " + turn.role;
+            const role = document.createElement("div");
+            role.className = "chat-role";
+            const nth = turn.turn > 1 ? (en ? " · #" + turn.turn : " · " + turn.turn + "차") : "";
+            role.textContent = (turn.role === "user" ? tt("나") : data.agent) + nth;
+            const bubble = document.createElement("div");
+            bubble.className = "chat-bubble md-body";
+            row.append(role, bubble);
+            thread.appendChild(row);
+            window.renderMarkdown(bubble, turn.content);
+          }
+        } else {
+          const body = panel.querySelector("[data-note-body]");
+          if (body) window.renderMarkdown(body, data.body);
+        }
+        return null;
+      },
+    },
   };
 
   async function loadPanel(tb) {
@@ -177,7 +218,8 @@
 
   function openTab(spec) {
     const kind = spec.kind || "job";
-    const refId = +spec.refId;
+    // 작업·보드는 숫자 id, 노트는 파일 경로다 — 로더가 종류를 알려 준다.
+    const refId = LOADERS[kind]?.textRef ? String(spec.refId) : +spec.refId;
     const tabId = tabKey(kind, refId);
     let tb = findTab(tabId);
     if (!tb) {
@@ -360,6 +402,18 @@
       kind: "project", refId: link.getAttribute("href").split("/").pop(),
       title: link.querySelector(".project-title")?.textContent.trim(),
     });
+  });
+
+  // 우측 레일 '노트' 탭의 노트도 페이지 이동 대신 중앙 탭으로 연다.
+  // 조각이 htmx로 계속 갈리므로 컨테이너에 위임해 둔다.
+  const notesPanel = document.getElementById("memory");
+  notesPanel?.addEventListener("click", (e) => {
+    const link = e.target.closest('.note-link[href^="/note?path="]');
+    if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    const path = new URL(link.href, location.origin).searchParams.get("path");
+    if (!path) return;
+    openTab({ kind: "note", refId: path, title: link.textContent.trim() });
   });
 
   // ── 작업 인스펙터(우측 레일) — 중앙 작업 탭의 후속 지시는 여기서 보낸다 ──

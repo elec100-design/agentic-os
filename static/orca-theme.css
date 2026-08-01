@@ -1366,6 +1366,24 @@ body.orca-home .side-task-inspector .orca-task-context {
   padding: 0.5rem;
   background: var(--orca-surface);
 }
+/* 홈에서는 우측 레일 컴포저처럼 사이드바 맨 아래에 붙이고 높이를 키운다.
+   설정·언어·테마 줄(.side-foot)은 자주 쓰지 않으므로 채팅 위로 올린다 —
+   그래야 채팅이 레일과 같이 바닥까지 내려온다. */
+body.orca-home .vision-composer {
+  order: 2;
+  flex: 0 0 40%;
+  min-height: 8rem;
+  display: flex;
+  flex-direction: column;
+  margin: 0.5rem 0 0;
+}
+body.orca-home .side-foot { order: 1; }
+/* 늘어난 높이를 입력 영역이 가져간다(칩 줄은 고정) */
+body.orca-home .vision-composer textarea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
 .vision-composer textarea {
   width: 100%;
   box-sizing: border-box;
