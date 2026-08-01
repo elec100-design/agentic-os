@@ -484,3 +484,32 @@ def test_route_auto_all_enabled_exhausted_no_hermes():
 def test_route_auto_enabled_none_unchanged():
     from app.providers import route_auto
     assert route_auto("안녕")[0] == "hermes"
+
+
+def test_claude_supports_mcp_config():
+    assert ClaudeProvider.supports_mcp is True
+
+
+def test_claude_adds_mcp_config_flag_before_allowedtools():
+    cmd = ClaudeProvider().build_command("안녕", mcp_config_path="/tmp/mcp.json")
+    assert "--mcp-config" in cmd
+    assert cmd[cmd.index("--mcp-config") + 1] == "/tmp/mcp.json"
+    # 옵션 파싱이 `--` 에서 끝나므로, mcp-config 도 그 앞에 있어야 한다
+    assert cmd.index("--mcp-config") < cmd.index("--")
+
+
+def test_claude_omits_mcp_config_flag_when_none():
+    cmd = ClaudeProvider().build_command("안녕")
+    assert "--mcp-config" not in cmd
+
+
+def test_other_providers_do_not_declare_mcp_support():
+    for cls in (AntigravityProvider, GrokProvider, CodexProvider, GeminiProvider,
+               OpenClawProvider, HermesProvider):
+        assert getattr(cls, "supports_mcp", False) is False, cls
+
+
+def test_other_providers_accept_and_ignore_mcp_config_path():
+    """인터페이스는 모든 provider 가 같아야 worker 가 분기 없이 호출할 수 있다."""
+    assert CodexProvider().build_command("hi", mcp_config_path="/tmp/x.json")[:2] == ["codex", "exec"]
+    assert AntigravityProvider().build_command("hi", mcp_config_path="/tmp/x.json") == ["agy", "-p", "hi"]

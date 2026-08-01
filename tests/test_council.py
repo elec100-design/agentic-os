@@ -16,7 +16,7 @@ class FakeProvider:
         self.resume_at = resume_at
         self.calls = 0
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         self.calls += 1
         return self.cmd
 

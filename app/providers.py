@@ -49,10 +49,14 @@ class ClaudeProvider:
     # 헤드리스(-p)에서도 CLAUDE.md 를 스스로 읽는 것을 실측 확인했다(2026-08-01,
     # app/instructions.py 상단 주석 참고) — app.instructions 가 다시 붙이지 않는다.
     self_reads = frozenset({"CLAUDE.md"})
+    # --mcp-config <file> 로 그 실행 한 번에만 적용되는 MCP 서버 목록을 줄 수
+    # 있다(실측 확인, app/mcp_servers.py 상단 주석). codex/gemini 는 전역
+    # 설정 파일에 영구히 쓰는 방식뿐이라 지원하지 않는다.
+    supports_mcp = True
     _limit_re = re.compile(r"usage limit reached|rate.?limit", re.I)
     _epoch_re = re.compile(r"limit reached\|(\d{9,})")
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # 헤드리스(-p)는 권한 프롬프트를 못 띄우므로 웹 도구를 사전 허용.
         # --allowedTools 는 <tools...> 가변 옵션이라, 뒤에 오는 비옵션 인자를
         # 전부 도구 이름으로 삼킨다. 프롬프트가 거기 끼면
@@ -75,6 +79,8 @@ class ClaudeProvider:
             cmd += ["--model", model]
         if session_id:
             cmd += ["--resume", session_id]
+        if mcp_config_path:
+            cmd += ["--mcp-config", str(mcp_config_path)]
         cmd += ["--allowedTools", "WebSearch", "WebFetch", "Bash", "--", prompt]
         return cmd
 
@@ -203,7 +209,7 @@ class AntigravityProvider:
     supports_resume = False
     _limit_re = re.compile(r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit", re.I)
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # agy는 헤드리스(-p)로 세션 ID를 얻거나 지정할 방법이 없다(JSON 출력·
         # 자가 발급 옵션 부재, -p 출력에 conversation ID 미포함). `-c`(전역 최신
         # 대화 이어가기)는 다른 대화가 끼면 오염되므로 이어가기를 지원하지 않는다
@@ -238,7 +244,7 @@ class GrokProvider:
         # 겹치지 않으므로, build_command→parse_output 사이 이 값은 안전하다.
         self._pending_session = None
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         cmd = ["grok"]
         if session_id:
             cmd += ["--resume", session_id]  # 그 세션을 정확히 재개
@@ -272,7 +278,7 @@ class CodexProvider:
         re.I,
     )
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # 무인 실행: 승인 프롬프트·샌드박스 대기로 행(hang) 나지 않게 한다.
         # 작업 위치(cwd)는 worker가 잡 workdir로 잡는다.
         if session_id:
@@ -331,7 +337,7 @@ class GeminiProvider:
         r"\b429\b|RESOURCE_EXHAUSTED|quota|rate.?limit|usage limit", re.I
     )
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         # session_id는 CLI가 UUID 재개를 지원하지 않아 무시(오염 방지).
         # --skip-trust: 헤드리스에서 trusted-folder 프롬프트를 피한다.
         cmd = ["gemini", "-p", prompt, "-y", "-o", "json", "--skip-trust"]
@@ -372,7 +378,7 @@ class OpenClawProvider:
     def __init__(self):
         self._pending_session = None
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         sid = session_id or str(uuid.uuid4())
         self._pending_session = sid
         cmd = [
@@ -421,7 +427,7 @@ class OpenClawProvider:
 class HermesProvider:
     name = "hermes"
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return ["hermes", "-z", prompt]
 
     def parse_output(self, stdout, stderr, exit_code):

@@ -457,7 +457,7 @@ class FakeProvider:
         self.name = name
         self.cmd = cmd
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return self.cmd
 
     def parse_output(self, stdout, stderr, exit_code):

@@ -97,6 +97,21 @@ EN = {
     "실행 과정": "Run steps",
     "변경된 파일": "Changed files",
     "적용된 지침": "Instructions applied",
+    "🔌 MCP 서버": "🔌 MCP servers",
+    "워크스페이스별 MCP 서버 관리": "Manage MCP servers per workspace",
+    "서버": "servers",
+    "워크스페이스별로 claude 에만 연결됩니다 — 그 실행 한 번에만 적용되는 --mcp-config 를 지원하는 유일한 에이전트입니다. codex·gemini 는 전역 설정 파일에만 쓸 수 있어 워크스페이스 단위로 관리할 수 없습니다.":
+        "These connect to claude only, per workspace — it's the only agent that "
+        "supports a --mcp-config scoped to a single run. codex and gemini can only "
+        "write to a global config file, so they can't be managed per workspace.",
+    "등록된 작업 위치가 없습니다. 먼저 컴포저의 ＋ 에서 폴더나 GitHub 리포를 추가하세요.":
+        "No workspaces registered yet. Add a folder or GitHub repo from the composer's ＋ first.",
+    "등록된 서버": "Registered servers",
+    "서버 추가": "Add a server",
+    "서버 이름": "Server name",
+    "실행 명령": "Command",
+    "인자 (공백으로 구분)": "Arguments (space-separated)",
+    "환경변수 (한 줄에 KEY=VALUE 하나씩)": "Environment variables (one KEY=VALUE per line)",
     "이 에이전트가 스스로 읽는 파일은 중복으로 붙이지 않습니다":
         "Files this agent already reads on its own aren't duplicated here",
     "변경 되돌리기": "Revert changes",

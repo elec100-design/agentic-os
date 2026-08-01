@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP {{ '서버' | t }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+</head>
+<body>
+<main class="page">
+<a class="back-link" href="/setup">{{ '← 에이전트 설정' | t }}</a>
+<h1 class="job-title">MCP {{ '서버' | t }}</h1>
+<p class="job-meta">
+  {{ '워크스페이스별로 claude 에만 연결됩니다 — 그 실행 한 번에만 적용되는 --mcp-config 를 지원하는 유일한 에이전트입니다. codex·gemini 는 전역 설정 파일에만 쓸 수 있어 워크스페이스 단위로 관리할 수 없습니다.' | t }}
+</p>
+
+{% if error %}<p class="mcp-error">{{ error }}</p>{% endif %}
+
+{% if not workspaces %}
+<p class="job-meta">{{ '등록된 작업 위치가 없습니다. 먼저 컴포저의 ＋ 에서 폴더나 GitHub 리포를 추가하세요.' | t }}</p>
+{% else %}
+
+<h2 class="section-label">{{ '등록된 서버' | t }}</h2>
+{% for ws in workspaces %}
+  {% set servers = servers_by_ws.get(ws['id'], []) %}
+  {% if servers %}
+  <div class="mcp-ws-group">
+    <h3 class="mcp-ws-name">📁 {{ ws['name'] }} <code>{{ ws['path'] }}</code></h3>
+    <ul class="mcp-server-list">
+      {% for s in servers %}
+      <li class="mcp-server-item">
+        <span class="mcp-server-name">{{ s['name'] }}</span>
+        <code class="mcp-server-cmd">{{ s['command'] }}{% if s['args'] %} {{ s['args'] | join(' ') }}{% endif %}</code>
+        <form method="post" action="/settings/mcp/{{ s['id'] }}/remove" class="mcp-remove-form">
+          <button type="submit" class="btn-ghost">{{ '삭제' | t }}</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+{% endfor %}
+
+<h2 class="section-label">{{ '서버 추가' | t }}</h2>
+<form method="post" action="/settings/mcp/add" class="mcp-add-form">
+  <label>{{ '작업 위치' | t }}
+    <select name="workspace_id" required>
+      {% for ws in workspaces %}<option value="{{ ws['id'] }}">{{ ws['name'] }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>{{ '서버 이름' | t }}
+    <input type="text" name="name" placeholder="예: filesystem" required>
+  </label>
+  <label>{{ '실행 명령' | t }}
+    <input type="text" name="command" placeholder="예: npx" required>
+  </label>
+  <label>{{ '인자 (공백으로 구분)' | t }}
+    <input type="text" name="args" placeholder="-y @modelcontextprotocol/server-filesystem /path">
+  </label>
+  <label>{{ '환경변수 (한 줄에 KEY=VALUE 하나씩)' | t }}
+    <textarea name="env" rows="3" placeholder="API_KEY=xxxx"></textarea>
+  </label>
+  <button type="submit" class="btn-primary">{{ '추가' | t }}</button>
+</form>
+{% endif %}
+
+</main>
+</body>
+</html>

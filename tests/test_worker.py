@@ -16,7 +16,7 @@ class FakeProvider:
         self.resume_at = resume_at
         self._session_id = session_id
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return self.cmd
 
     def parse_output(self, stdout, stderr, exit_code):
@@ -164,7 +164,7 @@ class PromptSpyProvider(FakeProvider):
         super().__init__(["sh", "-c", "echo ok"])
         self.sent = None
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         self.sent = prompt
         return self.cmd
 
@@ -353,3 +353,59 @@ async def test_run_job_records_no_instructions_when_workspace_has_none(tmp_env, 
     job = db.claim_next_job(conn)
     await worker.run_job(conn, job, providers={"fake": p}, save=False)
     assert db.get_job(conn, job["id"])["instructions_applied"] is None
+
+
+# --- MCP 서버 설정 주입 (app/mcp_servers.py) -------------------------------
+
+class _McpSpyProvider(FakeProvider):
+    """실제 claude 처럼 supports_mcp=True 를 선언하고, 받은 경로를 기록한다."""
+    supports_mcp = True
+
+    def __init__(self):
+        super().__init__(["sh", "-c", "echo ok"])
+        self.received_path = "unset"
+
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
+        self.received_path = mcp_config_path
+        return self.cmd
+
+
+async def test_run_job_passes_mcp_config_path_when_provider_supports_it(tmp_env, tmp_path):
+    from app import mcp_servers, workspace
+    ws = workspace.add_local("proj", str(tmp_path))
+    mcp_servers.add(ws["id"], "fs", "npx", ["-y", "server-fs"], {})
+
+    p = _McpSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+
+    assert p.received_path is not None
+    import json
+    data = json.loads(open(p.received_path).read())
+    assert "fs" in data["mcpServers"]
+
+
+async def test_run_job_passes_none_mcp_config_when_provider_lacks_support(tmp_env, tmp_path):
+    """FakeProvider 는 supports_mcp 를 선언하지 않는다 — MCP 서버가 등록돼
+    있어도 파일을 만들거나 넘기지 않아야 한다."""
+    from app import mcp_servers, workspace
+    ws = workspace.add_local("proj", str(tmp_path))
+    mcp_servers.add(ws["id"], "fs", "npx")
+
+    p = FakeProvider(["sh", "-c", "echo ok"])
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)  # 에러 없이 끝나야 함
+    assert db.get_job(conn, job["id"])["status"] == "done"
+
+
+async def test_run_job_mcp_config_path_none_when_no_servers_registered(tmp_env, tmp_path):
+    p = _McpSpyProvider()
+    conn = db.get_conn(config.DB_PATH)
+    db.create_job(conn, "테스트", "fake", workdir=str(tmp_path))
+    job = db.claim_next_job(conn)
+    await worker.run_job(conn, job, providers={"fake": p}, save=False)
+    assert p.received_path is None

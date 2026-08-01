@@ -22,7 +22,8 @@ from pydantic import BaseModel
 
 from app import (
     codexbar, config, council, db, github_cli, gitcheckpoint, health, i18n,
-    memory, models, orchestrator, settings, setup, stream_hub, workspace, worker,
+    mcp_servers, memory, models, orchestrator, settings, setup, stream_hub,
+    workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -255,6 +256,52 @@ def setup_page(request: Request):
          "council_members": config.COUNCIL_MEMBERS,
          "council_min": config.COUNCIL_MIN_MEMBERS},
     )
+
+
+def _mcp_settings_ctx(error=None):
+    workspaces = workspace.list_workspaces()
+    all_servers = mcp_servers.list_all()
+    servers_by_ws = {}
+    for s in all_servers:
+        servers_by_ws.setdefault(s["workspace_id"], []).append(s)
+    return {"workspaces": workspaces, "servers_by_ws": servers_by_ws, "error": error}
+
+
+@app.get("/settings/mcp", response_class=HTMLResponse)
+def mcp_settings_page(request: Request):
+    return templates.TemplateResponse(request, "mcp_settings.html", _mcp_settings_ctx())
+
+
+@app.post("/settings/mcp/add", response_class=HTMLResponse)
+def mcp_settings_add(
+    request: Request,
+    workspace_id: str = Form(...),
+    name: str = Form(...),
+    command: str = Form(...),
+    args: str = Form(""),
+    env: str = Form(""),
+):
+    arg_list = args.split()
+    env_map = {}
+    for line in env.splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip():
+            env_map[k.strip()] = v.strip()
+    try:
+        mcp_servers.add(workspace_id, name, command, arg_list, env_map)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "mcp_settings.html", _mcp_settings_ctx(error=str(e)), status_code=400)
+    return RedirectResponse("/settings/mcp", status_code=303)
+
+
+@app.post("/settings/mcp/{server_id}/remove")
+def mcp_settings_remove(server_id: str):
+    mcp_servers.remove(server_id)
+    return RedirectResponse("/settings/mcp", status_code=303)
 
 
 @app.get("/api/health")

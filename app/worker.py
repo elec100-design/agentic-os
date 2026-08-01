@@ -3,7 +3,10 @@ import json
 import os
 from datetime import datetime, timezone
 
-from app import config, db, gitcheckpoint, instructions, memory, stream_hub, workspace
+from app import (
+    config, db, gitcheckpoint, instructions, mcp_servers, memory, stream_hub,
+    workspace,
+)
 from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 
 # 실행 중인 단일 CLI 잡의 프로세스 (job_id -> proc). 병렬 실행되므로 잡별로
@@ -170,8 +173,14 @@ async def run_job(conn, job, providers=None, save=True):
     db.update_job(conn, job["id"],
                   instructions_applied=json.dumps(instr_applied) if instr_applied else None)
 
+    # 워크스페이스에 등록된 MCP 서버 — provider 가 지원할 때만(지금은 claude
+    # 뿐이다, app/mcp_servers.py 상단 주석 참고).
+    mcp_config_path = None
+    if getattr(provider, "supports_mcp", False):
+        mcp_config_path = mcp_servers.write_config_file(workdir)
+
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
-                                 model=job["model"])
+                                 model=job["model"], mcp_config_path=mcp_config_path)
     start = datetime.now(timezone.utc)
 
     # 승인 없이 워크스페이스에 직접 쓰는 잡이 많다(codex는 샌드박스까지 끔) —

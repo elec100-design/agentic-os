@@ -57,7 +57,7 @@ async def test_publish_targets_only_matching_job():
 class _EchoProvider:
     name = "fake"
 
-    def build_command(self, prompt, session_id=None, model=None):
+    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
         return ["sh", "-c", "printf 'chunk'"]
 
     def parse_output(self, stdout, stderr, exit_code):
