@@ -395,9 +395,12 @@ def test_auto_ranking_considers_every_enabled_cloud_agent():
     ranked = rank_auto_agents("복잡한 분석 보고서 작성", usage,
                               enabled=["claude", "codex", "antigravity", "gemini",
                                        "grok", "openclaw", "hermes"])
+    # hermes 는 사용량이 측정되지 않아(remaining=None) 실측값이 있는 에이전트
+    # 뒤로 밀리지만, 후보에서 빠지지는 않는다
+    # (test_auto_ranking_prefers_measured_usage_over_unknown_gateway_usage 참고).
     assert [name for name, _ in ranked] == [
         "openclaw", "grok", "gemini", "antigravity",
-        "codex", "claude",
+        "codex", "claude", "hermes",
     ]
 
 

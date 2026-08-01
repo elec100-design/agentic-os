@@ -717,7 +717,7 @@
         grabX: p.x, grabY: p.y, moved: false,
         // 모바일(tb)은 서버가 항상 한 줄 스택으로 다시 쌓으므로 옮겨도 제자리로
         // 돌아온다 — 끌기는 화면 이동에만 쓰고, 탭은 그대로 선택으로 둔다.
-        movable: node.dataset.editable === "1",
+        movable: node.dataset.editable === "1" && orientation() !== "tb",
         startX: e.clientX, startY: e.clientY,
         vx: view ? view.x : 0, vy: view ? view.y : 0,
       };
