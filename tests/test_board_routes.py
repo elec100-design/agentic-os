@@ -8,58 +8,14 @@ def _client(tmp_env):
     return TestClient(app)
 
 
-def test_board_page_renders(tmp_env):
+def test_board_page_redirects_to_dashboard(tmp_env):
+    """비전 보드 전용 페이지는 홈 대시보드로 흡수됐다 — 북마크만 살려 둔다."""
     with _client(tmp_env) as client:
-        r = client.get("/board")
-        assert r.status_code == 200
-        assert "Vision board" in r.text  # 기본 언어는 영어
-        # 메인 컴포저와 동일한 에이전트/모델 칩 마크업
-        assert 'id="agent-btn"' in r.text
-        assert 'id="model-btn"' in r.text
-        assert 'id="provider-input"' in r.text
-        assert 'id="model-input"' in r.text
-        assert 'id="agent-popup"' in r.text
-        assert 'id="model-popup"' in r.text
-        # 메인 챗과 동일한 작업 위치(로컬/GitHub) 피커·모달
-        assert 'id="workspace-picker"' in r.text
-        assert 'hx-get="/partials/workspaces"' in r.text
-        assert 'id="ws-modal"' in r.text
-        assert 'id="ws-modal-body"' in r.text
-        assert 'id="ws-modal-foot"' in r.text
-        assert 'id="ws-modal-close"' in r.text
-        assert 'data-tab="folder"' in r.text
-        assert 'data-tab="github"' in r.text
-        # 메인 챗과 동일한 첨부·도구 팝업(파일/메모리/타임아웃)
-        assert 'id="tools-btn"' in r.text
-        assert 'id="tools-popup"' in r.text
-        assert 'id="file-chips"' in r.text
-        assert 'name="files"' in r.text
-        assert 'name="attach_memory"' in r.text
-        assert 'name="timeout_min"' in r.text
-        assert 'enctype="multipart/form-data"' in r.text
-        assert "const MODELS" in r.text
-        assert "const AGENT_ORDER" in r.text
-        assert "const COUNCIL_ENABLED" in r.text
-        assert "/static/app.js" in r.text
-
-
-def test_board_page_includes_agent_selection_context(tmp_env, monkeypatch):
-    """비전 보드도 메인 인덱스와 동일한 provider_models/agent_order 컨텍스트를 받는다."""
-    from app import main
-    captured = {}
-    orig = main.templates.TemplateResponse
-
-    def spy(request, name, context=None, *a, **kw):
-        if name == "board.html":
-            captured.update(context or {})
-        return orig(request, name, context, *a, **kw)
-
-    monkeypatch.setattr(main.templates, "TemplateResponse", spy)
-    with _client(tmp_env) as client:
+        r = client.get("/board", follow_redirects=False)
+        assert r.status_code == 308
+        assert r.headers["location"] == "/"
+        # 실제로 따라가면 홈이 뜬다 (컴포저·프로젝트 목록이 여기 있다)
         assert client.get("/board").status_code == 200
-    assert "provider_models" in captured
-    assert "agent_order" in captured
-    assert "council_enabled" in captured
 
 
 def test_create_project_with_provider_and_model(tmp_env, monkeypatch):

@@ -1272,13 +1272,9 @@ body.orca-resizing .orca-project-main { pointer-events: none; }
     font-weight: 600;
   }
 
-  /* ── 터치 타깃/입력 확대 방지 ──────────────────────────────────────── */
+  /* ── 터치 타깃 ─────────────────────────────────────────────────────
+     입력 확대 방지(font-size:16px)는 style.css 가 모든 입력에 한꺼번에 건다. */
   .orca-rail-send { width: 44px; height: 44px; }
-  .orca-rail-composer textarea,
-  .orca-rail-agent-select,
-  .orca-log-picker select {
-    font-size: 16px;
-  }
   .orca-rail-tab { min-height: 44px; }
 }
 
@@ -1390,7 +1386,10 @@ body.orca-home .side-task-inspector .orca-task-context {
   gap: 0.3rem;
   margin-top: 0.35rem;
 }
-.vision-composer .composer-bar .spacer { flex: 1 1 auto; }
+/* 줄바꿈 컨테이너에서 flex 스페이서는 제 줄을 차지해 전송 버튼을 한 줄 더
+   아래로 밀어낸다 — 여백은 margin 으로 준다. */
+.vision-composer .composer-bar .spacer { display: none; }
+.vision-composer .composer-bar .send { margin-left: auto; }
 .vision-composer .cbar-chip { max-width: 8.5rem; font-size: 0.72rem; padding: 0.12rem 0.35rem; }
 .vision-composer .cbar-chip > span:not(.pill-caret) {
   overflow: hidden;
@@ -1401,7 +1400,6 @@ body.orca-home .side-task-inspector .orca-task-context {
 .vision-composer .file-chips { font-size: 0.72rem; }
 /* 팝업이 좁은 사이드바 밖으로 넘치지 않게 (placePopup이 뷰포트로 다시 잡아준다) */
 .vision-composer .cbar-popup { max-width: min(20rem, calc(100vw - 1.5rem)); }
-.vision-all-boards { display: inline-block; margin: 0.4rem 0 0; padding: 0.1rem 0.3rem; font-size: 0.72rem; }
 
 @media (min-width: 901px) {
   /* 300px — 태스크 인스펙터 폼(제목·설명·의존성·태스크 채팅)이 260px에서는 못 쓴다 */

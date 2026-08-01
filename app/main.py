@@ -1123,15 +1123,11 @@ def _project_progress(conn, projects):
     return rows
 
 
-@app.get("/board", response_class=HTMLResponse)
-def board_page(request: Request):
-    conn = db.get_conn()
-    return templates.TemplateResponse(
-        request, "board.html",
-        {"projects": _project_progress(conn, db.list_projects(conn)),
-         "provider_models": models.get_provider_models(),
-         "agent_order": settings.enabled_providers(),
-         "council_enabled": settings.council_available()})
+@app.get("/board")
+def board_page():
+    """비전 보드 전용 페이지는 홈 대시보드로 흡수됐다 — 좌측 사이드바에 같은
+    컴포저와 프로젝트 목록이 있다. 북마크가 깨지지 않게 리다이렉트만 남긴다."""
+    return RedirectResponse("/", status_code=308)
 
 
 _BOARD_TAB_KINDS = {"chat", "task", "workflow", "flow", "artifact", "diff", "preview"}
@@ -1377,7 +1373,7 @@ def delete_project_endpoint(project_id: int):
     if artifacts.is_dir():
         import shutil
         shutil.rmtree(artifacts, ignore_errors=True)
-    return RedirectResponse("/board", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 def _remove_project_artifacts(project_id):
@@ -1409,7 +1405,7 @@ def delete_cancelled_project_endpoint(project_id: int):
             detail="취소된 프로젝트만 삭제할 수 있습니다")
     db.delete_project(conn, project_id)
     _remove_project_artifacts(project_id)
-    return RedirectResponse("/board", status_code=303)
+    return RedirectResponse("/", status_code=303)
 
 
 # --- 다이어그램 편집 (n8n식 캔버스) ---

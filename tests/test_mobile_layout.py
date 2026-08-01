@@ -53,9 +53,11 @@ def test_mobile_composer_bar_clears_segment_control(tmp_env):
     assert re.search(
         r"\.orca-project-main\s*\{[^}]*padding-bottom:\s*var\(--orca-segctl-h\)", css)
 
-    # 터치 타깃/확대 방지 규칙 유지
+    # 터치 타깃 규칙 유지
     assert ".orca-rail-send { width: 44px; height: 44px; }" in css
-    assert "font-size: 16px" in css
+    # 입력 확대 방지는 style.css 가 모든 입력에 한꺼번에 건다
+    # (컴포넌트별로 두면 새 입력창이 생길 때 빠진다 — test_task_sidebar_mobile 참고)
+    assert "font-size: 16px !important;" in Path("static/style.css").read_text(encoding="utf-8")
 
     # 겹침 계산: --orca-segctl-h ≈ 44px(버튼) + 0.8rem(상하 패딩, 16px 루트 기준 12.8px)
     # + 1px(border-top) + safe-area(브라우저 시뮬레이션에서는 0) = 57.8px.

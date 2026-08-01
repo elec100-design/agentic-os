@@ -285,14 +285,6 @@ EN = {
 
     # --- 비전 보드 ---
     "비전 보드": "Vision board",
-    "← 비전 보드": "← Vision board",
-    "목표를 주면 메인 에이전트가 태스크로 분해하고, 승인 후 하위 에이전트들이 끝까지 완성합니다.":
-        "Give a goal — the main agent breaks it into tasks, and after approval "
-        "sub-agents carry it to completion.",
-    "프로젝트 목표를 설명해 주세요… 예: 신제품 소개 랜딩페이지 문구와 히어로 이미지를 만들어줘":
-        "Describe your project goal… e.g. write landing-page copy and a hero image "
-        "for our new product",
-    "프로젝트 시작": "Start project",
     "프로젝트": "Projects",
     "아직 프로젝트가 없습니다. 위에서 첫 목표를 보내 보세요.":
         "No projects yet. Send your first goal above.",
@@ -362,7 +354,6 @@ EN = {
     # 홈 대시보드 재구성 — 좌: 비전보드, 우: 작업 편집
     "작업 편집": "Edit task",
     "비전 보드로 만들 목표를 적어 주세요…": "Describe a goal to turn into a vision board…",
-    "전체 보드": "All boards",
     "비전 보드를 만들지 못했습니다.": "Could not create the vision board.",
     "아직 진행 중입니다 — 끝나면 여기서 이어서 지시할 수 있어요.":
         "Still running — you can send a follow-up here once it finishes.",
