@@ -405,19 +405,7 @@ EN = {
 
     # --- 채널: 사이드바 네비게이션 / 채널 상세 페이지 ---
     "채널": "Channels",
-    "새 채널": "New channel",
-    "새 채널 만들기": "Create a channel",
-    "채널 이름": "Channel name",
-    "예: 결제 리팩터링": "e.g. Payment refactor",
-    "주제 (선택)": "Topic (optional)",
-    "이 채널에서 다룰 작업을 짧게 설명": "Briefly describe what this channel is for",
-    "주제별로 대화를 이어가며 답장으로 세션을 유지할 수 있어요":
-        "Keep a topic-focused conversation going — replies keep the same session alive",
     "만들기": "Create",
-    "채널 이름을 입력하세요": "Enter a channel name",
-    "채널을 만들지 못했습니다": "Couldn't create the channel",
-    "아직 채널이 없습니다. + 를 눌러 만들어 보세요.": "No channels yet. Tap + to create one.",
-    "진행 중인 세션": "Active session",
     "이 채널에 새 주제로 말을 걸어보세요…": "Start a new topic in this channel…",
     "답장…": "Reply…",
     "전송하지 못했습니다": "Couldn't send",

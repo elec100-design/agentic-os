@@ -1,0 +1,23 @@
+{#- 노트를 대시보드 중앙 탭으로 여는 조각.
+    innerHTML 로 꽂히므로 <script> 는 실행되지 않는다 — 마크다운 원문은
+    application/json 으로 실어 보내고 home.js 의 note 로더가 렌더한다. -#}
+<article class="note-view">
+  <header class="note-view-head">
+    <h1 class="job-title">
+      {{ note['name'] }}
+      {% if note['provider'] %}<span class="job-meta provider-name">{{ note['provider'] }}</span>{% endif %}
+    </h1>
+    <a class="note-view-open" href="/note?path={{ note['path'] | urlencode }}"
+       title="{{ '전체 페이지로 열기 (이어서 진행하기 포함)' | t }}">{{ '전체 페이지로 열기' | t }}</a>
+  </header>
+
+  {% if turns %}
+  <div class="chat-thread" data-note-thread></div>
+  {% else %}
+  <div class="md-body" data-note-body></div>
+  {% endif %}
+
+  <script type="application/json" data-note-data>
+    {{ {'turns': turns, 'body': note['body'], 'agent': note['provider'] or 'agent'} | tojson }}
+  </script>
+</article>

@@ -71,3 +71,57 @@ def test_home_js_opens_project_cards_and_vision_chat_as_tabs():
     assert '.project-card[href^="/projects/"]' in HOME_JS
     assert 'id="vision-composer"' in Path("templates/index.html").read_text(encoding="utf-8")
     assert 'headers: { Accept: "application/json" }' in HOME_JS
+
+
+# ─── 노트 탭 ───────────────────────────────────────────────────────────
+# 우측 레일 '노트'의 노트도 작업·보드처럼 중앙 탭으로 연다. refId 가 숫자가
+# 아니라 파일 경로라 탭 시스템이 문자열 id 를 견뎌야 한다.
+
+def _write_note(body="## 프롬프트\n안녕\n\n## 결과\n반가워요\n"):
+    from app import config
+    config.MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    p = config.MEMORY_DIR / "탭 테스트 노트.md"
+    p.write_text("---\nprovider: claude\n---\n\n" + body, encoding="utf-8")
+    return str(p)
+
+
+def test_note_partial_renders_thread_data(completed_setup):
+    path = _write_note()
+    with _client() as client:
+        r = client.get("/partials/note", params={"path": path})
+        assert r.status_code == 200
+        # 조각은 innerHTML 로 꽂히므로 인라인 스크립트 대신 JSON 으로 싣는다
+        assert "data-note-data" in r.text
+        assert "data-note-thread" in r.text
+        assert "application/json" in r.text
+        # 전체 페이지(이어서 진행하기 포함)로 가는 탈출구
+        assert "/note?path=" in r.text
+
+
+def test_note_partial_falls_back_to_body_when_not_a_thread(completed_setup):
+    path = _write_note("그냥 평범한 메모입니다.\n")
+    with _client() as client:
+        r = client.get("/partials/note", params={"path": path})
+        assert r.status_code == 200
+        assert "data-note-body" in r.text
+        assert "data-note-thread" not in r.text
+
+
+def test_note_partial_head_probe_and_404(completed_setup):
+    path = _write_note()
+    with _client() as client:
+        # 탭 복원 시 살아 있는지 확인하는 probe
+        assert client.head("/partials/note", params={"path": path}).status_code == 200
+        assert client.get("/partials/note", params={"path": "/없는/노트.md"}).status_code == 404
+
+
+def test_home_js_opens_notes_as_tabs():
+    home = Path("static/home.js").read_text(encoding="utf-8")
+    assert "note: {" in home, "note 로더가 없다"
+    assert "/partials/note?path=" in home
+    # 노트 refId 는 파일 경로 — 숫자로 강제 변환하면 탭이 깨진다
+    assert "textRef: true" in home
+    assert 'LOADERS[kind]?.textRef ? String(spec.refId) : +spec.refId' in home
+    # 레일의 노트 링크를 가로채 페이지 이동 대신 탭으로 연다
+    assert '.note-link[href^="/note?path="]' in home
+    assert 'openTab({ kind: "note"' in home
