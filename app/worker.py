@@ -1,8 +1,9 @@
 import asyncio
+import json
 import os
 from datetime import datetime, timezone
 
-from app import config, db, memory, stream_hub, workspace
+from app import config, db, gitcheckpoint, memory, stream_hub, workspace
 from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 
 # 실행 중인 단일 CLI 잡의 프로세스 (job_id -> proc). 병렬 실행되므로 잡별로
@@ -157,6 +158,13 @@ async def run_job(conn, job, providers=None, save=True):
                 break
         if not os.path.isdir(workdir):
             workdir = None
+
+    # 승인 없이 워크스페이스에 직접 쓰는 잡이 많다(codex는 샌드박스까지 끔) —
+    # 무엇이 바뀌었는지 실제 git diff 로 보여주고 되돌릴 수 있게, 시작 시점을
+    # 찍어 둔다. 시작할 때 이미 지저분한 워크스페이스는 "이 실행이 바꾼 것"과
+    # "원래 사용자가 고치던 것"을 구분할 수 없어 대상에서 뺀다(capture 참고).
+    checkpoint = await gitcheckpoint.capture(workdir)
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -214,8 +222,12 @@ async def run_job(conn, job, providers=None, save=True):
     except asyncio.TimeoutError:
         proc.kill()
         await proc.wait()
+        # 죽이기 전에 파일을 이미 고쳤을 수 있다 — 타임아웃이어도 diff는 남긴다.
+        if checkpoint.get("available"):
+            diff = await gitcheckpoint.diff_since(workdir, checkpoint)
+            checkpoint = {**checkpoint, **diff}
         db.update_job(conn, job["id"], status="failed", error="timeout",
-                      finished_at=db.now_iso())
+                      finished_at=db.now_iso(), git_run=json.dumps(checkpoint))
         db.log_usage(conn, provider.name, timeout, "failed", job["id"])
         return
     finally:
@@ -230,6 +242,13 @@ async def run_job(conn, job, providers=None, save=True):
     if fresh["status"] == "failed" and fresh["error"] == "cancelled":
         return
 
+    # 실행 도중 프로세스가 죽었더라도(rate limit·오류) 파일은 이미 바뀌었을 수
+    # 있으므로, 아래 세 갈래(rate_limited/failed/done) 모두에 diff 를 남긴다.
+    if checkpoint.get("available"):
+        diff = await gitcheckpoint.diff_since(workdir, checkpoint)
+        checkpoint = {**checkpoint, **diff}
+    git_run = json.dumps(checkpoint)
+
     result = provider.parse_output(stdout, stderr, proc.returncode)
     resume_at = provider.detect_rate_limit(stdout + "\n" + stderr, proc.returncode)
 
@@ -238,6 +257,7 @@ async def run_job(conn, job, providers=None, save=True):
             conn, job["id"], status="rate_limited",
             resume_at=resume_at.isoformat(timespec="seconds"),
             session_id=result.session_id or job["session_id"],
+            git_run=git_run,
         )
         db.log_usage(conn, provider.name, duration, "rate_limited", job["id"])
         return
@@ -245,14 +265,14 @@ async def run_job(conn, job, providers=None, save=True):
     if proc.returncode != 0:
         db.update_job(conn, job["id"], status="failed",
                       error=(stderr or f"exit {proc.returncode}")[-2000:],
-                      finished_at=db.now_iso())
+                      finished_at=db.now_iso(), git_run=git_run)
         db.log_usage(conn, provider.name, duration, "failed", job["id"])
         return
 
     db.update_job(
         conn, job["id"], status="done", output=result.text,
         session_id=result.session_id or job["session_id"],
-        finished_at=db.now_iso(),
+        finished_at=db.now_iso(), git_run=git_run,
     )
     db.log_usage(conn, provider.name, duration, "ok", job["id"])
 

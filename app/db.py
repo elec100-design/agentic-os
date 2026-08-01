@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   timeout_sec INTEGER,
   note_path TEXT,
   workdir TEXT,
+  git_run TEXT,
   created_at TEXT NOT NULL,
   started_at TEXT,
   finished_at TEXT
@@ -200,6 +201,11 @@ def _migrate(conn):
     for col in ("model", "note_path", "workdir", "route_reason"):
         if col not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} TEXT")
+    # git 체크포인트/diff/되돌리기 — app/gitcheckpoint.py 가 채우는 JSON 한 덩이.
+    # {"available":bool, "reason"?:str, "before_sha"?:str, "stat"?:str,
+    #  "files"?:[...], "patch"?:str, "reverted_at"?:str}
+    if "git_run" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN git_run TEXT")
     # 채널/메시지 계층에서 잡을 역참조하기 위한 링크 (채널 기능 도입 전 잡에는 NULL)
     for col in ("channel_id", "message_id"):
         if col not in cols:

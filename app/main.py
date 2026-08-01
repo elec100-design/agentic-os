@@ -21,8 +21,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import (
-    codexbar, config, council, db, github_cli, health, i18n, memory, models,
-    orchestrator, settings, setup, stream_hub, workspace, worker,
+    codexbar, config, council, db, github_cli, gitcheckpoint, health, i18n,
+    memory, models, orchestrator, settings, setup, stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -801,6 +801,7 @@ def _job_view_ctx(job, embed_followup=True):
              if job["message_id"] else db.list_job_steps(conn, job["id"]))
     return {"job": job, "thread": thread,
             "steps": [s for s in steps if s["kind"] != "output_chunk"],
+            "git_run": gitcheckpoint.summarize(job["git_run"]),
             "can_resume": can_resume, "can_follow_up": can_follow_up,
             "embed_followup": embed_followup}
 
@@ -823,6 +824,31 @@ def cancel_job(job_id: int):
                   finished_at=db.now_iso())
     worker.terminate_job_procs(job_id)
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/jobs/{job_id}/git-revert")
+async def revert_job_git_changes(job_id: int):
+    """이 잡이(커밋 없이) 워크스페이스에 남긴 변경을 실행 전 상태로 되돌린다.
+
+    승인 없이 파일을 고치는 잡이 많아 만든 안전판이다 — 사용자가 명시적으로
+    눌러야만 되돌아간다(자동 실행 안 함). 체크포인트가 없거나 이미 되돌렸으면
+    400으로 이유를 알린다.
+    """
+    conn = db.get_conn()
+    job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
+    checkpoint = gitcheckpoint.summarize(job["git_run"])
+    if not checkpoint or not checkpoint.get("available"):
+        raise HTTPException(status_code=400, detail="되돌릴 체크포인트가 없습니다")
+    if checkpoint.get("reverted_at"):
+        raise HTTPException(status_code=400, detail="이미 되돌렸습니다")
+    ok, message = await gitcheckpoint.revert(job["workdir"], checkpoint)
+    if not ok:
+        raise HTTPException(status_code=400, detail=message)
+    checkpoint["reverted_at"] = db.now_iso()
+    db.update_job(conn, job_id, git_run=json.dumps(checkpoint))
+    return {"ok": True, "message": message}
 
 
 @app.get("/jobs/{job_id}/stream")

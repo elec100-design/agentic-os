@@ -16,6 +16,7 @@ window.mountJobView = function mountJobView(root, onFinish) {
 
   renderThread(root);
   wireFollowUp(root, jobId);
+  wireGitRevert(root, jobId);
 
   // 스트리밍 중에는 원시 텍스트를 누적하고, 프레임마다 전체를 다시 렌더한다.
   let raw = src ? src.textContent : "";
@@ -62,6 +63,42 @@ function renderThread(root) {
     window.renderMarkdown?.(bubble, turn.content);
   }
   thread.insertBefore(frag, holder.nextSibling);
+}
+
+// git 체크포인트 되돌리기 — 승인 없이 워크스페이스에 직접 쓰는 잡이 많아 만든
+// 안전판. 자동으로는 절대 실행되지 않고, 사용자가 버튼을 눌러야만 되돌아간다.
+function wireGitRevert(root, jobId) {
+  const btn = root.querySelector(".git-revert-btn");
+  if (!btn) return;
+  const errEl = root.querySelector(".git-diff-error");
+  btn.addEventListener("click", async () => {
+    const msg = btn.dataset.confirm || "되돌릴까요?";
+    if (!confirm(msg)) return;
+    btn.disabled = true;
+    if (errEl) errEl.hidden = true;
+    try {
+      const res = await fetch(`/jobs/${jobId}/git-revert`, {
+        method: "POST", headers: { Accept: "application/json" },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+      // 되돌리기 액션을 "되돌렸습니다" 표시로 바꾼다 — 전체 패널을 다시 그릴
+      // 필요 없이 이 자리만 갱신한다.
+      const actions = root.querySelector(".git-diff-actions");
+      if (actions) {
+        const p = document.createElement("p");
+        p.className = "git-diff-reverted";
+        p.textContent = "↩ " + ((typeof t === "function") ? t("되돌렸습니다") : "되돌렸습니다");
+        actions.replaceWith(p);
+      }
+    } catch (e) {
+      btn.disabled = false;
+      if (errEl) {
+        errEl.textContent = e.message;
+        errEl.hidden = false;
+      }
+    }
+  });
 }
 
 // "이어서 작업" 컴포저 — 페이지를 떠나지 않고 후속 작업을 만든다. 홈에서는

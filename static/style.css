@@ -1560,6 +1560,40 @@ h2.section-label {
 }
 .run-step.step-error .run-step-title { color: var(--err); font-weight: 500; }
 
+/* ---- git 체크포인트 diff (진짜 git diff — 색만 입힌 평문 아님) ---- */
+.git-diff { margin: 1rem 0 0; }
+.git-diff > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  list-style: none;
+}
+.git-diff > summary::-webkit-details-marker { display: none; }
+.git-diff > summary::before { content: "▾"; color: var(--muted); }
+.git-diff:not([open]) > summary::before { content: "▸"; }
+.git-diff-stat {
+  margin: 0.5rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  background: var(--surface);
+  border: none;
+  white-space: pre-wrap;
+}
+.git-diff-actions { display: flex; align-items: center; gap: 0.6rem; margin: 0.5rem 0 0; }
+.git-diff-error { color: var(--err); font-size: 0.8rem; }
+.git-diff-reverted { color: var(--muted); font-size: 0.82rem; margin: 0.5rem 0 0; }
+.git-diff-patch {
+  margin: 0.6rem 0 0;
+  font-size: 0.72rem;
+  background: var(--surface);
+  border: none;
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 /* ---- 자동 라우팅 이유 표시 ---- */
 .route-reason {
   margin: 0.3rem 0 0.6rem;
