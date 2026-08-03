@@ -916,6 +916,19 @@ def cancel_job(job_id: int):
     return RedirectResponse("/", status_code=303)
 
 
+@app.post("/jobs/{job_id}/rename")
+def rename_job(job_id: int, title: str = Form("")):
+    """채팅 세션(작업)에 사용자가 붙인 이름을 저장한다.
+
+    빈 문자열이면 이름을 지워 프롬프트를 다시 제목으로 쓴다."""
+    conn = db.get_conn()
+    if db.get_job(conn, job_id) is None:
+        raise HTTPException(status_code=404)
+    title = title.strip()[:120]
+    db.update_job(conn, job_id, title=title or None)
+    return {"ok": True, "title": title}
+
+
 @app.post("/jobs/{job_id}/git-revert")
 async def revert_job_git_changes(job_id: int):
     """이 잡이(커밋 없이) 워크스페이스에 남긴 변경을 실행 전 상태로 되돌린다.

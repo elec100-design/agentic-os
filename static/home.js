@@ -157,47 +157,6 @@
         return () => { clearInterval(timer); unmount?.(); };
       },
     },
-    note: {
-      icon: "📝",
-      // refId 가 파일 경로라 숫자로 바꾸면 안 된다
-      textRef: true,
-      defaultTitle: (path) => String(path).split("/").pop().replace(/\.md$/, ""),
-      probe: (path) => fetch(`/partials/note?path=${encodeURIComponent(path)}`,
-                             { method: "HEAD" }),
-      async mount(panel, tb) {
-        const res = await fetch(`/partials/note?path=${encodeURIComponent(tb.refId)}`);
-        if (!res.ok) throw new Error(res.status === 404
-          ? tt("노트를 찾을 수 없습니다.") : `HTTP ${res.status}`);
-        panel.innerHTML = await res.text();
-        // 조각은 innerHTML 로 꽂히므로 인라인 스크립트가 실행되지 않는다 —
-        // 마크다운 원문을 JSON 으로 받아 여기서 렌더한다(note.html과 같은 모양).
-        const holder = panel.querySelector("[data-note-data]");
-        if (!holder || !window.renderMarkdown) return null;
-        let data;
-        try { data = JSON.parse(holder.textContent); } catch (e) { return null; }
-        const thread = panel.querySelector("[data-note-thread]");
-        if (thread && data.turns?.length) {
-          const en = window.LANG === "en";
-          for (const turn of data.turns) {
-            const row = document.createElement("div");
-            row.className = "chat-turn " + turn.role;
-            const role = document.createElement("div");
-            role.className = "chat-role";
-            const nth = turn.turn > 1 ? (en ? " · #" + turn.turn : " · " + turn.turn + "차") : "";
-            role.textContent = (turn.role === "user" ? tt("나") : data.agent) + nth;
-            const bubble = document.createElement("div");
-            bubble.className = "chat-bubble md-body";
-            row.append(role, bubble);
-            thread.appendChild(row);
-            window.renderMarkdown(bubble, turn.content);
-          }
-        } else {
-          const body = panel.querySelector("[data-note-body]");
-          if (body) window.renderMarkdown(body, data.body);
-        }
-        return null;
-      },
-    },
   };
 
   async function loadPanel(tb) {
@@ -218,8 +177,7 @@
 
   function openTab(spec) {
     const kind = spec.kind || "job";
-    // 작업·보드는 숫자 id, 노트는 파일 경로다 — 로더가 종류를 알려 준다.
-    const refId = LOADERS[kind]?.textRef ? String(spec.refId) : +spec.refId;
+    const refId = +spec.refId;
     const tabId = tabKey(kind, refId);
     let tb = findTab(tabId);
     if (!tb) {
@@ -315,8 +273,18 @@
         prompt: link?.textContent.trim() || "",
         status: badge?.textContent.trim() || "",
         provider: tr.querySelector(".provider-name")?.textContent.trim() || "",
+        // 표에 열이 없는 값은 조각이 데이터 속성으로 실어 보낸다(partials/jobs.html)
+        title: tr.dataset.title || "",
+        workdir: tr.dataset.workdir || "",
+        created: tr.dataset.created || "",
       };
     }).filter((j) => j.id);
+  }
+
+  // 사용자가 이름을 붙였으면 그 이름이, 아니면 프롬프트가 세션 제목이다.
+  function chatLabel(j) { return j.title || j.prompt; }
+  function projectName(workdir) {
+    return workdir ? workdir.split("/").filter(Boolean).pop() : tt("작업 위치 없음");
   }
 
   const countsEl = document.getElementById("statusbar-counts");
@@ -343,7 +311,8 @@
     tabs.filter((tb) => tb.kind === "job").forEach((tb) => {
       const j = byId.get(tb.refId);
       if (!j) return;
-      const title = j.prompt ? `#${j.id} ${j.prompt}` : `${tt("작업")} #${j.id}`;
+      const label = chatLabel(j);
+      const title = label ? `#${j.id} ${label}` : `${tt("작업")} #${j.id}`;
       if (tb.status !== j.status || tb.title !== title) {
         tb.status = j.status;
         tb.title = title;
@@ -355,28 +324,166 @@
     renderChatBubbles(jobs);
   }
 
+  // ── 채팅 목록 — 검색 / 정렬(시간순·프로젝트별) / 이름 변경 ────────────
+  const chatSearch = document.getElementById("home-chat-search");
+  const LS_CHAT_SORT = "aos-home-chat-sort";
+  const LS_CHAT_CLOSED = "aos-home-chat-closed-groups";
+  let chatQuery = "";
+  let chatSort = "time";
+  // 이름을 고치는 동안에는 3초 폴링이 입력칸을 지우면 안 된다.
+  let renamingId = null;
+
+  function closedGroups() {
+    try { return new Set(JSON.parse(localStorage.getItem(LS_CHAT_CLOSED)) || []); }
+    catch (e) { return new Set(); }
+  }
+  function saveClosedGroups(set) {
+    try { localStorage.setItem(LS_CHAT_CLOSED, JSON.stringify([...set])); }
+    catch (e) { /* ignore */ }
+  }
+
+  function bubbleHtml(j, activeJob, withProject) {
+    const project = withProject && j.workdir
+      ? ` · 📁 ${escapeHtml(projectName(j.workdir))}` : "";
+    return `<div class="orca-chat-row" data-chat-row="${j.id}">
+      <button type="button" class="orca-chat-bubble${j.id === activeJob ? " active" : ""}" data-job-id="${j.id}">
+        <span class="orca-chat-bubble-text">${escapeHtml(chatLabel(j))}</span>
+        <span class="orca-chat-bubble-meta">
+          <span class="orca-tab-status-dot status-${STATUS_MAP[j.status] || "pending"}"></span>
+          ${escapeHtml(j.provider)}${project}
+        </span>
+      </button>
+      <button type="button" class="orca-chat-rename" data-rename-job="${j.id}"
+              title="${tt("이름 변경")}" aria-label="${tt("이름 변경")}">✎</button>
+    </div>`;
+  }
+
   // 최근 요청을 채팅 말풍선으로 되비춘다 — 클릭하면 중앙 탭으로 열린다.
   function renderChatBubbles(jobs) {
-    if (!chatScroll) return;
+    if (!chatScroll || renamingId !== null) return;
     if (!jobs.length) {
       chatScroll.innerHTML = `<p class="orca-muted orca-chat-hint">${tt("아직 작업이 없습니다. 아래에서 첫 작업을 보내 보세요.")}</p>`;
       return;
     }
+    const q = chatQuery.trim().toLowerCase();
+    const hits = q
+      ? jobs.filter((j) => [chatLabel(j), j.provider, j.workdir]
+          .join(" ").toLowerCase().includes(q))
+      : jobs;
+    if (!hits.length) {
+      chatScroll.innerHTML = `<p class="orca-muted orca-chat-hint">${tt("검색 결과가 없습니다")}</p>`;
+      return;
+    }
     const atBottom = chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < 40;
     const activeJob = activeJobId();
-    // 서버는 최신순(id DESC)으로 준다 — 대화처럼 위→아래 시간순으로 뒤집는다.
-    chatScroll.innerHTML = [...jobs].reverse().map((j) => `
-      <button type="button" class="orca-chat-bubble${j.id === activeJob ? " active" : ""}" data-job-id="${j.id}">
-        <span class="orca-chat-bubble-text">${escapeHtml(j.prompt)}</span>
-        <span class="orca-chat-bubble-meta">
-          <span class="orca-tab-status-dot status-${STATUS_MAP[j.status] || "pending"}"></span>
-          ${escapeHtml(j.provider)}
-        </span>
-      </button>`).join("");
-    if (atBottom) chatScroll.scrollTop = chatScroll.scrollHeight;
+    // 서버는 최신순으로 준다 — 대화처럼 위→아래 작업시간순(오래된 것이 위)으로 세운다.
+    const byTime = [...hits].sort((a, b) =>
+      (a.created < b.created ? -1 : a.created > b.created ? 1 : a.id - b.id));
+
+    if (chatSort === "time") {
+      chatScroll.innerHTML = byTime.map((j) => bubbleHtml(j, activeJob, true)).join("");
+      if (atBottom) chatScroll.scrollTop = chatScroll.scrollHeight;
+      return;
+    }
+
+    // 프로젝트(작업 위치)별 묶음 — 최근에 움직인 프로젝트가 위로 온다.
+    const groups = new Map();
+    byTime.forEach((j) => {
+      const key = j.workdir || "";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(j);
+    });
+    const closed = closedGroups();
+    // 각 묶음은 이미 시간순이므로 마지막 항목이 그 프로젝트의 최근 작업이다.
+    const last = (items) => items[items.length - 1];
+    const ordered = [...groups.entries()].sort(
+      (a, b) => (last(a[1]).created < last(b[1]).created ? 1 : -1));
+    chatScroll.innerHTML = ordered.map(([key, items]) => `
+      <div class="orca-chat-group${closed.has(key) ? "" : " open"}" data-chat-group="${escapeHtml(key)}">
+        <button type="button" class="orca-chat-group-toggle">
+          <svg class="chev" viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>
+          <span class="orca-chat-group-name">${escapeHtml(projectName(key))}</span>
+          <span class="orca-chat-group-count">${items.length}</span>
+        </button>
+        <div class="orca-chat-group-body">
+          <div class="orca-chat-group-items">
+            ${items.map((j) => bubbleHtml(j, activeJob, false)).join("")}
+          </div>
+        </div>
+      </div>`).join("");
+  }
+
+  function setChatSort(mode) {
+    chatSort = mode;
+    document.querySelectorAll("[data-chat-sort]").forEach(
+      (b) => b.classList.toggle("active", b.dataset.chatSort === mode));
+    try { localStorage.setItem(LS_CHAT_SORT, mode); } catch (e) { /* ignore */ }
+    renderChatBubbles(readJobs());
+  }
+  document.querySelectorAll("[data-chat-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => setChatSort(btn.dataset.chatSort));
+  });
+  try {
+    const saved = localStorage.getItem(LS_CHAT_SORT);
+    if (saved === "project" || saved === "time") setChatSort(saved);
+  } catch (e) { /* ignore */ }
+
+  chatSearch?.addEventListener("input", () => {
+    chatQuery = chatSearch.value;
+    renderChatBubbles(readJobs());
+  });
+
+  // 말풍선을 이름 입력칸으로 바꿔 그 자리에서 고친다.
+  async function startRename(jobId) {
+    const row = chatScroll?.querySelector(`[data-chat-row="${jobId}"]`);
+    if (!row) return;
+    const current = row.querySelector(".orca-chat-bubble-text")?.textContent.trim() || "";
+    renamingId = jobId;
+    row.innerHTML = `<input type="text" class="orca-chat-rename-input" maxlength="120">`;
+    const input = row.firstElementChild;
+    input.value = current;
+    input.focus();
+    input.select();
+    let settled = false;
+    const finish = async (save) => {
+      if (settled) return;
+      settled = true;
+      const value = input.value.trim();
+      renamingId = null;
+      if (save && value !== current) {
+        try {
+          await fetch(`/jobs/${jobId}/rename`, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ title: value }),
+          });
+          // 다음 폴링(3초)을 기다리지 않도록 큐 조각의 값도 지금 맞춰 둔다.
+          const tr = [...(jobsPanel?.querySelectorAll("tbody tr") || [])].find(
+            (row) => +(row.querySelector(".job-id")?.textContent.trim() || 0) === jobId);
+          if (tr) tr.dataset.title = value;
+        } catch (e) { /* 실패하면 다음 폴링에서 원래 이름으로 돌아온다 */ }
+      }
+      syncFromJobsTable();
+    };
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener("blur", () => finish(true));
   }
 
   chatScroll?.addEventListener("click", (e) => {
+    const rename = e.target.closest("[data-rename-job]");
+    if (rename) { startRename(+rename.dataset.renameJob); return; }
+    const toggle = e.target.closest(".orca-chat-group-toggle");
+    if (toggle) {
+      const group = toggle.closest(".orca-chat-group");
+      const opened = group.classList.toggle("open");
+      const closed = closedGroups();
+      opened ? closed.delete(group.dataset.chatGroup) : closed.add(group.dataset.chatGroup);
+      saveClosedGroups(closed);
+      return;
+    }
     const bubble = e.target.closest(".orca-chat-bubble");
     if (bubble) openTab({ kind: "job", refId: bubble.dataset.jobId });
   });
@@ -404,21 +511,12 @@
     });
   });
 
-  // 우측 레일 '노트' 탭의 노트도 페이지 이동 대신 중앙 탭으로 연다.
-  // 조각이 htmx로 계속 갈리므로 컨테이너에 위임해 둔다.
-  const notesPanel = document.getElementById("memory");
-  notesPanel?.addEventListener("click", (e) => {
-    const link = e.target.closest('.note-link[href^="/note?path="]');
-    if (!link || e.metaKey || e.ctrlKey || e.shiftKey) return;
-    e.preventDefault();
-    const path = new URL(link.href, location.origin).searchParams.get("path");
-    if (!path) return;
-    openTab({ kind: "note", refId: path, title: link.textContent.trim() });
-  });
-
   // ── 작업 인스펙터(우측 레일) — 중앙 작업 탭의 후속 지시는 여기서 보낸다 ──
   // 중앙 탭은 결과·로그 전용이고(embed_followup=False), 편집은 레일이 맡는다.
   const jobInspector = document.getElementById("home-job-inspector");
+
+  // 레일 헤더 문구 — '작업'은 탭 버튼이 없는 프로그램 전용 패널이라 여기서만 티가 난다.
+  const RAIL_TITLES = { job: "작업 편집", task: "태스크", projects: "프로젝트" };
 
   function showRailPanel(name) {
     if (!rail) return;
@@ -426,9 +524,8 @@
       (b) => b.classList.toggle("active", b.dataset.railTab === name));
     rail.querySelectorAll("[data-rail-panel]").forEach(
       (p) => { p.hidden = p.dataset.railPanel !== name; });
-    // '작업'은 탭 버튼이 없는 프로그램 전용 패널이라 헤더 문구로 상태를 알린다.
     const title = rail.querySelector(".orca-rail-title");
-    if (title) title.textContent = name === "job" ? tt("작업 편집") : tt("에이전트");
+    if (title) title.textContent = tt(RAIL_TITLES[name] || "에이전트");
   }
 
   async function loadJobInspector(jobId) {
@@ -458,20 +555,22 @@
     if (!tabs.length) loadJobInspector(null);
   });
 
-  // ── 태스크 인스펙터 — 중앙 워크플로우의 노드를 클릭하면 좌측이 편집창이 된다 ──
-  const sidebar = document.querySelector("aside.sidebar");
+  // ── 태스크 인스펙터 — 중앙 워크플로우의 노드를 클릭하면 우측 레일에 전용
+  //    '태스크' 탭이 생기고 그 탭이 레일을 통째로 쓴다(프로젝트 목록·컴포저와 자리를
+  //    나눠 쓰지 않는다). 탭 버튼은 태스크가 선택돼 있는 동안만 보인다.
   const inspectorBox = document.getElementById("home-task-inspector");
   const inspectorBack = document.getElementById("home-inspector-back");
+  const taskTabBtn = document.getElementById("home-rail-task-tab");
   const taskInspector = inspectorBox && window.mountTaskInspector?.(inspectorBox, {
     onOpen: () => {
-      inspectorBox.hidden = false;
-      sidebar?.classList.add("has-inspector");
-      // 좁은 화면에서 사이드바는 서랍이다 — 열어 주지 않으면 편집창이 화면 밖에 뜬다.
-      if (window.innerWidth < 901) document.body.classList.add("nav-open");
+      if (taskTabBtn) taskTabBtn.hidden = false;
+      showRailPanel("task");
+      // 좁은 화면에서 레일은 오프캔버스다 — 열어 주지 않으면 편집창이 화면 밖에 뜬다.
+      if (isNarrow()) openRailOverlay();
     },
     onClose: () => {
-      inspectorBox.hidden = true;
-      sidebar?.classList.remove("has-inspector");
+      if (taskTabBtn) taskTabBtn.hidden = true;
+      if (!inspectorBox.hidden) showRailPanel("projects");
     },
     onBoardChanged: (projectId) => document.body.dispatchEvent(
       new CustomEvent("orca-refresh-board", { detail: { projectId } })),
@@ -542,13 +641,7 @@
   function isNarrow() { return window.innerWidth < 1024; }
 
   rail?.querySelectorAll("[data-rail-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const name = btn.dataset.railTab;
-      rail.querySelectorAll("[data-rail-tab]").forEach((b) => b.classList.toggle("active", b === btn));
-      rail.querySelectorAll("[data-rail-panel]").forEach((p) => {
-        p.hidden = p.dataset.railPanel !== name;
-      });
-    });
+    btn.addEventListener("click", () => showRailPanel(btn.dataset.railTab));
   });
 
   const railToggle = document.getElementById("home-rail-toggle");

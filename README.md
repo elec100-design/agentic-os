@@ -62,7 +62,7 @@ subscription account and read/write files in permitted folders.
   MoA / OpenRouter Fusion style). Pick "Council" from the agent chip.
   Exhausted/failed agents are dropped automatically; tune participants,
   aggregator, and rounds via `AOS_COUNCIL_*`
-- **Vision board** — give a project goal at `/board` and a main orchestrator
+- **Vision board** — open the **Projects** tab in the right-hand rail (home) and give a project goal; a main orchestrator agent decomposes it into a dependency-ordered task DAG. (Legacy `/board` URL redirects to home.)
   agent decomposes it into a dependency-ordered task DAG. Review the plan on
   an n8n-style workflow graph, approve, and sub-agents (claude/agy/grok/
   hermes) run it to completion — including image generation via the agy/grok
@@ -88,6 +88,7 @@ subscription account and read/write files in permitted folders.
   cancel/delete
 - **Auto-resume** — detects rate limits, waits until `resume_at`, then
   continues the same CLI session
+- **Chat rail search / sort / rename** — the home chat rail filters by name·agent·workspace, sorts by recency or project, and lets you rename any session inline (✎) so it shows a label instead of the raw prompt
 - **Notes ↔ queue integration** — pin/rename/group/archive/delete notes from
   a hover menu; resume a session straight from a note (same workdir, same
   note thread). You can switch agent/model or attach files when resuming.
@@ -263,7 +264,7 @@ App constants (timeouts, retries, refresh intervals) live in
 
 ### Vision board
 
-1. Open **Vision board** in the sidebar (`/board`)
+1. Open the **Projects** tab in the right-hand rail on the home dashboard (the legacy `/board` URL redirects here)
 2. Enter a project **goal**. Optionally pick planner agent/model, a
    workspace, attach files/memory, or set a timeout — same composer
    affordances as the main chat

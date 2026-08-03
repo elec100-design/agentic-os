@@ -8,6 +8,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   prompt TEXT NOT NULL,
+  title TEXT,
   provider TEXT NOT NULL,
   model TEXT,
   status TEXT NOT NULL DEFAULT 'queued',
@@ -210,6 +211,9 @@ def _migrate(conn):
     # 이 실행에 실제로 붙은 워크스페이스 지침 파일명 목록(JSON) — app/instructions.py.
     if "instructions_applied" not in cols:
         conn.execute("ALTER TABLE jobs ADD COLUMN instructions_applied TEXT")
+    # 사용자가 채팅 세션에 직접 붙인 이름 — NULL이면 화면은 프롬프트를 제목으로 쓴다.
+    if "title" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN title TEXT")
     # 채널/메시지 계층에서 잡을 역참조하기 위한 링크 (채널 기능 도입 전 잡에는 NULL)
     for col in ("channel_id", "message_id"):
         if col not in cols:

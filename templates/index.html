@@ -38,7 +38,7 @@
 <div class="orca-side-rail-scrim" id="home-rail-scrim" hidden></div>
 
 <!-- Orca ADE식 3분할 셸 — 좌: 내비 사이드바 / 중앙: 멀티 탭 워크스페이스 /
-     우: 채팅·노트 레일. 최하단은 접히는 작업 큐 상태바. -->
+     우: 채팅·노트·프로젝트·태스크 레일. 최하단은 접히는 작업 큐 상태바. -->
 <div class="orca-home-shell">
 <div class="orca-home-row">
 
@@ -51,27 +51,8 @@
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8h-11M6.5 4l-4 4 4 4"/></svg>
     </button>
   </div>
-  <!-- 좌측 = 비전보드 세계: 프로젝트 목록 → (노드 선택 시) 태스크 인스펙터 → 비전보드 채팅 -->
-  <section class="side-projects" id="projects" hx-get="/partials/projects"
-           hx-trigger="load, every 5s, refresh-projects from:body"></section>
-
-  <!-- 중앙 워크플로우에서 태스크를 클릭하면 여기가 인스펙터로 채워진다(task-inspector.js) -->
-  <section class="side-task-inspector" id="home-task-inspector" hidden aria-live="polite">
-    <div class="side-inspector-head">
-      <button type="button" class="orca-task-context-back" id="home-inspector-back">← {{ '프로젝트' | t }}</button>
-    </div>
-    <div class="orca-task-context" id="home-task-context">
-      <div class="orca-task-context-body" id="home-task-context-body"></div>
-    </div>
-  </section>
-
-  <!-- 비전보드 전용 채팅 — 목표를 보내면 중앙에 비전보드 탭이 열린다 -->
-  <form class="composer vision-composer" id="vision-composer" method="post" action="/projects" enctype="multipart/form-data">
-    <textarea name="goal" id="goal" rows="2" required placeholder="{{ '비전 보드로 만들 목표를 적어 주세요…' | t }}"></textarea>
-    {#- 우측 작업 채팅과 같은 컨트롤. 한 페이지에 컴포저가 둘이라 여기서는
-        id 없이(class만) 내보낸다 — app.js가 폼 단위로 각각 마운트한다. -#}
-    {% with ids = false, send_label = '전송' %}{% include 'partials/composer_controls.html' %}{% endwith %}
-  </form>
+  {#- 비전보드(프로젝트 목록·컴포저)와 태스크 인스펙터는 우측 레일의 탭으로 옮겼다 —
+      좌측은 브랜드와 설정 줄만 남는다. -#}
 
   <div class="side-foot">
     <a class="side-settings" href="/setup" title="{{ '에이전트 활성화·설치 상태 재설정' | t }}">{{ '⚙︎ 에이전트 설정' | t }}</a>
@@ -108,7 +89,7 @@
   </div>
 </main>
 
-<!-- ══ 우측 레일 — 채팅창 + 노트 목록 ═══════════════════════════════════ -->
+<!-- ══ 우측 레일 — 채팅창 + 노트 + 비전보드 프로젝트 + 태스크 ═══════════ -->
 <aside class="orca-side-rail" id="home-rail">
   <div class="orca-side-rail-handle" id="home-rail-resize" role="separator" aria-orientation="vertical" aria-label="{{ '패널 너비 조절' | t }}" tabindex="0"></div>
   <div class="orca-rail-head">
@@ -124,12 +105,22 @@
 
   <div class="orca-rail-tabs">
     <button type="button" class="orca-rail-tab active" data-rail-tab="chat">{{ '채팅' | t }}</button>
-    <button type="button" class="orca-rail-tab" data-rail-tab="notes">{{ '노트' | t }}</button>
+    <button type="button" class="orca-rail-tab" data-rail-tab="projects">{{ '프로젝트' | t }}</button>
+    <!-- 태스크 탭은 보드 노드를 클릭했을 때만 나타난다(home.js) -->
+    <button type="button" class="orca-rail-tab" data-rail-tab="task" id="home-rail-task-tab" hidden>{{ '태스크' | t }}</button>
   </div>
 
   <div class="orca-rail-panels">
-    <!-- 채팅 탭 — 최근 요청 말풍선 + 컴포저 -->
+    <!-- 채팅 탭 — 검색·정렬 도구줄 + 최근 요청 말풍선 + 컴포저 -->
     <section class="orca-rail-panel" data-rail-panel="chat">
+      <div class="orca-chat-toolbar">
+        <input type="search" class="orca-chat-search" id="home-chat-search"
+               placeholder="{{ '채팅 검색…' | t }}" aria-label="{{ '채팅 검색' | t }}">
+        <div class="orca-chat-sort" role="group" aria-label="{{ '채팅 정렬' | t }}">
+          <button type="button" data-chat-sort="time" class="active">{{ '시간순' | t }}</button>
+          <button type="button" data-chat-sort="project">{{ '프로젝트별' | t }}</button>
+        </div>
+      </div>
       <div class="orca-rail-scroll" id="home-chat-scroll"></div>
 
       <form class="composer" id="composer" method="post" action="/jobs" enctype="multipart/form-data">
@@ -144,11 +135,30 @@
       <div class="orca-rail-scroll" id="home-job-inspector"></div>
     </section>
 
-    <!-- 노트 탭 — 메모리(노트 검색 + 노트 목록). .orca-rail-panel이 이미
-         absolute inset:0 flex 컬럼이라 .side-memory가 가정하는 문맥과 같다
-         (.orca-rail-scroll로 한 번 더 감싸면 스크롤 컨테이너가 이중이 된다). -->
-    <section class="orca-rail-panel" data-rail-panel="notes" hidden>
-      <section class="side-memory" id="memory" hx-get="/partials/memory" hx-trigger="load, refresh-memory from:body"></section>
+    <!-- 프로젝트(비전보드) 탭 — 프로젝트 목록 + 비전보드 전용 컴포저.
+         목표를 보내면 중앙에 비전보드 탭이 열린다. -->
+    <section class="orca-rail-panel" data-rail-panel="projects" hidden>
+      <section class="side-projects" id="projects" hx-get="/partials/projects"
+               hx-trigger="load, every 5s, refresh-projects from:body"></section>
+
+      <form class="composer vision-composer" id="vision-composer" method="post" action="/projects" enctype="multipart/form-data">
+        <textarea name="goal" id="goal" rows="2" required placeholder="{{ '비전 보드로 만들 목표를 적어 주세요…' | t }}"></textarea>
+        {#- 우측 작업 채팅과 같은 컨트롤. 한 페이지에 컴포저가 둘이라 여기서는
+            id 없이(class만) 내보낸다 — app.js가 폼 단위로 각각 마운트한다. -#}
+        {% with ids = false, send_label = '전송' %}{% include 'partials/composer_controls.html' %}{% endwith %}
+      </form>
+    </section>
+
+    <!-- 태스크 탭 — 중앙 워크플로우에서 노드를 클릭하면 여기가 편집 폼 + 태스크
+         채팅으로 채워진다(task-inspector.js). 프로젝트 탭과 같은 레이어를 통째로
+         차지하므로 보드 목록·컴포저에 높이를 빼앗기지 않는다. -->
+    <section class="orca-rail-panel" data-rail-panel="task" id="home-task-inspector" hidden aria-live="polite">
+      <div class="side-inspector-head">
+        <button type="button" class="orca-task-context-back" id="home-inspector-back">← {{ '프로젝트' | t }}</button>
+      </div>
+      <div class="orca-task-context" id="home-task-context">
+        <div class="orca-task-context-body" id="home-task-context-body"></div>
+      </div>
     </section>
   </div>
 </aside>
@@ -174,9 +184,6 @@
 </div>
 
 </div><!-- /.orca-home-shell -->
-
-<!-- 노트 컨텍스트 메뉴 (문서에 하나, 위치는 JS가 지정) -->
-<div class="note-dropdown" id="note-dropdown" hidden></div>
 
 <!-- 작업 위치 추가 모달 (폴더 탐색 / GitHub 리포) -->
 <div class="modal-overlay" id="ws-modal" hidden>

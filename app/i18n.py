@@ -59,6 +59,13 @@ EN = {
     "협의": "Council",
     "메모리": "Memory",
     "노트 검색…": "Search notes…",
+    # --- 홈 채팅 레일 (검색·정렬·이름 변경) ---
+    "채팅 검색…": "Search chats…",
+    "채팅 검색": "Search chats",
+    "채팅 정렬": "Sort chats",
+    "시간순": "Recent",
+    "프로젝트별": "By project",
+    "작업 위치 없음": "No workspace",
     "저장된 노트가 없습니다": "No saved notes yet",
     "검색 결과가 없습니다": "No results",
     "고정됨": "Pinned",
