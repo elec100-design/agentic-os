@@ -258,13 +258,45 @@ def setup_page(request: Request):
     )
 
 
+def _mask_args(args):
+    """인자 중 KEY=VALUE 형태(토큰을 --env FOO=secret 처럼 인자에 직접 박아
+    넣은 실제 설정이 있어 확인됨)는 값 부분을 마스킹해 화면에 평문 노출을
+    막는다."""
+    masked = []
+    for a in args:
+        k, sep, v = a.partition("=")
+        if sep and k and v:
+            masked.append(f"{k}=••••")
+        else:
+            masked.append(a)
+    return masked
+
+
 def _mcp_settings_ctx(error=None):
     workspaces = workspace.list_workspaces()
     all_servers = mcp_servers.list_all()
     servers_by_ws = {}
     for s in all_servers:
+        s = {**s, "args": _mask_args(s.get("args") or [])}
         servers_by_ws.setdefault(s["workspace_id"], []).append(s)
-    return {"workspaces": workspaces, "servers_by_ws": servers_by_ws, "error": error}
+    installed_by_ws = {}
+    for ws in workspaces:
+        connected_names = {s["name"] for s in servers_by_ws.get(ws["id"], [])}
+        options = []
+        for s in mcp_servers.list_installed_claude_servers(ws["path"]):
+            if s["name"] in connected_names:
+                continue
+            options.append({
+                "key": s["key"], "name": s["name"], "scope": s["scope"],
+                "command": s["command"] or "", "args": " ".join(_mask_args(s["args"])) or "-",
+                "env": ", ".join(f"{k}=••••" for k in s["env"]) or "-",
+                "type": s["type"], "url": s["url"] or "",
+            })
+        installed_by_ws[ws["id"]] = options
+    return {
+        "workspaces": workspaces, "servers_by_ws": servers_by_ws,
+        "installed_by_ws": installed_by_ws, "error": error,
+    }
 
 
 @app.get("/settings/mcp", response_class=HTMLResponse)
@@ -276,22 +308,26 @@ def mcp_settings_page(request: Request):
 def mcp_settings_add(
     request: Request,
     workspace_id: str = Form(...),
-    name: str = Form(...),
-    command: str = Form(...),
+    server_key: str = Form(""),
+    name: str = Form(""),
+    command: str = Form(""),
     args: str = Form(""),
     env: str = Form(""),
 ):
-    arg_list = args.split()
-    env_map = {}
-    for line in env.splitlines():
-        line = line.strip()
-        if not line or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        if k.strip():
-            env_map[k.strip()] = v.strip()
     try:
-        mcp_servers.add(workspace_id, name, command, arg_list, env_map)
+        if server_key:
+            mcp_servers.add_from_installed(workspace_id, server_key)
+        else:
+            arg_list = args.split()
+            env_map = {}
+            for line in env.splitlines():
+                line = line.strip()
+                if not line or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip():
+                    env_map[k.strip()] = v.strip()
+            mcp_servers.add(workspace_id, name, command, arg_list, env_map)
     except ValueError as e:
         return templates.TemplateResponse(
             request, "mcp_settings.html", _mcp_settings_ctx(error=str(e)), status_code=400)

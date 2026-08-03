@@ -183,3 +183,128 @@ def test_sidebar_links_to_mcp_settings(tmp_env, completed_setup):
     with _client() as client:
         html = client.get("/").text
     assert 'href="/settings/mcp"' in html
+
+
+# --- add_from_installed -----------------------------------------------------
+
+def _fake_claude_json(monkeypatch, tmp_path, installed_servers=None):
+    fake = tmp_path / "fake_claude.json"
+    fake.write_text(json.dumps({"mcpServers": installed_servers or {}}), encoding="utf-8")
+    monkeypatch.setattr(mcp_servers, "CLAUDE_USER_CONFIG_PATH", fake)
+    monkeypatch.setattr(
+        mcp_servers.subprocess, "run",
+        lambda *a, **k: type("R", (), {"stdout": "", "returncode": 0})(),
+    )
+
+
+def test_add_from_installed_copies_stdio_server(tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {
+        "gh": {"command": "npx", "args": ["-y", "gh-mcp"], "env": {"TOKEN": "x"}},
+    })
+    ws = _register_workspace(tmp_path)
+    server = mcp_servers.add_from_installed(ws["id"], "user:gh")
+    assert server["name"] == "gh"
+    assert server["command"] == "npx"
+    assert server["args"] == ["-y", "gh-mcp"]
+    assert server["env"] == {"TOKEN": "x"}
+    assert server["type"] == "stdio"
+    listed = mcp_servers.list_for_workspace(ws["id"])
+    assert len(listed) == 1 and listed[0]["name"] == "gh"
+
+
+def test_add_from_installed_copies_http_server_and_round_trips_config(tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {})
+    monkeypatch.setattr(
+        mcp_servers.subprocess, "run",
+        lambda *a, **k: type("R", (), {
+            "stdout": "claude.ai Canva: https://mcp.canva.com/mcp - ✓ Connected\n",
+            "returncode": 0,
+        })(),
+    )
+    ws = _register_workspace(tmp_path)
+    server = mcp_servers.add_from_installed(ws["id"], "account:claude.ai Canva")
+    assert server["type"] == "http"
+    assert server["url"] == "https://mcp.canva.com/mcp"
+    assert server["command"] is None
+
+    data = mcp_servers.config_for_workdir(ws["path"])
+    assert data == {"mcpServers": {"claude.ai Canva": {
+        "type": "http", "url": "https://mcp.canva.com/mcp",
+    }}}
+
+
+def test_add_from_installed_rejects_unknown_key(tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {})
+    ws = _register_workspace(tmp_path)
+    with pytest.raises(ValueError, match="설치된 서버"):
+        mcp_servers.add_from_installed(ws["id"], "user:no-such-server")
+
+
+def test_add_from_installed_rejects_unregistered_workspace(tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {})
+    with pytest.raises(ValueError, match="작업 위치"):
+        mcp_servers.add_from_installed("no-such-id", "user:gh")
+
+
+def test_add_from_installed_rejects_duplicate_name(tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {
+        "gh": {"command": "npx", "args": [], "env": {}},
+    })
+    ws = _register_workspace(tmp_path)
+    mcp_servers.add(ws["id"], "gh", "node")
+    with pytest.raises(ValueError, match="이미"):
+        mcp_servers.add_from_installed(ws["id"], "user:gh")
+
+
+# --- 라우트: server_key(드롭다운) 기반 /settings/mcp/add ---------------------
+
+def test_settings_page_shows_hint_when_no_installed_servers(tmp_env, tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {})
+    ws = _register_workspace(tmp_path)
+    with _client() as client:
+        html = client.get("/settings/mcp").text
+    assert ws["name"] in html
+    assert "claude mcp add" in html
+
+
+def test_settings_add_route_with_server_key_succeeds(tmp_env, tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {
+        "gh": {"command": "npx", "args": ["-y", "gh-mcp"], "env": {}},
+    })
+    ws = _register_workspace(tmp_path)
+    with _client() as client:
+        r = client.post("/settings/mcp/add", data={
+            "workspace_id": ws["id"], "server_key": "user:gh",
+        }, follow_redirects=False)
+    assert r.status_code == 303
+    listed = mcp_servers.list_for_workspace(ws["id"])
+    assert len(listed) == 1
+    assert listed[0]["name"] == "gh"
+    assert listed[0]["command"] == "npx"
+
+
+def test_settings_add_route_with_unknown_server_key_returns_400(tmp_env, tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {})
+    ws = _register_workspace(tmp_path)
+    with _client() as client:
+        r = client.post("/settings/mcp/add", data={
+            "workspace_id": ws["id"], "server_key": "user:no-such-server",
+        })
+    assert r.status_code == 400
+    assert "설치된 서버" in r.text
+    assert mcp_servers.list_for_workspace(ws["id"]) == []
+
+
+def test_settings_add_route_with_server_key_rejects_duplicate(tmp_env, tmp_path, monkeypatch):
+    _fake_claude_json(monkeypatch, tmp_path, {
+        "gh": {"command": "npx", "args": [], "env": {}},
+    })
+    ws = _register_workspace(tmp_path)
+    mcp_servers.add(ws["id"], "gh", "node")
+    with _client() as client:
+        r = client.post("/settings/mcp/add", data={
+            "workspace_id": ws["id"], "server_key": "user:gh",
+        })
+    assert r.status_code == 400
+    assert "이미" in r.text
+    assert len(mcp_servers.list_for_workspace(ws["id"])) == 1

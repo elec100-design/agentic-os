@@ -112,6 +112,14 @@ EN = {
     "실행 명령": "Command",
     "인자 (공백으로 구분)": "Arguments (space-separated)",
     "환경변수 (한 줄에 KEY=VALUE 하나씩)": "Environment variables (one KEY=VALUE per line)",
+    "Claude에 설치된 MCP 서버": "MCP servers installed in Claude",
+    "선택하세요": "Select one",
+    "이 작업 위치에 새로 연결할 수 있는 설치된 MCP 서버가 없습니다. 터미널에서 claude mcp add 로 먼저 설치하세요.":
+        "No installed MCP servers available to connect for this workspace. "
+        "Install one first with claude mcp add in your terminal.",
+    "직접 입력 (고급)": "Manual entry (advanced)",
+    "URL": "URL",
+    "명령": "Command",
     "이 에이전트가 스스로 읽는 파일은 중복으로 붙이지 않습니다":
         "Files this agent already reads on its own aren't duplicated here",
     "변경 되돌리기": "Revert changes",
