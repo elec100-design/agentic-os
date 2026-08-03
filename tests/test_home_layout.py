@@ -27,7 +27,8 @@ HOME_ELEMENTS = [
     'id="home-rail-resize"',
     'id="home-rail-toggle"',
     'data-rail-tab="chat"',
-    'data-rail-tab="notes"',
+    'data-rail-tab="projects"',
+    'data-rail-tab="task"',
     "orca-statusbar",      # 최하단 상태바 (사용량 + 작업 상태 칩)
     'id="statusbar-toggle"',
     'id="statusbar-body"',
@@ -76,15 +77,19 @@ def _sidebar(body):
     return body[body.index('<aside class="sidebar">'):body.index("</aside>")]
 
 
-def test_notes_moved_from_sidebar_to_rail(completed_setup):
-    """메모리·노트 검색·노트 목록은 우측 레일의 '노트' 탭에 있다."""
+def test_notes_tab_is_gone(completed_setup):
+    """'노트' 탭은 채팅 탭과 같은 것을 두 번 보여 줘 홈 레일에서 걷어냈다.
+
+    노트 API/파일(/partials/memory, /notes/*)은 그대로다 — 여기서 지우는 것은
+    홈 레일의 목록 UI 뿐이다."""
     with _client() as client:
         body = client.get("/").text
-        assert 'data-rail-panel="notes"' in body
-        assert body.index('id="memory"') > body.index("orca-side-rail")
-        assert 'id="memory"' not in _sidebar(body)
-        # 노트 갱신 트리거(작업 삭제 시 HX-Trigger)는 이사해도 그대로여야 한다.
-        assert 'hx-trigger="load, refresh-memory from:body"' in body
+    for gone in ('data-rail-tab="notes"', 'data-rail-panel="notes"',
+                 'id="memory"', "/partials/memory", 'id="note-dropdown"'):
+        assert gone not in body, f"노트 탭 잔재가 남아 있다: {gone}"
+    # 노트 컨텍스트 메뉴(···)도 홈에서만 쓰던 코드라 함께 걷어냈다.
+    app_js = Path("static/app.js").read_text(encoding="utf-8")
+    assert "note-dropdown" not in app_js and "note-dots" not in app_js
 
 
 def test_usage_moved_from_sidebar_to_statusbar(completed_setup):
@@ -98,14 +103,40 @@ def test_usage_moved_from_sidebar_to_statusbar(completed_setup):
         assert 'class="side-usage orca-usagebar"' in body
 
 
-def test_sidebar_has_projects_inspector_and_vision_composer(completed_setup):
-    """좌측은 비전보드 세계 — 프로젝트 목록 · 태스크 인스펙터 자리 · 비전보드 채팅."""
+def test_projects_moved_from_sidebar_to_rail(completed_setup):
+    """비전보드 세계(프로젝트 목록 + 비전보드 채팅)는 우측 레일의 '프로젝트' 탭에 있다."""
     with _client() as client:
-        sidebar = _sidebar(client.get("/").text)
+        body = client.get("/").text
+        sidebar = _sidebar(body)
+        assert 'data-rail-panel="projects"' in body
         for needle in ['id="projects"', 'hx-get="/partials/projects"',
-                       'id="home-task-inspector"', 'id="home-task-context-body"',
                        'id="vision-composer"', 'name="goal"']:
-            assert needle in sidebar, f"sidebar missing {needle}"
+            assert needle not in sidebar, f"sidebar still has {needle}"
+            assert body.index(needle) > body.index("orca-side-rail"), \
+                f"{needle} is not inside the right rail"
+        # 5초 폴링 트리거는 이사해도 그대로여야 한다.
+        assert 'hx-trigger="load, every 5s, refresh-projects from:body"' in body
+
+
+def test_task_inspector_has_its_own_rail_tab(completed_setup):
+    """태스크 편집·채팅은 프로젝트 탭 아래에 끼어들지 않고 전용 탭을 통째로 쓴다."""
+    with _client() as client:
+        body = client.get("/").text
+        assert 'data-rail-panel="task" id="home-task-inspector"' in body
+        assert 'id="home-task-context-body"' in body
+        assert 'id="home-task-inspector"' not in _sidebar(body)
+        # 태스크가 선택되기 전에는 탭 버튼이 보이지 않는다(home.js가 켠다).
+        assert 'data-rail-tab="task" id="home-rail-task-tab" hidden' in body
+
+    home = Path("static/home.js").read_text(encoding="utf-8")
+    assert 'showRailPanel("task")' in home
+    # 좌측 서랍이 아니라 우측 레일을 열어야 좁은 화면에서 편집창이 보인다.
+    assert "openRailOverlay()" in home
+
+    theme = Path("static/orca-theme.css").read_text(encoding="utf-8")
+    # 패널 안에서는 흐름 안에서 늘어나야 헤드(← 프로젝트) 아래를 채운다.
+    assert re.search(r'\.orca-side-rail \[data-rail-panel="task"\] \.orca-task-context'
+                     r'\s*\{[^}]*position:\s*relative', theme)
 
 
 def test_right_rail_composer_ids_stay_unique(completed_setup):
@@ -137,8 +168,50 @@ def test_sessions_tab_is_gone(completed_setup):
                  'id="channels"', "/partials/channels", "channels.js",
                  'id="channel-modal"'):
         assert gone not in body, f"세션 잔재가 남아 있다: {gone}"
-    # 남은 탭은 채팅·노트 둘뿐
-    assert len(re.findall(r'data-rail-tab="(\w+)"', body)) == 2
+    # 남은 탭은 채팅·프로젝트·태스크
+    assert re.findall(r'data-rail-tab="(\w+)"', body) == [
+        "chat", "projects", "task"]
+
+
+def test_chat_tab_has_search_and_sort_controls(completed_setup):
+    """채팅 탭 상단의 검색창과 정렬(시간순/프로젝트별) 전환."""
+    with _client() as client:
+        body = client.get("/").text
+    assert 'id="home-chat-search"' in body
+    assert 'data-chat-sort="time"' in body and 'data-chat-sort="project"' in body
+    # 도구줄은 채팅 패널 안, 말풍선 목록 바로 위에 있다.
+    assert body.index("orca-chat-toolbar") < body.index('id="home-chat-scroll"')
+
+    home = Path("static/home.js").read_text(encoding="utf-8")
+    # 검색·정렬은 이미 폴링 중인 #jobs 조각만 다시 그린다(새 엔드포인트 없음).
+    assert "renderChatBubbles(readJobs())" in home
+    assert 'chatSort === "time"' in home and "orca-chat-group" in home
+
+
+def test_jobs_partial_carries_chat_rail_fields(completed_setup):
+    """말풍선의 제목·프로젝트·시간은 표에 열이 없어 데이터 속성으로 실려 온다."""
+    conn = db.get_conn(config.DB_PATH)
+    job_id = db.create_job(conn, prompt="정렬용 작업", provider="claude",
+                           workdir="/tmp/demo-proj")
+    db.update_job(conn, job_id, title="내가 붙인 이름")
+    with _client() as client:
+        body = client.get("/partials/jobs").text
+    assert 'data-title="내가 붙인 이름"' in body
+    assert 'data-workdir="/tmp/demo-proj"' in body
+    assert re.search(r'data-created="\d{4}-', body)
+
+
+def test_rename_job_sets_and_clears_title(completed_setup):
+    conn = db.get_conn(config.DB_PATH)
+    job_id = db.create_job(conn, prompt="이름 없는 세션", provider="claude")
+    with _client() as client:
+        r = client.post(f"/jobs/{job_id}/rename", data={"title": "  리팩터링 상담  "})
+        assert r.status_code == 200 and r.json()["title"] == "리팩터링 상담"
+        assert db.get_job(conn, job_id)["title"] == "리팩터링 상담"
+        # 빈 값이면 이름을 지워 프롬프트가 다시 제목이 된다.
+        assert client.post(f"/jobs/{job_id}/rename", data={"title": ""}).status_code == 200
+        assert db.get_job(conn, job_id)["title"] is None
+        assert client.post("/jobs/999999/rename", data={"title": "x"}).status_code == 404
 
 
 def test_channel_partial_route_is_removed(completed_setup):
@@ -283,19 +356,13 @@ def test_job_page_still_renders_shared_view(completed_setup):
         assert "job-view.js" in r.text
 
 
-def test_left_chat_is_bottom_aligned_and_40_percent():
-    """좌측 비전보드 채팅이 우측 레일 컴포저처럼 크고 바닥에 붙어야 한다.
-
-    기존에는 사이드바의 18% 뿐이었고, 설정·언어·테마 줄(.side-foot)이 아래에
-    깔려 있어 우측(28%, 바닥까지)보다 들려 보였다.
-    """
+def test_projects_rail_panel_scrolls_list_and_pins_composer():
+    """프로젝트 탭은 목록만 스크롤되고 비전보드 컴포저는 바닥에 붙어 있어야 한다."""
     theme = Path("static/orca-theme.css").read_text(encoding="utf-8")
-    m = re.search(r"body\.orca-home \.vision-composer \{(.*?)\}", theme, re.S)
-    assert m, "홈 전용 vision-composer 규칙이 없다"
-    rule = m.group(1)
-    assert "flex: 0 0 40%" in rule, "사이드바의 40%를 차지해야 한다"
-    # .side-foot 을 위로 올려야 채팅이 바닥까지 내려온다
-    assert "order: 2" in rule
-    assert "body.orca-home .side-foot { order: 1; }" in theme
-    # 늘어난 높이는 입력 영역이 가져간다
-    assert re.search(r"body\.orca-home \.vision-composer textarea \{[^}]*flex: 1", theme)
+    m = re.search(r"\.orca-side-rail \.side-projects \{(.*?)\}", theme, re.S)
+    assert m, "레일 전용 side-projects 규칙이 없다"
+    assert "overflow-y: auto" in m.group(1) and "min-height: 0" in m.group(1)
+    # 레일 컴포저 공통 규칙이 vision-composer(.composer)에도 걸려 바닥에 고정된다.
+    assert ".orca-side-rail .composer { margin: 0.75rem; flex-shrink: 0; }" in theme
+    # 사이드바 전용이던 40% 높이 배분은 사라졌다.
+    assert "body.orca-home .vision-composer" not in theme

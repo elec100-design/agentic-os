@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 from datetime import datetime
@@ -140,7 +141,41 @@ def save_note(prompt, provider, output, when=None, session_id=None, workdir=None
     if ws:
         # 작업 위치 이름으로 자동 그룹핑 (새 파일이라 수동 그룹과 충돌 없음)
         set_note_flags(path, group=ws, auto_group=True)
+    # agentmemory 통합관리: 세션 저장 시 자동 기록
+    _push_to_agentmemory(prompt, output, session_id, provider, model, str(path))
     return path
+
+
+def _push_to_agentmemory(prompt, output, session_id, provider, model, note_path):
+    """agentic-os 세션을 agentmemory(로컬 :3111)에 통합 기록한다.
+    실패해도 노트 저장 흐름을 방해하지 않도록 예외를 삼킨다."""
+    try:
+        import requests
+    except ImportError:
+        return
+    am_url = os.environ.get("AGENTMEMORY_URL", "http://localhost:3111").rstrip("/")
+    am_secret = os.environ.get("AGENTMEMORY_SECRET", "")
+    if not am_url:
+        return
+    title = f"agentic-os {session_id}" if session_id else f"agentic-os {provider}"
+    content = f"[provider: {provider}] [model: {model or '?'}] [session: {session_id or '?'}]\nQ: {prompt}\n\nA: {output}"
+    payload = {
+        "content": content[:4000],
+        "title": title[:200],
+        "type": "conversation",
+        "importance": 5,
+        "concepts": ["agentic-os", provider or ""],
+    }
+    headers = {"Content-Type": "application/json"}
+    if am_secret:
+        headers["Authorization"] = f"Bearer {am_secret}"
+    try:
+        r = requests.post(f"{am_url}/agentmemory/remember", json=payload,
+                          headers=headers, timeout=10)
+        if r.status_code >= 400:
+            print(f"[agentmemory] push failed: {r.status_code} {r.text[:200]}")
+    except Exception as e:
+        print(f"[agentmemory] push error: {e}")
 
 
 def _fm_value(raw):
@@ -178,6 +213,7 @@ def append_note(path, prompt, provider, output, session_id=None, model=None):
     n = text.count("## 프롬프트") + 1
     text += f"\n## 프롬프트 ({n}차)\n\n{prompt}\n\n## 결과 ({n}차)\n\n{output}\n"
     p.write_text(text, encoding="utf-8")
+    _push_to_agentmemory(prompt, output, session_id, provider, model, str(p))
     return p
 
 

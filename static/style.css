@@ -1638,6 +1638,23 @@ h2.section-label {
 }
 .mcp-add-form textarea { resize: vertical; font-family: var(--font-mono); }
 .mcp-add-form .btn-primary { align-self: flex-start; }
+.mcp-install-picker { display: flex; flex-direction: column; gap: 0.5rem; }
+.mcp-server-summary { font-size: 0.78rem; overflow-wrap: anywhere; }
+.mcp-manual-add { border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.6rem 0.8rem; }
+.mcp-manual-add > summary { cursor: pointer; font-size: 0.82rem; color: var(--muted); }
+.mcp-manual-add[open] > summary { margin-bottom: 0.6rem; }
+.mcp-manual-add label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.82rem; color: var(--muted); margin-bottom: 0.6rem; }
+.mcp-manual-add label:last-of-type { margin-bottom: 0; }
+.mcp-manual-add input,
+.mcp-manual-add textarea {
+  font: inherit;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+}
+.mcp-manual-add textarea { resize: vertical; font-family: var(--font-mono); }
 
 /* ---- 자동 라우팅 이유 표시 ---- */
 .route-reason {

@@ -4,6 +4,7 @@
 home.js가 그 계약을 부르는 코드)만 정적으로 확인한다 — 이 저장소의 기존
 레이아웃 테스트와 같은 방식이다.
 """
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -115,13 +116,11 @@ def test_note_partial_head_probe_and_404(completed_setup):
         assert client.get("/partials/note", params={"path": "/없는/노트.md"}).status_code == 404
 
 
-def test_home_js_opens_notes_as_tabs():
+def test_home_js_no_longer_opens_note_tabs():
+    """노트 탭을 걷어내면서 노트를 여는 진입점이 사라졌다 —
+    중앙 탭 로더도 작업·비전보드(둘 다 숫자 id)만 남는다."""
     home = Path("static/home.js").read_text(encoding="utf-8")
-    assert "note: {" in home, "note 로더가 없다"
-    assert "/partials/note?path=" in home
-    # 노트 refId 는 파일 경로 — 숫자로 강제 변환하면 탭이 깨진다
-    assert "textRef: true" in home
-    assert 'LOADERS[kind]?.textRef ? String(spec.refId) : +spec.refId' in home
-    # 레일의 노트 링크를 가로채 페이지 이동 대신 탭으로 연다
-    assert '.note-link[href^="/note?path="]' in home
-    assert 'openTab({ kind: "note"' in home
+    for gone in ("note: {", "/partials/note?path=", "textRef",
+                 '.note-link[href^="/note?path="]'):
+        assert gone not in home, f"노트 탭 잔재가 남아 있다: {gone}"
+    assert re.findall(r"^    (\w+): \{$", home, re.M) == ["job", "project"]

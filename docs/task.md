@@ -332,6 +332,36 @@ V4.3에서 뼈대만 있던 멀티탭 워크스페이스(`docs/vision-board-ade-
       i18n 중복 키/탭 kind=flow). 루트에 흩어진 임시 스모크 스크립트 8개를 검토해
       재사용 가치 있는 것은 `tests/`로 정식 이관, 나머지는 제거
 
+### V4.6 — 홈 대시보드 셸 재구조화 (2026-08-04)
+
+V4.3 Orca 레이아웃을 홈(`/`)에 완성 — 비전보드 세계를 좌측 사이드바에서 우측
+레일 탭으로 옮기고 채팅 레일에 검색·정렬·이름 변경을 더했다. 상세 설계는
+[plan-home-dashboard-restructure.md](plan-home-dashboard-restructure.md).
+
+- [x] **좌측 사이드바 축소** — 브랜드 + 설정 줄만 남기고 폭 300px→200px로 축소,
+      설정·언어·테마 줄은 세로 스택(`body.orca-home .side-foot` 미디어 쿼리).
+      비전보드(프로젝트 목록·컴포저)와 태스크 인스펙터를 `templates/index.html`에서
+      우측 `.orca-side-rail`로 이사(`static/home.js` 인스펙터 마운트 콜백 수정).
+- [x] **우측 레일 탭 재편** — 채팅 / 프로젝트 / 태스크(보드 노드 클릭 시에만 나타남,
+      `home-rail-task-tab` hidden → `showRailPanel("task")`). 홈의 '노트'·'세션'
+      탭 제거(`static/app.js` note 로더·컨텍스트 메뉴 걷어냄).
+- [x] **채팅 레일 검색·정렬·이름 변경**:
+  - 상단 도구줄(검색창 + 정렬 토글) 추가(`orca-chat-toolbar`, `home-chat-search`,
+    `data-chat-sort=time|project`).
+  - 정렬: 시간순(기본, localStorage `aos-home-chat-sort`) / 프로젝트별(작업 위치 그룹,
+    접이식 `orca-chat-group`, 접힘 상태 `aos-home-chat-closed-groups` 유지).
+  - 말풍선 우측 ✎ 클릭 → 그 자리에서 이름 입력(`startRename`, 폴링이 입력 지우지
+    않도록 `renamingId` 가드). `POST /jobs/{id}/rename`(`app/main.py`)으로 저장,
+    빈 값이면 이름 제거 → 프롬프트가 다시 제목.
+  - `jobs` 테이블 `title` 컬럼 신규 마이그레이션(`app/db.py._migrate`).
+  - `#jobs` 폴링 조각이 말풍선에 필요한 제목·작업위치·생성시각을 `data-title`/
+    `data-workdir`/`data-created` 데이터 속성으로 실어 보냄(`templates/partials/jobs.html`).
+  - i18n: 채팅 검색/정렬/프로젝트별/작업 위치 없음 키 추가(`app/i18n.py`).
+- [x] **태스크 인스펙터 우측 레일 전용 탭** — `mountTaskInspector` `onOpen`에서
+      `taskTabBtn.hidden=false` + `showRailPanel("task")`, 좁은 화면은 `openRailOverlay()`.
+- [x] 테스트 갱신 — `tests/test_home_layout.py`(레일 탭·검색정렬·이름변경·조각
+      데이터속성·rename 라우트) + `tests/test_home_tabs.py`. 홈 레이아웃 검증 34건 통과.
+
 ### V5 — 확장 기능 후보
 - [ ] Antigravity 사용량 실측 — CodexBar 미지원, 별도 연동 필요 (현재 "정보 없음")
 - [ ] antigravity/grok 세션 재개(`--resume latest`, `-c`) 및 모델 id 실측 검증
