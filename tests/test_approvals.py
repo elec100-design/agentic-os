@@ -280,3 +280,34 @@ def test_approvals_inbox_page_and_api(tmp_env):
 def test_approvals_api_rejects_unknown_id(tmp_env):
     with _client(tmp_env) as client:
         assert client.post("/api/approvals/999/approve").status_code == 400
+
+
+# --- 표시 규칙 ---------------------------------------------------------------
+
+def test_pending_badge_respects_hidden(tmp_env):
+    """대기 0건이면 배지가 보이면 안 된다.
+
+    approvals.js 는 `badge.hidden = !count` 로 숨기지만, CSS 가 그 요소에
+    display 를 주면 브라우저 기본 `[hidden] { display: none }` 을 명시도로
+    이겨 버려 빨간 ⓪ 이 항상 붙는다(실제로 그렇게 배포됐던 버그다).
+    이 저장소가 .cbar-chip·.modal-overlay 등에서 쓰는 것과 같은 대응이다.
+    """
+    from pathlib import Path
+    css = Path("static/style.css").read_text(encoding="utf-8")
+    assert ".side-settings .pending-badge {" in css
+    assert "display" in css.split(".side-settings .pending-badge {")[1].split("}")[0]
+    # display 를 줬으면 [hidden] 복구 규칙이 반드시 함께 있어야 한다
+    assert ".side-settings .pending-badge[hidden] { display: none; }" in css
+
+    js = Path("static/approvals.js").read_text(encoding="utf-8")
+    assert "hidden = !count" in js.replace(" ", "").replace("badge.", "") \
+        or "badge.hidden = !count" in js
+
+
+def test_home_renders_the_badge_hidden_when_nothing_is_pending(tmp_env, completed_setup):
+    with _client(tmp_env) as client:
+        conn = db.get_conn()
+        assert db.count_pending_approvals(conn) == 0
+        home = client.get("/").text
+        badge = home.split('id="approvals-badge"')[1].split(">")[0]
+        assert "hidden" in badge

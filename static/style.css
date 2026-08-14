@@ -1830,6 +1830,10 @@ h2.section-label {
   font-size: 0.7rem;
   text-align: center;
 }
+/* display 를 주면 브라우저 기본 [hidden] 규칙(명시도가 더 낮다)을 이겨 버려
+   대기 0건에도 빨간 ⓪ 이 붙는다 — 직접 되살린다.
+   (approvals.js 가 대기 건수가 0이면 hidden 으로 숨긴다) */
+.side-settings .pending-badge[hidden] { display: none; }
 
 /* ---- 채널 멤버(에이전트) 줄 ---- */
 .channel-members { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }
