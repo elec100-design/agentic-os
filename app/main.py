@@ -21,8 +21,8 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import (
-    agents, codexbar, config, council, db, github_cli, gitcheckpoint, health,
-    i18n, mcp_servers, memory, models, orchestrator, settings, setup,
+    agents, approvals, codexbar, config, council, db, github_cli, gitcheckpoint,
+    health, i18n, mcp_servers, memory, models, orchestrator, settings, setup,
     stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
@@ -361,11 +361,14 @@ def agents_settings_page(request: Request):
                                       _agents_settings_ctx())
 
 
-def _agent_form_fields(name, persona, provider, model, workdir, read_only):
+def _agent_form_fields(name, persona, provider, model, workdir, read_only,
+                       approval_policy="auto"):
     """폼 입력 → DB 필드. 유효하지 않은 값은 안전한 기본값으로 떨어뜨린다."""
     name = (name or "").strip()
     if not name:
         raise ValueError("이름은 비울 수 없습니다")
+    if approval_policy not in ("auto", "ask"):
+        approval_policy = "auto"
     provider = provider if provider in PROVIDERS or provider == "auto" else "auto"
     if provider != "auto" and provider not in settings.enabled_providers():
         raise ValueError("비활성화된 에이전트입니다. /setup 에서 활성화하세요")
@@ -375,7 +378,8 @@ def _agent_form_fields(name, persona, provider, model, workdir, read_only):
         workdir = ""
     return {"name": name, "persona": (persona or "").strip(),
             "provider": provider, "model": model or None,
-            "workdir": workdir or None, "read_only": 1 if read_only else 0}
+            "workdir": workdir or None, "read_only": 1 if read_only else 0,
+            "approval_policy": approval_policy}
 
 
 @app.post("/settings/agents/add", response_class=HTMLResponse)
@@ -387,11 +391,12 @@ def agents_settings_add(
     model: str = Form(""),
     workdir: str = Form(""),
     read_only: str = Form(""),
+    approval_policy: str = Form("auto"),
 ):
     conn = db.get_conn()
     try:
         fields = _agent_form_fields(name, persona, provider, model, workdir,
-                                    read_only)
+                                    read_only, approval_policy)
     except ValueError as e:
         return templates.TemplateResponse(
             request, "agents_settings.html", _agents_settings_ctx(error=str(e)),
@@ -410,13 +415,14 @@ def agents_settings_edit(
     model: str = Form(""),
     workdir: str = Form(""),
     read_only: str = Form(""),
+    approval_policy: str = Form("auto"),
 ):
     conn = db.get_conn()
     if db.get_agent(conn, agent_id) is None:
         raise HTTPException(status_code=404)
     try:
         fields = _agent_form_fields(name, persona, provider, model, workdir,
-                                    read_only)
+                                    read_only, approval_policy)
     except ValueError as e:
         return templates.TemplateResponse(
             request, "agents_settings.html", _agents_settings_ctx(error=str(e)),
@@ -433,6 +439,62 @@ def agents_settings_archive(agent_id: int):
         raise HTTPException(status_code=404)
     db.archive_agent(conn, agent_id)
     return RedirectResponse("/settings/agents", status_code=303)
+
+
+# --- 승인 인박스 -------------------------------------------------------------
+# 에이전트가 되돌릴 수 없는 동작을 제안하면 여기 쌓이고, 승인해야 실행된다.
+
+class ApprovalDecision(BaseModel):
+    note: str = ""
+
+
+def _approval_dict(conn, row):
+    agent = db.get_agent(conn, row["agent_id"])
+    channel = db.get_channel(conn, row["channel_id"]) if row["channel_id"] else None
+    return {**dict(row),
+            "agent_slug": agent["slug"] if agent is not None else None,
+            "agent_name": agent["name"] if agent is not None else None,
+            "channel_title": channel["title"] if channel is not None else None}
+
+
+@app.get("/approvals", response_class=HTMLResponse)
+def approvals_page(request: Request):
+    conn = db.get_conn()
+    return templates.TemplateResponse(
+        request, "approvals.html",
+        {"pending": [_approval_dict(conn, r) for r in db.list_approvals(conn)],
+         "decided": [_approval_dict(conn, r) for r in
+                     db.list_approvals(conn, status=None, limit=30)
+                     if r["status"] != "pending"]})
+
+
+@app.get("/api/approvals")
+def api_list_approvals(status: str = "pending"):
+    conn = db.get_conn()
+    rows = db.list_approvals(conn, status=status or None)
+    return {"pending_count": db.count_pending_approvals(conn),
+            "items": [_approval_dict(conn, r) for r in rows]}
+
+
+@app.post("/api/approvals/{approval_id}/approve")
+def api_approve(approval_id: int, payload: ApprovalDecision | None = None):
+    conn = db.get_conn()
+    try:
+        job_id = approvals.approve(conn, approval_id,
+                                   note=(payload.note if payload else ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "approved", "job_id": job_id}
+
+
+@app.post("/api/approvals/{approval_id}/reject")
+def api_reject(approval_id: int, payload: ApprovalDecision | None = None):
+    conn = db.get_conn()
+    try:
+        approvals.reject(conn, approval_id, note=(payload.note if payload else ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "rejected"}
 
 
 @app.get("/api/health")

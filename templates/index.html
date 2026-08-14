@@ -57,6 +57,8 @@
   <div class="side-foot">
     <a class="side-settings" href="/setup" title="{{ '에이전트 활성화·설치 상태 재설정' | t }}">{{ '⚙︎ 에이전트 설정' | t }}</a>
     <a class="side-settings" href="/settings/agents" title="{{ '역할을 가진 에이전트 만들기·편집' | t }}">{{ '🧑‍💻 에이전트' | t }}</a>
+    {# 대기 건수는 approvals.js 가 주기적으로 채운다 — 승인이 밀리면 눈에 띄어야 한다 #}
+    <a class="side-settings" href="/approvals" id="approvals-link" title="{{ '에이전트가 승인을 기다리는 동작' | t }}">{{ '✋ 승인' | t }}<span class="pending-badge" id="approvals-badge" hidden></span></a>
     <a class="side-settings" href="/settings/mcp" title="{{ '워크스페이스별 MCP 서버 관리' | t }}">{{ '🔌 MCP 서버' | t }}</a>
     <div class="side-foot-btns">
       <a class="lang-toggle" href="/lang/{{ 'ko' if lang() == 'en' else 'en' }}" title="{{ '언어 전환 (한국어/English)' | t }}">{{ '한국어' if lang() == 'en' else 'EN' }}</a>
@@ -218,5 +220,6 @@ const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 <!-- 노드를 클릭하면 좌측 사이드바가 태스크 편집·채팅으로 바뀐다 -->
 <script src="/static/task-inspector.js?v={{ asset_v() }}"></script>
 <script src="/static/home.js?v={{ asset_v() }}"></script>
+<script src="/static/approvals.js?v={{ asset_v() }}"></script>
 </body>
 </html>

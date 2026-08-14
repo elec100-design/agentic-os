@@ -1684,6 +1684,63 @@ h2.section-label {
 .agent-check input { width: auto; flex: none; margin-top: 0.15rem; }
 .agent-actions { display: flex; gap: 0.5rem; }
 
+.agent-hint { font-size: 0.75rem; color: var(--muted); margin: 0; line-height: 1.5; }
+
+/* ---- 승인 인박스 ---- */
+.approval-list { list-style: none; margin: 0.4rem 0 1.2rem; padding: 0; }
+.approval-item {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.5rem;
+}
+.approval-list.decided .approval-item { opacity: 0.7; }
+.approval-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.approval-title { font-weight: 500; }
+.approval-detail { font-size: 0.85rem; margin: 0.4rem 0 0; line-height: 1.55; }
+.approval-action {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  background: var(--bg-alt, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-risk { font-size: 0.8rem; color: var(--err); margin: 0.45rem 0 0; }
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+  flex-wrap: wrap;
+}
+.approval-note {
+  font: inherit;
+  font-size: 0.82rem;
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+}
+.approval-error { color: var(--err); font-size: 0.8rem; margin: 0.5rem 0 0; }
+.side-settings .pending-badge {
+  display: inline-block;
+  min-width: 1.1rem;
+  padding: 0 0.3rem;
+  margin-left: 0.3rem;
+  border-radius: 0.7rem;
+  background: var(--err);
+  color: #fff;
+  font-size: 0.7rem;
+  text-align: center;
+}
+
 /* ---- 채널 멤버(에이전트) 줄 ---- */
 .channel-members { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }
 .channel-member-chip {

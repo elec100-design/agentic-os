@@ -4,8 +4,8 @@ import os
 from datetime import datetime, timezone
 
 from app import (
-    agents, config, db, gitcheckpoint, instructions, mcp_servers, memory,
-    stream_hub, workspace,
+    agents, approvals, config, db, gitcheckpoint, instructions, mcp_servers,
+    memory, stream_hub, workspace,
 )
 from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 
@@ -122,6 +122,13 @@ def _opt(row, key):
         return None
 
 
+def _is_approval_execution(conn, job):
+    """이 잡이 '승인된 동작을 실행하는' 잡인가 (approvals.approve 가 만든 것)."""
+    return conn.execute(
+        "SELECT 1 FROM approvals WHERE execution_job_id = ?", (job["id"],)
+    ).fetchone() is not None
+
+
 async def _pump(stream, sink):
     while True:
         line = await stream.readline()
@@ -183,6 +190,13 @@ async def run_job(conn, job, providers=None, save=True):
     agent = db.get_agent(conn, job["agent_id"]) if _opt(job, "agent_id") else None
     if agent is not None:
         send_prompt = agents.persona_prefix(agent) + send_prompt
+
+    # 승인 게이트 — 되돌릴 수 없는 동작은 제안만 하게 한다. 단, 승인된 동작을
+    # 실행하는 잡(사람이 이미 허락한 것)에는 게이트를 걸지 않는다. 그러지 않으면
+    # 승인해도 또 제안만 하고 끝나 무한 왕복이 된다(app/approvals.py).
+    gated = agent is not None and not _is_approval_execution(conn, job)
+    if gated:
+        send_prompt += approvals.gate_section(agent)
     # 결과와 무관하게(도중에 죽어도) 무엇이 적용됐는지 남긴다 — 실행 전에
     # 이미 확정되는 값이라 여기서 바로 기록한다.
     db.update_job(conn, job["id"],
@@ -196,9 +210,13 @@ async def run_job(conn, job, providers=None, save=True):
 
     # read_only 는 claude 에서만 실제로 강제된다 — 다른 CLI 는 이 인자를 받지
     # 않으므로(3메서드 인터페이스 유지) 페르소나 문구로만 방어한다.
+    #
+    # 승인된 동작을 실행하는 잡에서는 읽기 전용을 풀어 준다. 읽기 전용 에이전트가
+    # 제안을 내는 것까지가 게이트의 목적이고, 사람이 그 동작 하나를 명시적으로
+    # 허락한 뒤에는 실행할 수단이 있어야 한다(app/approvals.py:approve).
     build_kwargs = {}
-    if agent is not None and agent["read_only"] and getattr(
-            provider, "supports_read_only", False):
+    if (agent is not None and agent["read_only"] and gated
+            and getattr(provider, "supports_read_only", False)):
         build_kwargs["read_only"] = True
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
                                  model=job["model"],
@@ -404,6 +422,13 @@ async def _run_tracked(conn, job, providers, save, release):
         db.update_job(conn, job["id"], status="failed",
                       error=f"worker error: {e!r}", finished_at=db.now_iso())
     finally:
+        # 승인 제안 수확은 _sync_message '전에' — 제안 JSON 을 걷어낸 출력이
+        # 그대로 채널 메시지 본문이 되게 한다(app/approvals.py:harvest).
+        try:
+            approvals.harvest(conn, job["id"])
+        except Exception as e:
+            db.update_job(conn, job["id"],
+                          error=f"approval_harvest_failed: {e!r}")
         _sync_message(conn, job["id"])
         stream_hub.publish(job["id"])
         release(job["id"], job["provider"])

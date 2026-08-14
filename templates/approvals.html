@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ '승인 인박스' | t }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+</head>
+<body>
+<main class="page">
+<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
+<h1 class="job-title">{{ '승인 인박스' | t }}</h1>
+<p class="job-meta">
+  {{ '에이전트가 되돌릴 수 없다고 판단한 동작입니다. 승인하면 그 에이전트가 그 동작만 실행합니다.' | t }}
+</p>
+
+<h2 class="section-label">{{ '대기 중' | t }}{% if pending %} ({{ pending|length }}){% endif %}</h2>
+{% if not pending %}
+<p class="job-meta">{{ '승인 대기 중인 동작이 없습니다.' | t }}</p>
+{% else %}
+<ul class="approval-list">
+  {% for a in pending %}
+  <li class="approval-item" data-approval-id="{{ a['id'] }}">
+    <div class="approval-head">
+      <span class="approval-title">{{ a['title'] }}</span>
+      {% if a['agent_slug'] %}<span class="agent-slug">@{{ a['agent_slug'] }}</span>{% endif %}
+      {% if a['channel_title'] %}<span class="job-meta">#{{ a['channel_title'] }}</span>{% endif %}
+    </div>
+    {% if a['detail'] %}<p class="approval-detail">{{ a['detail'] }}</p>{% endif %}
+    {% if a['action'] %}<pre class="approval-action">{{ a['action'] }}</pre>{% endif %}
+    {% if a['risk'] %}<p class="approval-risk">⚠ {{ a['risk'] }}</p>{% endif %}
+    <div class="approval-actions">
+      <input type="text" class="approval-note" placeholder="{{ '덧붙일 지시나 거절 사유 (선택)' | t }}">
+      <button type="button" class="btn-primary approval-approve">{{ '✓ 승인하고 실행' | t }}</button>
+      <button type="button" class="btn-ghost approval-reject">{{ '거절' | t }}</button>
+    </div>
+    <p class="approval-error" hidden></p>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if decided %}
+<h2 class="section-label">{{ '처리됨' | t }}</h2>
+<ul class="approval-list decided">
+  {% for a in decided %}
+  <li class="approval-item">
+    <div class="approval-head">
+      <span class="badge badge-{{ 'done' if a['status'] == 'approved' else 'failed' }}">
+        {{ ('승인됨' if a['status'] == 'approved' else '거절됨') | t }}</span>
+      <span class="approval-title">{{ a['title'] }}</span>
+      {% if a['agent_slug'] %}<span class="agent-slug">@{{ a['agent_slug'] }}</span>{% endif %}
+      {% if a['execution_job_id'] %}<a class="job-meta" href="/jobs/{{ a['execution_job_id'] }}">{{ '실행 로그 →' | t }}</a>{% endif %}
+    </div>
+    {% if a['decided_note'] %}<p class="approval-detail">{{ a['decided_note'] }}</p>{% endif %}
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+</main>
+
+<script>
+document.querySelectorAll(".approval-item[data-approval-id]").forEach((item) => {
+  const id = item.dataset.approvalId;
+  const err = item.querySelector(".approval-error");
+
+  async function decide(verb) {
+    const note = item.querySelector(".approval-note").value;
+    item.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    err.hidden = true;
+    try {
+      const r = await fetch(`/api/approvals/${id}/${verb}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        err.textContent = body.detail || t("처리하지 못했습니다.");
+        err.hidden = false;
+        item.querySelectorAll("button").forEach((b) => (b.disabled = false));
+        return;
+      }
+      window.location.reload();
+    } catch (e) {
+      err.textContent = t("서버에 연결하지 못했습니다");
+      err.hidden = false;
+      item.querySelectorAll("button").forEach((b) => (b.disabled = false));
+    }
+  }
+
+  item.querySelector(".approval-approve").addEventListener("click", () => decide("approve"));
+  item.querySelector(".approval-reject").addEventListener("click", () => decide("reject"));
+});
+</script>
+</body>
+</html>

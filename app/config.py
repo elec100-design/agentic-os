@@ -458,6 +458,10 @@ AGENT_HOP_MAX = int(os.environ.get("AOS_AGENT_HOP_MAX", "3"))
 AGENT_CHAIN_MAX = int(os.environ.get("AOS_AGENT_CHAIN_MAX", "8"))
 AGENT_PINGPONG_MAX = int(os.environ.get("AOS_AGENT_PINGPONG_MAX", "2"))
 AGENT_THREAD_CLIP_CHARS = 4000  # 다음 에이전트 프롬프트에 넣는 발화당 최대 길이
+
+# 승인 게이트 — 한 번의 실행이 만들 수 있는 승인 대기 건수 상한.
+# 에이전트가 제안을 쏟아내 인박스를 채우는 것을 막는다(app/approvals.py).
+APPROVAL_MAX_PER_JOB = int(os.environ.get("AOS_APPROVAL_MAX_PER_JOB", "5"))
 MEDIA_TIMEOUT_SEC = int(os.environ.get("AOS_MEDIA_TIMEOUT_SEC", "300"))
 # API 폴백용 미디어 모델 (모델명이 자주 바뀌므로 env로 교체 가능하게)
 MEDIA_TTS_MODEL = os.environ.get("AOS_MEDIA_TTS_MODEL",

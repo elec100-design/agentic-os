@@ -191,10 +191,31 @@ CREATE TABLE IF NOT EXISTS agents (
   model TEXT,
   workdir TEXT,
   read_only INTEGER NOT NULL DEFAULT 0,
+  approval_policy TEXT NOT NULL DEFAULT 'auto',
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
   updated_at TEXT
 );
+-- 사람이 승인해야 실행되는 동작. 에이전트는 되돌릴 수 없는 일을 직접 하지 않고
+-- 여기에 "제안"을 남기고, 승인되면 앱이 별도 잡으로 실행한다(app/approvals.py).
+CREATE TABLE IF NOT EXISTS approvals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id INTEGER,
+  agent_id INTEGER,
+  channel_id INTEGER,
+  message_id INTEGER,
+  task_id INTEGER,
+  title TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '',
+  action TEXT NOT NULL DEFAULT '',
+  risk TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'pending',
+  decided_note TEXT,
+  execution_job_id INTEGER,
+  created_at TEXT NOT NULL,
+  decided_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_approvals_status ON approvals(status, id);
 -- 채널에 배치된 에이전트. 여기 없는 에이전트는 그 채널에서 호출할 수 없다.
 CREATE TABLE IF NOT EXISTS channel_members (
   channel_id INTEGER NOT NULL REFERENCES channels(id),
@@ -295,6 +316,12 @@ def _migrate(conn):
     # 무한 연쇄(=구독 쿼터 소각)를 끊는 기준값이라 메시지에 못박아 둔다.
     if "hop_depth" not in message_cols:
         conn.execute("ALTER TABLE messages ADD COLUMN hop_depth INTEGER NOT NULL DEFAULT 0")
+    # 승인 정책 — "auto"(그대로 실행) | "ask"(되돌릴 수 없는 동작은 제안만).
+    # 에이전트 기능 첫 배포판에는 없던 컬럼이라 추가한다.
+    agent_cols = {r["name"] for r in conn.execute("PRAGMA table_info(agents)")}
+    if agent_cols and "approval_policy" not in agent_cols:
+        conn.execute("ALTER TABLE agents ADD COLUMN approval_policy TEXT "
+                     "NOT NULL DEFAULT 'auto'")
     channel_cols = {r["name"] for r in conn.execute("PRAGMA table_info(channels)")}
     # 에이전트끼리 서로를 부를 수 있는지(채널별 opt-in, 기본 꺼짐).
     if "agent_chat" not in channel_cols:
@@ -1095,12 +1122,13 @@ def latest_thread_session(conn, root_id, agent_id=None):
 # --- 에이전트(사용자가 만든 역할) -------------------------------------------
 
 def create_agent(conn, slug, name, persona="", provider="auto", model=None,
-                 workdir=None, read_only=0):
+                 workdir=None, read_only=0, approval_policy="auto"):
     cur = conn.execute(
         "INSERT INTO agents (slug, name, persona, provider, model, workdir, "
-        "read_only, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "read_only, approval_policy, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (slug, name, persona, provider, model, workdir, int(read_only),
-         now_iso()),
+         approval_policy, now_iso()),
     )
     conn.commit()
     return cur.lastrowid
@@ -1145,6 +1173,55 @@ def archive_agent(conn, agent_id):
     update_agent(conn, agent_id, status="archived")
     conn.execute("DELETE FROM channel_members WHERE agent_id = ?", (agent_id,))
     conn.commit()
+
+
+# --- 승인 큐 ----------------------------------------------------------------
+
+def create_approval(conn, title, detail="", action="", risk="", job_id=None,
+                    agent_id=None, channel_id=None, message_id=None,
+                    task_id=None):
+    cur = conn.execute(
+        "INSERT INTO approvals (job_id, agent_id, channel_id, message_id, "
+        "task_id, title, detail, action, risk, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (job_id, agent_id, channel_id, message_id, task_id, title, detail,
+         action, risk, now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_approval(conn, approval_id):
+    return conn.execute(
+        "SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
+
+
+def list_approvals(conn, status="pending", limit=100):
+    if status:
+        return conn.execute(
+            "SELECT * FROM approvals WHERE status = ? ORDER BY id DESC LIMIT ?",
+            (status, limit)).fetchall()
+    return conn.execute(
+        "SELECT * FROM approvals ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+
+
+def count_pending_approvals(conn):
+    return conn.execute(
+        "SELECT COUNT(*) AS c FROM approvals WHERE status = 'pending'"
+    ).fetchone()["c"]
+
+
+def update_approval(conn, approval_id, **fields):
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE approvals SET {cols} WHERE id = ?",
+                 (*fields.values(), approval_id))
+    conn.commit()
+
+
+def approvals_for_job(conn, job_id):
+    return conn.execute(
+        "SELECT * FROM approvals WHERE job_id = ? ORDER BY id", (job_id,)
+    ).fetchall()
 
 
 # --- 채널 멤버십 ------------------------------------------------------------

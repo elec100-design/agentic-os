@@ -524,4 +524,29 @@ EN = {
     "채널에서 빼기": "Remove from channel",
     "클릭하면 입력창에 @가 들어갑니다": "Click to insert @ into the composer",
     "시스템": "System",
+
+    # --- 승인 게이트 ---
+    "✋ 승인": "✋ Approvals",
+    "승인 인박스": "Approval inbox",
+    "에이전트가 승인을 기다리는 동작": "Actions agents are waiting on you for",
+    "에이전트가 되돌릴 수 없다고 판단한 동작입니다. 승인하면 그 에이전트가 그 동작만 실행합니다.":
+        "Actions an agent flagged as irreversible. Approve and that agent runs "
+        "just that action.",
+    "대기 중": "Pending",
+    "승인 대기 중인 동작이 없습니다.": "Nothing is waiting for approval.",
+    "덧붙일 지시나 거절 사유 (선택)": "Extra instructions, or why you're rejecting (optional)",
+    # "✓ 승인하고 실행"은 비전 보드 계획 승인에서 이미 쓰는 문구다(위쪽 카탈로그).
+    "거절": "Reject",
+    "처리됨": "Decided",
+    "승인됨": "Approved",
+    "거절됨": "Rejected",
+    "처리하지 못했습니다.": "Couldn't process it.",
+    "승인 게이트": "Approval gate",
+    "없음 — 스스로 실행합니다": "None — acts on its own",
+    "되돌릴 수 없는 동작은 승인받고 실행": "Ask before irreversible actions",
+    "승인 필요": "Needs approval",
+    "승인 게이트는 프롬프트로 전달되는 지시입니다. 정말로 실행을 막으려면 읽기 전용을 함께 켜고 실행 CLI를 claude 로 두세요 — 그 조합만 실제로 강제됩니다.":
+        "The approval gate is an instruction passed in the prompt. To actually "
+        "prevent execution, also turn on read-only and pin the CLI to claude — "
+        "only that combination is enforced.",
 }

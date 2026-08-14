@@ -32,6 +32,7 @@
         <span class="agent-badges">
           <span class="agent-badge">{{ a['provider'] if a['provider'] != 'auto' else ('자동' | t) }}</span>
           {% if a['read_only'] %}<span class="agent-badge ro">{{ '읽기 전용' | t }}</span>{% endif %}
+          {% if a['approval_policy'] == 'ask' %}<span class="agent-badge ro">{{ '승인 필요' | t }}</span>{% endif %}
         </span>
       </summary>
       <form method="post" action="/settings/agents/{{ a['id'] }}/edit" class="mcp-add-form">
@@ -56,6 +57,12 @@
         <label class="agent-check">
           <input type="checkbox" name="read_only" value="1"{% if a['read_only'] %} checked{% endif %}>
           <span>{{ '읽기 전용 — 파일을 고치지 않습니다 (claude 에서만 강제되고, 다른 CLI 에서는 지시로만 전달됩니다)' | t }}</span>
+        </label>
+        <label>{{ '승인 게이트' | t }}
+          <select name="approval_policy">
+            <option value="auto"{% if a['approval_policy'] != 'ask' %} selected{% endif %}>{{ '없음 — 스스로 실행합니다' | t }}</option>
+            <option value="ask"{% if a['approval_policy'] == 'ask' %} selected{% endif %}>{{ '되돌릴 수 없는 동작은 승인받고 실행' | t }}</option>
+          </select>
         </label>
         <div class="agent-actions">
           <button type="submit" class="btn-primary">{{ '저장' | t }}</button>
@@ -94,6 +101,13 @@
     <input type="checkbox" name="read_only" value="1">
     <span>{{ '읽기 전용 — 파일을 고치지 않습니다 (claude 에서만 강제되고, 다른 CLI 에서는 지시로만 전달됩니다)' | t }}</span>
   </label>
+  <label>{{ '승인 게이트' | t }}
+    <select name="approval_policy">
+      <option value="auto">{{ '없음 — 스스로 실행합니다' | t }}</option>
+      <option value="ask">{{ '되돌릴 수 없는 동작은 승인받고 실행' | t }}</option>
+    </select>
+  </label>
+  <p class="agent-hint">{{ '승인 게이트는 프롬프트로 전달되는 지시입니다. 정말로 실행을 막으려면 읽기 전용을 함께 켜고 실행 CLI를 claude 로 두세요 — 그 조합만 실제로 강제됩니다.' | t }}</p>
   <button type="submit" class="btn-primary">{{ '추가' | t }}</button>
 </form>
 </main>

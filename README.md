@@ -67,6 +67,13 @@ subscription account and read/write files in permitted folders.
   default**, and the chain stops at a hop/turn/ping-pong limit with a note in
   the thread — a runaway chain would burn your subscription quota
   (`AOS_AGENT_HOP_MAX`, `AOS_AGENT_CHAIN_MAX`, `AOS_AGENT_PINGPONG_MAX`)
+- **Approval gate** — give an agent the *Ask before irreversible actions*
+  policy and it proposes mail sends, external writes, payments, and deletions
+  instead of doing them. They queue up in **✋ Approvals**; approve and that
+  agent runs just that action (the gate is lifted only for it). Be clear-eyed
+  about what this is: the policy is an *instruction* in the prompt. The
+  enforcement comes from withholding tools — pair it with read-only on claude
+  (plan mode, no Bash) and the agent has no way to act at all
 - **Council mode** — hard questions get proposed on by several agents in
   parallel → each critiques the others' (anonymized) answers → the agent
   with the most remaining quota synthesizes a final answer (Hermes
@@ -363,6 +370,7 @@ agentic-os/
 │   ├── providers.py     # CLI adapters + model flags + quota-based auto-routing
 │   ├── council.py       # Council mode — multi-agent propose/critique/synthesize
 │   ├── agents.py        # Custom agents — persona injection, @mentions, chain limits
+│   ├── approvals.py     # Approval gate — propose → human approves → execute
 │   ├── settings.py      # user settings (enabled agents) — data/settings.json
 │   ├── setup.py         # first-run setup — CLI/tool install detection
 │   ├── health.py        # diagnostics for /api/health and `aos doctor`
