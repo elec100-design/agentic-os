@@ -56,6 +56,10 @@ subscription account and read/write files in permitted folders.
   local Hermes to save cloud usage. Live recommendation hint as you type
 - **Agent + model picker** — model lists are pulled live from each CLI
   (no hardcoded versions), refreshed periodically
+- **Agent list, DMs, and channels** — the left sidebar is your list of
+  conversations: every agent with its last message, and every channel with its
+  member count. Click an agent for a 1:1 DM (just type — no `@` needed), or
+  create a channel and check off the agents to bring into it
 - **Custom agents** — build agents with a role (persona), a CLI to run on, a
   workspace, and an optional read-only flag under **⚙︎ Agents**. Leave the CLI
   on *Auto* and the role stays fixed while each run goes to whichever CLI has

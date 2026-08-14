@@ -241,7 +241,8 @@ def index(request: Request):
         request, "index.html",
         {"provider_models": models.get_provider_models(),
          "agent_order": settings.enabled_providers(),
-         "council_enabled": settings.council_available()},
+         "council_enabled": settings.council_available(),
+         **_rail_ctx(db.get_conn())},
     )
 
 
@@ -439,6 +440,119 @@ def agents_settings_archive(agent_id: int):
         raise HTTPException(status_code=404)
     db.archive_agent(conn, agent_id)
     return RedirectResponse("/settings/agents", status_code=303)
+
+
+# --- 좌측 사이드바: 에이전트(DM) · 채널 목록 ---------------------------------
+
+# 슬러그에서 뽑는 아바타 색 — 이름마다 같은 색이 나오게 고정 해시를 쓴다.
+# 사진처럼 한눈에 구분되는 것이 목적이라 채도·명도는 고정하고 색상만 돌린다.
+_AVATAR_COLORS = ("#e05252", "#c651c6", "#5b8def", "#3fb27f", "#e0913f",
+                  "#8b5cf6", "#0ea5e9", "#d946a0")
+
+
+def avatar_color(slug):
+    return _AVATAR_COLORS[sum((slug or "").encode()) % len(_AVATAR_COLORS)]
+
+
+templates.env.globals["avatar_color"] = avatar_color
+
+
+def _preview(conn, channel_id, limit=60):
+    """목록에 한 줄로 보여줄 마지막 발화.
+
+    마지막 메시지가 실행 중이거나(본문이 아직 없음) 실패해서(본문이 영영 없음)
+    비어 있는 경우가 흔하다 — 그때 빈 줄을 보여주면 대화가 없는 것처럼 보이므로,
+    상태를 알리거나 직전에 내용이 있던 발화로 물러선다.
+    """
+    if not channel_id:
+        return ""
+    msg = db.last_message(conn, channel_id)
+    if msg is None:
+        return ""
+    if msg["status"] in ("queued", "running"):
+        return i18n.t("실행 중…")
+    body = " ".join((msg["body"] or "").split())
+    if not body:
+        prefix = i18n.t("실패") + " · " if msg["status"] == "failed" else ""
+        fallback = db.last_message_with_body(conn, channel_id)
+        body = " ".join((fallback["body"] or "").split()) if fallback else ""
+        if not body:
+            return prefix.rstrip(" ·") or ""
+        body = prefix + body
+    return body[:limit] + ("…" if len(body) > limit else "")
+
+
+def _rail_ctx(conn, active_channel_id=None):
+    """사이드바 목록 컨텍스트. 에이전트는 DM 채널을, 채널은 멤버 수를 달고 온다."""
+    rail_agents = []
+    for a in db.list_agents(conn):
+        dm = db.get_dm_channel(conn, a["id"])
+        rail_agents.append({
+            "id": a["id"], "slug": a["slug"], "name": a["name"],
+            "color": avatar_color(a["slug"]),
+            "channel_id": dm["id"] if dm is not None else None,
+            "preview": _preview(conn, dm["id"] if dm is not None else None),
+        })
+    rail_channels = []
+    for c in db.list_channels(conn, kind="channel"):
+        rail_channels.append({
+            "id": c["id"], "title": c["title"],
+            "member_count": len(db.list_channel_members(conn, c["id"])),
+            "preview": _preview(conn, c["id"]),
+        })
+    return {"rail_agents": rail_agents, "rail_channels": rail_channels,
+            "active_channel_id": active_channel_id}
+
+
+@app.get("/dm/{slug}")
+def open_dm(slug: str):
+    """에이전트와의 1:1 대화를 열어 준다(없으면 만든다)."""
+    conn = db.get_conn()
+    agent = db.get_agent_by_slug(conn, slug)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    channel = db.get_or_create_dm_channel(conn, agent)
+    return RedirectResponse(f"/channels/{channel['id']}", status_code=303)
+
+
+@app.get("/channels/new", response_class=HTMLResponse)
+def new_channel_page(request: Request, error: str = ""):
+    conn = db.get_conn()
+    return templates.TemplateResponse(
+        request, "channel_new.html",
+        {"agents": [dict(a) for a in db.list_agents(conn)], "error": error,
+         "workspaces": workspace.list_workspaces(),
+         **_rail_ctx(conn)})
+
+
+@app.post("/channels/new", response_class=HTMLResponse)
+def create_channel_form(
+    request: Request,
+    title: str = Form(...),
+    topic: str = Form(""),
+    workdir: str = Form(""),
+    agent_ids: list[int] = Form(default=[]),
+    agent_chat: str = Form(""),
+):
+    conn = db.get_conn()
+    title = (title or "").strip()
+    if not title:
+        return templates.TemplateResponse(
+            request, "channel_new.html",
+            {"agents": [dict(a) for a in db.list_agents(conn)],
+             "error": i18n.t("채널 이름은 비울 수 없습니다"),
+             "workspaces": workspace.list_workspaces(), **_rail_ctx(conn)},
+            status_code=400)
+    if workdir and not workspace.valid_path(workdir):
+        workdir = ""
+    channel_id = db.create_channel(conn, title, topic=(topic or "").strip(),
+                                   workdir=workdir or None)
+    for agent_id in agent_ids:
+        if db.get_agent(conn, agent_id) is not None:
+            db.add_channel_member(conn, channel_id, agent_id)
+    if agent_chat:
+        db.update_channel(conn, channel_id, agent_chat=1)
+    return RedirectResponse(f"/channels/{channel_id}", status_code=303)
 
 
 # --- 승인 인박스 -------------------------------------------------------------
@@ -836,6 +950,11 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
     except agents.AgentError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # 1:1 대화(DM)에서는 멘션 없이 그냥 말을 걸면 그 에이전트가 답한다 —
+    # 상대가 한 명뿐인 방에서 이름을 부르게 하는 건 번거롭기만 하다.
+    if mentioned is None and channel["kind"] == "dm" and channel["agent_id"]:
+        mentioned = db.get_agent(conn, channel["agent_id"])
+
     provider = payload.provider or channel["default_provider"] or "auto"
     enabled = settings.enabled_providers()
     route_reason = None
@@ -1020,6 +1139,8 @@ def channel_page(request: Request, channel_id: int):
     threads = [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots]
     members = [dict(a) for a in db.list_channel_members(conn, channel_id)]
     member_ids = {a["id"] for a in members}
+    dm_agent = (db.get_agent(conn, channel["agent_id"])
+                if channel["kind"] == "dm" and channel["agent_id"] else None)
     return templates.TemplateResponse(
         request, "channel.html",
         {"channel": dict(channel), "threads": threads,
@@ -1027,7 +1148,10 @@ def channel_page(request: Request, channel_id: int):
          "agent_order": settings.enabled_providers(),
          "members": members,
          "addable_agents": [dict(a) for a in db.list_agents(conn)
-                            if a["id"] not in member_ids]})
+                            if a["id"] not in member_ids],
+         "dm_agent": dict(dm_agent) if dm_agent is not None else None,
+         "dm_color": avatar_color(dm_agent["slug"]) if dm_agent is not None else "",
+         **_rail_ctx(conn, active_channel_id=channel_id)})
 
 
 @app.get("/note", response_class=HTMLResponse)

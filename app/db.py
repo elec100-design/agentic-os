@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS channels (
   topic TEXT NOT NULL DEFAULT '',
   workdir TEXT,
   default_provider TEXT,
+  kind TEXT NOT NULL DEFAULT 'channel',
+  agent_id INTEGER,
   status TEXT NOT NULL DEFAULT 'active',
   created_at TEXT NOT NULL,
   updated_at TEXT
@@ -326,6 +328,14 @@ def _migrate(conn):
     # 에이전트끼리 서로를 부를 수 있는지(채널별 opt-in, 기본 꺼짐).
     if "agent_chat" not in channel_cols:
         conn.execute("ALTER TABLE channels ADD COLUMN agent_chat INTEGER NOT NULL DEFAULT 0")
+    # 1:1 대화(DM)도 채널로 구현한다 — 메시지·쓰레드·실행 트레이스·SSE 를 그대로
+    # 재사용하기 위함이다. kind="dm" 이면 agent_id 가 대화 상대이고, 그 채널에서
+    # 사용자가 보낸 말은 멘션 없이도 그 에이전트에게 간다.
+    if "kind" not in channel_cols:
+        conn.execute("ALTER TABLE channels ADD COLUMN kind TEXT NOT NULL "
+                     "DEFAULT 'channel'")
+    if "agent_id" not in channel_cols:
+        conn.execute("ALTER TABLE channels ADD COLUMN agent_id INTEGER")
     conn.commit()
     _migrate_steps_nullable_message(conn)
 
@@ -979,16 +989,60 @@ def get_channel(conn, channel_id):
         "SELECT * FROM channels WHERE id = ?", (channel_id,)).fetchone()
 
 
-def list_channels(conn, status="active"):
+def list_channels(conn, status="active", kind=None):
+    """kind="channel"(단체 대화) / "dm"(1:1) / None(전부)."""
+    where, params = [], []
     if status:
-        return conn.execute(
-            "SELECT * FROM channels WHERE status = ? "
-            "ORDER BY COALESCE(updated_at, created_at) DESC",
-            (status,),
-        ).fetchall()
+        where.append("status = ?")
+        params.append(status)
+    if kind:
+        where.append("kind = ?")
+        params.append(kind)
+    sql = "SELECT * FROM channels"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY COALESCE(updated_at, created_at) DESC"
+    return conn.execute(sql, params).fetchall()
+
+
+def get_dm_channel(conn, agent_id):
     return conn.execute(
-        "SELECT * FROM channels ORDER BY COALESCE(updated_at, created_at) DESC"
-    ).fetchall()
+        "SELECT * FROM channels WHERE kind = 'dm' AND agent_id = ?",
+        (agent_id,)).fetchone()
+
+
+def get_or_create_dm_channel(conn, agent):
+    """에이전트와의 1:1 대화 채널. 없으면 만든다(멱등).
+
+    DM 도 채널이라 메시지·쓰레드·실행 트레이스·SSE 를 그대로 쓴다. 다른 점은
+    kind="dm" 이고 그 에이전트가 유일한 멤버라는 것뿐이다.
+    """
+    existing = get_dm_channel(conn, agent["id"])
+    if existing is not None:
+        add_channel_member(conn, existing["id"], agent["id"])  # 멱등 보정
+        return existing
+    channel_id = create_channel(conn, agent["name"] or agent["slug"],
+                                workdir=agent["workdir"])
+    conn.execute("UPDATE channels SET kind = 'dm', agent_id = ? WHERE id = ?",
+                 (agent["id"], channel_id))
+    conn.commit()
+    add_channel_member(conn, channel_id, agent["id"])
+    return get_channel(conn, channel_id)
+
+
+def last_message(conn, channel_id):
+    """채널의 마지막 발화 — 목록의 미리보기 줄에 쓴다."""
+    return conn.execute(
+        "SELECT * FROM messages WHERE channel_id = ? ORDER BY seq DESC LIMIT 1",
+        (channel_id,)).fetchone()
+
+
+def last_message_with_body(conn, channel_id):
+    """본문이 있는 마지막 발화. 마지막 메시지가 실패해 비어 있을 때, 목록에
+    아무것도 안 보여 주는 대신 직전에 오간 말을 보여주기 위한 것이다."""
+    return conn.execute(
+        "SELECT * FROM messages WHERE channel_id = ? AND TRIM(body) != '' "
+        "ORDER BY seq DESC LIMIT 1", (channel_id,)).fetchone()
 
 
 def update_channel(conn, channel_id, **fields):
@@ -1172,6 +1226,10 @@ def archive_agent(conn, agent_id):
     지우면 "누가 한 말인지"가 사라진다. 목록·호출에서만 빠진다."""
     update_agent(conn, agent_id, status="archived")
     conn.execute("DELETE FROM channel_members WHERE agent_id = ?", (agent_id,))
+    # 그 에이전트와의 1:1 대화도 목록에서 내린다 — 상대가 없는 DM 은 열어도
+    # 말을 걸 수 없다. 대화 기록 자체는 남는다(보관이지 삭제가 아니다).
+    conn.execute("UPDATE channels SET status = 'archived' "
+                 "WHERE kind = 'dm' AND agent_id = ?", (agent_id,))
     conn.commit()
 
 

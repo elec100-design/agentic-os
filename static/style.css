@@ -1686,6 +1686,96 @@ h2.section-label {
 
 .agent-hint { font-size: 0.75rem; color: var(--muted); margin: 0; line-height: 1.5; }
 
+/* ---- 사이드바: 에이전트(DM)·채널 목록 ---- */
+.side-scroll { flex: 1; overflow-y: auto; margin: 0.4rem -0.35rem 0.6rem; padding: 0 0.35rem; }
+.rail-group { margin-bottom: 1.1rem; }
+.rail-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+.rail-group-head h2 { margin: 0; }
+.rail-add {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.4rem;
+}
+.rail-add:hover { color: var(--accent); background: var(--surface); }
+.rail-empty { font-size: 0.76rem; color: var(--muted); margin: 0.2rem 0 0; line-height: 1.5; }
+.rail-list { list-style: none; margin: 0; padding: 0; }
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  color: var(--text);
+  min-width: 0;
+}
+.rail-item:hover { background: var(--surface); }
+.rail-item.active { background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
+.rail-avatar {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+.rail-hash {
+  width: 1.6rem;
+  text-align: center;
+  flex: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+.rail-body { display: flex; flex-direction: column; min-width: 0; gap: 0.05rem; }
+.rail-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.rail-slug {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  font-weight: normal;
+  white-space: nowrap;
+}
+.rail-preview {
+  font-size: 0.73rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 13rem;
+}
+.dm-persona {
+  max-width: 34rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-agent-picker {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.channel-agent-picker legend { font-size: 0.82rem; color: var(--muted); padding: 0 0.3rem; }
+.channel-agent-picker .rail-avatar { width: 1.1rem; height: 1.1rem; margin-right: 0.3rem; }
+
 /* ---- 승인 인박스 ---- */
 .approval-list { list-style: none; margin: 0.4rem 0 1.2rem; padding: 0; }
 .approval-item {

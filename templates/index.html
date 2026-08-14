@@ -51,8 +51,12 @@
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8h-11M6.5 4l-4 4 4 4"/></svg>
     </button>
   </div>
-  {#- 비전보드(프로젝트 목록·컴포저)와 태스크 인스펙터는 우측 레일의 탭으로 옮겼다 —
-      좌측은 브랜드와 설정 줄만 남는다. -#}
+  {#- 비전보드(프로젝트 목록·컴포저)와 태스크 인스펙터는 우측 레일의 탭으로 옮겼다.
+      좌측에는 대화 상대(에이전트 DM·채널) 목록이 온다 — 누구에게 말을 거는지가
+      이 앱의 첫 화면이어야 한다. -#}
+  <div class="side-scroll">
+    {% include "partials/agent_rail.html" %}
+  </div>
 
   <div class="side-foot">
     <a class="side-settings" href="/setup" title="{{ '에이전트 활성화·설치 상태 재설정' | t }}">{{ '⚙︎ 에이전트 설정' | t }}</a>

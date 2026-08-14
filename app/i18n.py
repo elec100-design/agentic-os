@@ -525,6 +525,38 @@ EN = {
     "클릭하면 입력창에 @가 들어갑니다": "Click to insert @ into the composer",
     "시스템": "System",
 
+    # --- 에이전트 DM · 채널 목록 ---
+    # "채널"은 위쪽 카탈로그에 이미 있다.
+    "에이전트 만들기·편집": "Create and edit agents",
+    "아직 에이전트가 없습니다. ＋ 로 만들어 보세요.":
+        "No agents yet. Use ＋ to create one.",
+    "대화를 시작해 보세요": "Start a conversation",
+    "여러 에이전트를 부를 채널 만들기": "Create a channel to call several agents",
+    "채널 만들기": "Create a channel",
+    "채널을 만들면 여러 에이전트를 한자리에 부를 수 있습니다.":
+        "Create a channel to bring several agents together.",
+    "아직 대화가 없습니다": "No messages yet",
+    "채널에 부른 에이전트끼리 한자리에서 대화합니다. 여기 없는 에이전트는 그 채널에서 @로 부를 수 없습니다.":
+        "Agents you add talk together in one place. Agents not in the channel "
+        "can't be called with @ there.",
+    "먼저 에이전트를 만들어야 합니다.": "You need to create an agent first.",
+    "에이전트 만들기 →": "Create an agent →",
+    "채널 이름": "Channel name",
+    "채널 이름은 비울 수 없습니다": "Channel name can't be empty",
+    "예: 신제품 출시": "e.g. Product launch",
+    "주제 (선택)": "Topic (optional)",
+    "이 채널에서 무엇을 다루는지": "What this channel is about",
+    "작업 위치 (선택)": "Workspace (optional)",
+    "(없음)": "(none)",
+    "부를 에이전트": "Agents to add",
+    "에이전트 간 대화 허용 — 에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다":
+        "Let agents call each other — an agent that @-mentions another in its "
+        "reply will trigger that agent too",
+    "역할 편집 →": "Edit role →",
+    "%(name)s 에게 말 걸기…": "Message %(name)s…",
+    "이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)":
+        "Start a new topic in this channel… (use @slug to call an agent)",
+
     # --- 승인 게이트 ---
     "✋ 승인": "✋ Approvals",
     "승인 인박스": "Approval inbox",

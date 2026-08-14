@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ '채널 만들기' | t }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+</head>
+<body class="with-sidebar">
+<button id="nav-toggle" aria-label="{{ '사이드바 열기/닫기' | t }}">
+  <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+    <path d="M2 4h12M2 8h12M2 12h12"/>
+  </svg>
+</button>
+
+<aside class="sidebar">
+  <div class="brand"><a class="wordmark" href="/">Agentic OS</a></div>
+  <div class="side-scroll">
+    {% include "partials/agent_rail.html" %}
+  </div>
+</aside>
+
+<main class="page">
+<h1 class="job-title">{{ '채널 만들기' | t }}</h1>
+<p class="job-meta">
+  {{ '채널에 부른 에이전트끼리 한자리에서 대화합니다. 여기 없는 에이전트는 그 채널에서 @로 부를 수 없습니다.' | t }}
+</p>
+
+{% if error %}<p class="mcp-error">{{ error }}</p>{% endif %}
+
+{% if not agents %}
+<p class="job-meta">{{ '먼저 에이전트를 만들어야 합니다.' | t }}
+  <a href="/settings/agents">{{ '에이전트 만들기 →' | t }}</a></p>
+{% endif %}
+
+<form method="post" action="/channels/new" class="mcp-add-form">
+  <label>{{ '채널 이름' | t }}
+    <input type="text" name="title" required placeholder="{{ '예: 신제품 출시' | t }}">
+  </label>
+  <label>{{ '주제 (선택)' | t }}
+    <input type="text" name="topic" placeholder="{{ '이 채널에서 무엇을 다루는지' | t }}">
+  </label>
+  <label>{{ '작업 위치 (선택)' | t }}
+    <select name="workdir">
+      <option value="">{{ '(없음)' | t }}</option>
+      {% for ws in workspaces %}<option value="{{ ws['path'] }}">{{ ws['name'] }}</option>{% endfor %}
+    </select>
+  </label>
+
+  <fieldset class="channel-agent-picker">
+    <legend>{{ '부를 에이전트' | t }}</legend>
+    {% for a in agents %}
+    <label class="agent-check">
+      <input type="checkbox" name="agent_ids" value="{{ a['id'] }}">
+      <span>
+        <span class="rail-avatar" style="background: {{ avatar_color(a['slug']) }}"></span>
+        <strong>{{ a['name'] }}</strong> <span class="agent-slug">@{{ a['slug'] }}</span>
+      </span>
+    </label>
+    {% endfor %}
+  </fieldset>
+
+  <label class="agent-check">
+    <input type="checkbox" name="agent_chat" value="1">
+    <span>{{ '에이전트 간 대화 허용 — 에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다' | t }}</span>
+  </label>
+
+  <button type="submit" class="btn-primary">{{ '채널 만들기' | t }}</button>
+</form>
+</main>
+<script src="/static/nav.js?v={{ asset_v() }}"></script>
+</body>
+</html>

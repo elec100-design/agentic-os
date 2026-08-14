@@ -361,7 +361,9 @@ if (threadList && typeof CHANNEL !== "undefined") {
     e.preventDefault();
     const body = newThreadPrompt.value.trim();
     if (!body) return;
-    const provider = document.getElementById("new-thread-provider").value;
+    // DM 에는 에이전트 선택이 없다 — 상대가 정해져 있고 실행 CLI 는 그
+    // 에이전트 설정이 정한다(서버가 채널 종류를 보고 라우팅한다).
+    const provider = document.getElementById("new-thread-provider")?.value || "auto";
     const btn = newThreadForm.querySelector("button.send");
     btn.disabled = true;
     try {

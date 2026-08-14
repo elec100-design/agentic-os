@@ -9,16 +9,48 @@
 <script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
 <script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
 </head>
-<body>
+<body class="with-sidebar">
+<button id="nav-toggle" aria-label="{{ '사이드바 열기/닫기' | t }}">
+  <svg viewBox="0 0 16 16" width="16" height="16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+    <path d="M2 4h12M2 8h12M2 12h12"/>
+  </svg>
+</button>
+
+{#- 대화 중에도 다른 상대로 바로 옮겨갈 수 있어야 한다 — 홈과 같은 목록을 단다. -#}
+<aside class="sidebar">
+  <div class="brand">
+    <a class="wordmark" href="/">Agentic OS</a>
+  </div>
+  <div class="side-scroll">
+    {% include "partials/agent_rail.html" %}
+  </div>
+  <div class="side-foot">
+    <a class="side-settings" href="/settings/agents">{{ '🧑‍💻 에이전트' | t }}</a>
+    <a class="side-settings" href="/approvals">{{ '✋ 승인' | t }}</a>
+  </div>
+</aside>
+
 <main class="page channel-page">
-<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
 <h1 class="job-title">
+  {% if channel['kind'] == 'dm' %}
+  <span class="rail-avatar" style="background: {{ dm_color }}"></span>{{ channel['title'] }}
+  {% else %}
   <span class="channel-hash">#</span>{{ channel['title'] }}
+  {% endif %}
   <button type="button" class="btn-ghost btn-del" id="channel-delete-btn">{{ '삭제' | t }}</button>
 </h1>
 {% if channel['topic'] %}<p class="channel-topic">{{ channel['topic'] }}</p>{% endif %}
 {% if channel['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ channel['workdir'] }}</code></p>{% endif %}
 
+{% if channel['kind'] == 'dm' %}
+{# 1:1 대화 — 멤버를 더하거나 에이전트끼리 대화시킬 일이 없다. 대신 상대가
+   어떤 역할인지 보여주고, 설정으로 바로 갈 길을 낸다. #}
+<div class="channel-members">
+  <span class="job-meta">@{{ dm_agent['slug'] if dm_agent else '' }}</span>
+  {% if dm_agent and dm_agent['persona'] %}<span class="job-meta dm-persona">{{ dm_agent['persona'] }}</span>{% endif %}
+  <a class="job-meta" href="/settings/agents">{{ '역할 편집 →' | t }}</a>
+</div>
+{% else %}
 {# 채널에 배치된 에이전트 — 여기 있는 에이전트만 @로 부를 수 있다. #}
 <div class="channel-members" id="channel-members">
   <span class="job-meta">{{ '멤버' | t }}:</span>
@@ -40,18 +72,23 @@
     {{ '에이전트 간 대화 허용' | t }}
   </label>
 </div>
+{% endif %}
 
 <div class="channel-threads" id="thread-list"></div>
 
 <form class="composer channel-new-thread" id="new-thread-form">
-  <textarea id="new-thread-prompt" rows="3" required placeholder="{{ '이 채널에 새 주제로 말을 걸어보세요…' | t }}"></textarea>
+  <textarea id="new-thread-prompt" rows="3" required
+            placeholder="{% if channel['kind'] == 'dm' %}{{ '%(name)s 에게 말 걸기…' | t | replace('%(name)s', channel['title']) }}{% else %}{{ '이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)' | t }}{% endif %}"></textarea>
   <div class="composer-bar">
+    {# DM 은 상대가 정해져 있다 — 실행 CLI 는 그 에이전트 설정이 정한다. #}
+    {% if channel['kind'] != 'dm' %}
     <label class="resume-opt">{{ '에이전트' | t }}
       <select class="ws-select" id="new-thread-provider">
         <option value="auto">{{ '자동' | t }}</option>
         {% for a in agent_order %}<option value="{{ a }}">{{ a|capitalize }}</option>{% endfor %}
       </select>
     </label>
+    {% endif %}
     <span class="spacer"></span>
     <button type="submit" class="send" aria-label="{{ '전송' | t }}">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -89,6 +126,7 @@
 const CHANNEL = {{ channel | tojson }};
 const THREADS = {{ threads | tojson }};
 </script>
+<script src="/static/nav.js?v={{ asset_v() }}"></script>
 <script src="/static/channels.js?v={{ asset_v() }}"></script>
 </body>
 </html>
