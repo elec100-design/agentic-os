@@ -5,55 +5,72 @@
   단체 대화로 간다. 홈(index.html)과 채널 페이지(channel.html)가 함께 쓴다 —
   대화 중에도 다른 상대로 바로 옮겨갈 수 있어야 하기 때문이다.
 
+  각 묶음은 접을 수 있다(agent-rail.js 가 상태를 localStorage 에 남긴다).
+  에이전트가 많아지면 채널이 화면 밖으로 밀려나기 때문이다.
+
   기대 컨텍스트: rail_agents(에이전트+preview), rail_channels(채널+preview),
   active_channel_id(현재 열려 있는 채널 id 또는 None)
 #}
-<div class="rail-group">
+<div class="rail-group" data-rail-group="agents">
   <div class="rail-group-head">
+    <button type="button" class="rail-collapse" aria-expanded="true"
+            aria-label="{{ '목록 접기/펼치기' | t }}" title="{{ '목록 접기/펼치기' | t }}">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
     <h2>{{ '에이전트' | t }}</h2>
     <a class="rail-add" href="/settings/agents" title="{{ '에이전트 만들기·편집' | t }}" aria-label="{{ '에이전트 만들기·편집' | t }}">＋</a>
   </div>
-  {% if not rail_agents %}
-  <p class="rail-empty">{{ '아직 에이전트가 없습니다. ＋ 로 만들어 보세요.' | t }}</p>
-  {% else %}
-  <ul class="rail-list">
-    {% for a in rail_agents %}
-    <li>
-      <a class="rail-item{% if a['channel_id'] and a['channel_id'] == active_channel_id %} active{% endif %}"
-         href="/dm/{{ a['slug'] }}">
-        <span class="rail-avatar" style="background: {{ a['color'] }}"></span>
-        <span class="rail-body">
-          <span class="rail-title">{{ a['name'] }}<span class="rail-slug">@{{ a['slug'] }}</span></span>
-          <span class="rail-preview">{{ a['preview'] or ('대화를 시작해 보세요' | t) }}</span>
-        </span>
-      </a>
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
+  <div class="rail-group-body">
+    {% if not rail_agents %}
+    <p class="rail-empty">{{ '아직 에이전트가 없습니다. ＋ 로 만들어 보세요.' | t }}</p>
+    {% else %}
+    <ul class="rail-list">
+      {% for a in rail_agents %}
+      <li>
+        <a class="rail-item{% if a['channel_id'] and a['channel_id'] == active_channel_id %} active{% endif %}"
+           href="/dm/{{ a['slug'] }}">
+          <span class="rail-avatar" style="background: {{ a['color'] }}"></span>
+          <span class="rail-body">
+            <span class="rail-title">{{ a['name'] }}<span class="rail-slug">@{{ a['slug'] }}</span></span>
+            <span class="rail-preview">{{ a['preview'] or ('대화를 시작해 보세요' | t) }}</span>
+          </span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
 </div>
 
-<div class="rail-group">
+<div class="rail-group" data-rail-group="channels">
   <div class="rail-group-head">
+    <button type="button" class="rail-collapse" aria-expanded="true"
+            aria-label="{{ '목록 접기/펼치기' | t }}" title="{{ '목록 접기/펼치기' | t }}">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+    </button>
     <h2>{{ '채널' | t }}</h2>
     <a class="rail-add" href="/channels/new" title="{{ '여러 에이전트를 부를 채널 만들기' | t }}" aria-label="{{ '채널 만들기' | t }}">＋</a>
   </div>
-  {% if not rail_channels %}
-  <p class="rail-empty">{{ '채널을 만들면 여러 에이전트를 한자리에 부를 수 있습니다.' | t }}</p>
-  {% else %}
-  <ul class="rail-list">
-    {% for c in rail_channels %}
-    <li>
-      <a class="rail-item{% if c['id'] == active_channel_id %} active{% endif %}"
-         href="/channels/{{ c['id'] }}">
-        <span class="rail-hash">#</span>
-        <span class="rail-body">
-          <span class="rail-title">{{ c['title'] }}{% if c['member_count'] %}<span class="rail-slug">{{ c['member_count'] }}</span>{% endif %}</span>
-          <span class="rail-preview">{{ c['preview'] or ('아직 대화가 없습니다' | t) }}</span>
-        </span>
-      </a>
-    </li>
-    {% endfor %}
-  </ul>
-  {% endif %}
+  <div class="rail-group-body">
+    {% if not rail_channels %}
+    <p class="rail-empty">{{ '채널을 만들면 여러 에이전트를 한자리에 부를 수 있습니다.' | t }}</p>
+    {% else %}
+    <ul class="rail-list">
+      {% for c in rail_channels %}
+      <li>
+        <a class="rail-item{% if c['id'] == active_channel_id %} active{% endif %}"
+           href="/channels/{{ c['id'] }}">
+          <span class="rail-hash">#</span>
+          <span class="rail-body">
+            <span class="rail-title">{{ c['title'] }}{% if c['member_count'] %}<span class="rail-slug">{{ c['member_count'] }}</span>{% endif %}</span>
+            <span class="rail-preview">{{ c['preview'] or ('아직 대화가 없습니다' | t) }}</span>
+          </span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </div>
 </div>

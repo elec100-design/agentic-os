@@ -1863,8 +1863,12 @@ body.orca-resizing .orca-home-main { pointer-events: none; }
      화면 맨 위부터 쓴다. */
   body.orca-home .orca-home-main { padding-top: 0.6rem; }
   /* 서랍 사이드바가 하단 상태바(사용량·작업 칩) 밑으로 들어가지 않게 —
-     비전보드 컴포저가 바에 가리면 목표를 보낼 수 없다. */
-  body.orca-home .sidebar { padding-bottom: 3rem; }
+     비전보드 컴포저가 바에 가리면 목표를 보낼 수 없다.
+     상태바는 min-height 34px 이므로 딱 그만큼만 비우고, 홈 인디케이터가 있는
+     기기에서는 safe-area 를 더한다. 넉넉히 3rem 을 주면 메뉴 아래가 휑하다. */
+  body.orca-home .sidebar {
+    padding-bottom: calc(34px + env(safe-area-inset-bottom, 0px));
+  }
   /* 사이드바의 햄버거 회피 여백(3.6rem)도 되돌린다. */
   body.orca-home .sidebar { padding-top: 1rem; }
 }

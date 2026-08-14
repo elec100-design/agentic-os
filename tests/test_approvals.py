@@ -282,32 +282,31 @@ def test_approvals_api_rejects_unknown_id(tmp_env):
         assert client.post("/api/approvals/999/approve").status_code == 400
 
 
-# --- 표시 규칙 ---------------------------------------------------------------
+# --- 진입 경로 ---------------------------------------------------------------
 
-def test_pending_badge_respects_hidden(tmp_env):
-    """대기 0건이면 배지가 보이면 안 된다.
+def test_sidebar_no_longer_links_to_approvals(tmp_env, completed_setup):
+    """사이드바 하단에서 '승인'·'에이전트' 버튼을 뺐다(사용자 요청).
 
-    approvals.js 는 `badge.hidden = !count` 로 숨기지만, CSS 가 그 요소에
-    display 를 주면 브라우저 기본 `[hidden] { display: none }` 을 명시도로
-    이겨 버려 빨간 ⓪ 이 항상 붙는다(실제로 그렇게 배포됐던 버그다).
-    이 저장소가 .cbar-chip·.modal-overlay 등에서 쓰는 것과 같은 대응이다.
+    인박스 자체는 /approvals 로 남아 있다 — 링크만 없앤 것이지 기능을 지운 게
+    아니다. 대기 배지도 함께 사라졌으므로, 승인이 밀려 있어도 화면에 표시가
+    나지 않는다는 점을 이 테스트가 명시적으로 못 박아 둔다.
     """
-    from pathlib import Path
-    css = Path("static/style.css").read_text(encoding="utf-8")
-    assert ".side-settings .pending-badge {" in css
-    assert "display" in css.split(".side-settings .pending-badge {")[1].split("}")[0]
-    # display 를 줬으면 [hidden] 복구 규칙이 반드시 함께 있어야 한다
-    assert ".side-settings .pending-badge[hidden] { display: none; }" in css
-
-    js = Path("static/approvals.js").read_text(encoding="utf-8")
-    assert "hidden = !count" in js.replace(" ", "").replace("badge.", "") \
-        or "badge.hidden = !count" in js
-
-
-def test_home_renders_the_badge_hidden_when_nothing_is_pending(tmp_env, completed_setup):
     with _client(tmp_env) as client:
-        conn = db.get_conn()
-        assert db.count_pending_approvals(conn) == 0
         home = client.get("/").text
-        badge = home.split('id="approvals-badge"')[1].split(">")[0]
-        assert "hidden" in badge
+        assert 'href="/approvals"' not in home
+        assert "approvals-badge" not in home
+        # 페이지는 그대로 살아 있다
+        assert client.get("/approvals").status_code == 200
+
+
+def test_sidebar_foot_shows_model_settings(tmp_env, completed_setup):
+    """하단은 '모델 설정'·'MCP 서버' 둘만 남는다 — 에이전트는 목록의 ＋ 로 간다."""
+    with _client(tmp_env) as client:
+        for path in ("/", "/channels/new"):
+            page = client.get(path).text
+            foot = page.split('class="side-foot"')[1].split("</div>")[0] \
+                if 'class="side-foot"' in page else ""
+            if not foot:
+                continue
+            assert 'href="/setup"' in foot
+            assert 'href="/settings/agents"' not in foot

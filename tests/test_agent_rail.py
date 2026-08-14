@@ -222,3 +222,34 @@ def test_avatar_color_is_stable_per_slug(tmp_env):
     from app.main import avatar_color
     assert avatar_color("researcher") == avatar_color("researcher")
     assert avatar_color("") and avatar_color(None)
+
+
+# --- 목록 접기/펼치기 ---------------------------------------------------------
+
+def test_rail_groups_have_a_collapse_toggle(tmp_env, completed_setup):
+    """에이전트가 늘어나면 채널이 화면 밖으로 밀린다 — 묶음별로 접을 수 있어야 한다."""
+    with _client(tmp_env) as client:
+        conn = db.get_conn()
+        _three_agents(conn)
+        for path in ("/", "/channels/new"):
+            page = client.get(path).text
+            assert 'data-rail-group="agents"' in page, path
+            assert 'data-rail-group="channels"' in page, path
+            assert page.count('class="rail-collapse"') == 2, path
+            assert page.count('class="rail-group-body"') == 2, path
+            assert "agent-rail.js" in page, path
+
+
+def test_collapsed_body_is_hidden_by_the_browser_not_by_css(tmp_env):
+    """`hidden` 으로 접는 요소에 CSS 가 display 를 주면 브라우저 기본
+    `[hidden] { display: none }` 을 명시도로 이겨 버려 접히지 않는다
+    (승인 배지에서 실제로 겪은 버그다). rail-group-body 는 display 를 받지 않는다."""
+    from pathlib import Path
+    css = Path("static/style.css").read_text(encoding="utf-8")
+    for block in css.split(".rail-group-body")[1:]:
+        rule = block.split("{")[1].split("}")[0] if "{" in block else ""
+        assert "display" not in rule, f"rail-group-body 에 display 를 주면 안 된다: {rule}"
+
+    js = Path("static/agent-rail.js").read_text(encoding="utf-8")
+    assert "body.hidden = collapsed" in js
+    assert "localStorage" in js   # 페이지를 옮겨도 접힌 상태가 유지돼야 한다

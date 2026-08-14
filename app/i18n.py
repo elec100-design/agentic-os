@@ -553,6 +553,9 @@ EN = {
         "Let agents call each other — an agent that @-mentions another in its "
         "reply will trigger that agent too",
     "역할 편집 →": "Edit role →",
+    "목록 접기/펼치기": "Collapse or expand the list",
+    "⚙︎ 모델 설정": "⚙︎ Models",
+    "쓰는 CLI 와 모델을 고른다": "Pick the CLIs and models you use",
     "%(name)s 에게 말 걸기…": "Message %(name)s…",
     "이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)":
         "Start a new topic in this channel… (use @slug to call an agent)",

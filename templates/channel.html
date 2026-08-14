@@ -25,8 +25,8 @@
     {% include "partials/agent_rail.html" %}
   </div>
   <div class="side-foot">
-    <a class="side-settings" href="/settings/agents">{{ '🧑‍💻 에이전트' | t }}</a>
-    <a class="side-settings" href="/approvals">{{ '✋ 승인' | t }}</a>
+    <a class="side-settings" href="/setup">{{ '⚙︎ 모델 설정' | t }}</a>
+    <a class="side-settings" href="/settings/mcp">{{ '🔌 MCP 서버' | t }}</a>
   </div>
 </aside>
 
@@ -127,6 +127,7 @@ const CHANNEL = {{ channel | tojson }};
 const THREADS = {{ threads | tojson }};
 </script>
 <script src="/static/nav.js?v={{ asset_v() }}"></script>
+<script src="/static/agent-rail.js?v={{ asset_v() }}"></script>
 <script src="/static/channels.js?v={{ asset_v() }}"></script>
 </body>
 </html>
