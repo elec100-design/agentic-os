@@ -1656,6 +1656,51 @@ h2.section-label {
 }
 .mcp-manual-add textarea { resize: vertical; font-family: var(--font-mono); }
 
+/* ---- 에이전트 설정 페이지 ---- */
+.agent-item {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.6rem;
+}
+.agent-item > details > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.agent-slug { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+.agent-badges { margin-left: auto; display: flex; gap: 0.3rem; }
+.agent-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  color: var(--muted);
+}
+.agent-badge.ro { border-color: var(--accent); color: var(--accent); }
+.agent-check { flex-direction: row !important; align-items: flex-start; gap: 0.45rem !important; }
+.agent-check input { width: auto; flex: none; margin-top: 0.15rem; }
+.agent-actions { display: flex; gap: 0.5rem; }
+
+/* ---- 채널 멤버(에이전트) 줄 ---- */
+.channel-members { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }
+.channel-member-chip {
+  font: inherit;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.channel-member-chip:hover { border-color: var(--accent); color: var(--accent); }
+.channel-agent-chat { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.3rem; margin-left: auto; }
+.msg-row.system .chat-bubble { font-size: 0.8rem; color: var(--muted); font-style: italic; }
+
 /* ---- 자동 라우팅 이유 표시 ---- */
 .route-reason {
   margin: 0.3rem 0 0.6rem;

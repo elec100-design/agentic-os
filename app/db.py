@@ -179,6 +179,29 @@ CREATE TABLE IF NOT EXISTS task_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_task_runs_run ON task_runs(run_id, task_id);
 CREATE INDEX IF NOT EXISTS idx_task_runs_task ON task_runs(task_id, attempt);
+-- 사용자가 만든 에이전트(역할). provider(벤더 CLI)와는 다른 층이다 — 하나의
+-- 에이전트는 "무엇을 하는 사람인가"(persona)를 고정하고, 어느 CLI 로 실행할지는
+-- provider 로 고르거나 "auto"로 두어 잔여 쿼터 라우팅에 맡긴다.
+CREATE TABLE IF NOT EXISTS agents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  slug TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  persona TEXT NOT NULL DEFAULT '',
+  provider TEXT NOT NULL DEFAULT 'auto',
+  model TEXT,
+  workdir TEXT,
+  read_only INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  updated_at TEXT
+);
+-- 채널에 배치된 에이전트. 여기 없는 에이전트는 그 채널에서 호출할 수 없다.
+CREATE TABLE IF NOT EXISTS channel_members (
+  channel_id INTEGER NOT NULL REFERENCES channels(id),
+  agent_id INTEGER NOT NULL REFERENCES agents(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (channel_id, agent_id)
+);
 """
 
 
@@ -254,6 +277,28 @@ def _migrate(conn):
     task_msg_cols = {r["name"] for r in conn.execute("PRAGMA table_info(task_messages)")}
     if "suggested_description" not in task_msg_cols:
         conn.execute("ALTER TABLE task_messages ADD COLUMN suggested_description TEXT")
+    # --- 커스텀 에이전트 역참조 (전부 nullable) ---------------------------
+    # 이 컬럼들이 NULL 이면 에이전트 기능 도입 전과 완전히 같은 경로로 동작한다.
+    if "agent_id" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN agent_id INTEGER")
+    if "agent_id" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN agent_id INTEGER")
+    # 위임(handoff)으로 생긴 태스크가 어느 태스크에서 나왔는지 — 계획에 없던
+    # 노드를 그래프에서 구분하기 위한 표시.
+    if "origin_task_id" not in task_cols:
+        conn.execute("ALTER TABLE tasks ADD COLUMN origin_task_id INTEGER")
+    # author 는 표시용 문자열(provider 이름)이라 에이전트 식별에 쓸 수 없다 —
+    # 이름이 바뀌거나 같은 CLI 를 쓰는 에이전트가 둘이면 구분되지 않는다.
+    if "author_agent_id" not in message_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN author_agent_id INTEGER")
+    # 에이전트 연쇄의 깊이 — 사용자 발화가 0, 에이전트가 에이전트를 부를 때마다 +1.
+    # 무한 연쇄(=구독 쿼터 소각)를 끊는 기준값이라 메시지에 못박아 둔다.
+    if "hop_depth" not in message_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN hop_depth INTEGER NOT NULL DEFAULT 0")
+    channel_cols = {r["name"] for r in conn.execute("PRAGMA table_info(channels)")}
+    # 에이전트끼리 서로를 부를 수 있는지(채널별 opt-in, 기본 꺼짐).
+    if "agent_chat" not in channel_cols:
+        conn.execute("ALTER TABLE channels ADD COLUMN agent_chat INTEGER NOT NULL DEFAULT 0")
     conn.commit()
     _migrate_steps_nullable_message(conn)
 
@@ -315,13 +360,13 @@ def _migrate_steps_nullable_message(conn):
 
 def create_job(conn, prompt, provider, timeout_sec=None, session_id=None,
                model=None, workdir=None, note_path=None, route_reason=None,
-               channel_id=None, message_id=None):
+               channel_id=None, message_id=None, agent_id=None):
     cur = conn.execute(
         "INSERT INTO jobs (prompt, provider, model, timeout_sec, session_id, "
-        "workdir, note_path, route_reason, channel_id, message_id, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "workdir, note_path, route_reason, channel_id, message_id, agent_id, "
+        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (prompt, provider, model, timeout_sec, session_id, workdir, note_path,
-         route_reason, channel_id, message_id, now_iso()),
+         route_reason, channel_id, message_id, agent_id, now_iso()),
     )
     conn.commit()
     return cur.lastrowid
@@ -513,12 +558,13 @@ def delete_project(conn, project_id):
 
 
 def create_task(conn, project_id, seq, title, description, task_type,
-                provider, depends_on=""):
+                provider, depends_on="", agent_id=None, origin_task_id=None):
     cur = conn.execute(
         "INSERT INTO tasks (project_id, seq, title, description, task_type, "
-        "provider, depends_on, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "provider, depends_on, agent_id, origin_task_id, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (project_id, seq, title, description, task_type, provider, depends_on,
-         now_iso()),
+         agent_id, origin_task_id, now_iso()),
     )
     conn.commit()
     return cur.lastrowid
@@ -941,6 +987,7 @@ def delete_channel(conn, channel_id):
     for jid in job_ids:
         conn.execute("DELETE FROM jobs WHERE id = ?", (jid,))
     conn.execute("DELETE FROM messages WHERE channel_id = ?", (channel_id,))
+    conn.execute("DELETE FROM channel_members WHERE channel_id = ?", (channel_id,))
     conn.execute("DELETE FROM channels WHERE id = ?", (channel_id,))
     conn.commit()
 
@@ -956,7 +1003,7 @@ def next_message_seq(conn, channel_id):
 
 def create_message(conn, channel_id, role, body, author="", parent_id=None,
                     status="done", provider=None, model=None, session_id=None,
-                    job_id=None):
+                    job_id=None, author_agent_id=None, hop_depth=0):
     """parent_id는 항상 쓰레드 루트 메시지를 직접 가리켜야 한다(호출자가 정규화).
     parent_id가 없으면 이 메시지 자신이 채널의 새 루트가 된다."""
     seq = next_message_seq(conn, channel_id)
@@ -968,9 +1015,11 @@ def create_message(conn, channel_id, role, body, author="", parent_id=None,
     cur = conn.execute(
         "INSERT INTO messages (channel_id, parent_id, root_id, seq, role, "
         "author, body, status, provider, model, session_id, job_id, "
-        "created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "author_agent_id, hop_depth, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (channel_id, parent_id, root_id, seq, role, author, body, status,
-         provider, model, session_id, job_id, now_iso()),
+         provider, model, session_id, job_id, author_agent_id, hop_depth,
+         now_iso()),
     )
     conn.commit()
     message_id = cur.lastrowid
@@ -1021,16 +1070,111 @@ def update_message(conn, message_id, **fields):
     conn.commit()
 
 
-def latest_thread_session(conn, root_id):
+def latest_thread_session(conn, root_id, agent_id=None):
     """쓰레드(root_id + 그 답장들) 안에서 가장 최근 session_id/provider를 찾는다.
 
     root_id 정규화(모든 답장이 루트를 직접 가리킴) 때문에 parent_id를
     거슬러 올라가는 방식으론 형제 메시지의 세션을 못 찾는다 — 쓰레드 전체를
-    seq 역순으로 스캔해 가장 최근에 세션을 남긴 메시지를 찾는다."""
+    seq 역순으로 스캔해 가장 최근에 세션을 남긴 메시지를 찾는다.
+
+    agent_id를 주면 그 에이전트가 남긴 세션만 본다. 한 쓰레드에 같은 CLI를 쓰는
+    에이전트가 둘 이상 있을 때 A가 B의 세션을 이어받아 B의 맥락을 통째로
+    흡수하는 것을 막는다 — 에이전트는 자기 세션만 잇는다.
+    """
     for row in reversed(list_thread(conn, root_id)):
-        if row["session_id"]:
-            return row["session_id"], row["provider"]
+        if not row["session_id"]:
+            continue
+        if agent_id is not None and row["author_agent_id"] != agent_id:
+            continue
+        # 에이전트를 지정해 찾을 때, 에이전트 없이 돌던 과거 메시지의 세션은
+        # 주인이 불분명하므로 물려주지 않는다(위 조건에서 이미 걸러진다).
+        return row["session_id"], row["provider"]
     return None, None
+
+
+# --- 에이전트(사용자가 만든 역할) -------------------------------------------
+
+def create_agent(conn, slug, name, persona="", provider="auto", model=None,
+                 workdir=None, read_only=0):
+    cur = conn.execute(
+        "INSERT INTO agents (slug, name, persona, provider, model, workdir, "
+        "read_only, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (slug, name, persona, provider, model, workdir, int(read_only),
+         now_iso()),
+    )
+    conn.commit()
+    return cur.lastrowid
+
+
+def get_agent(conn, agent_id):
+    if agent_id is None:
+        return None
+    return conn.execute(
+        "SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+
+
+def get_agent_by_slug(conn, slug, status="active"):
+    """slug로 에이전트를 찾는다. status=None이면 보관된 것도 포함."""
+    if status:
+        return conn.execute(
+            "SELECT * FROM agents WHERE slug = ? AND status = ?",
+            (slug, status)).fetchone()
+    return conn.execute(
+        "SELECT * FROM agents WHERE slug = ?", (slug,)).fetchone()
+
+
+def list_agents(conn, status="active"):
+    if status:
+        return conn.execute(
+            "SELECT * FROM agents WHERE status = ? ORDER BY id", (status,)
+        ).fetchall()
+    return conn.execute("SELECT * FROM agents ORDER BY id").fetchall()
+
+
+def update_agent(conn, agent_id, **fields):
+    fields["updated_at"] = now_iso()
+    cols = ", ".join(f"{k} = ?" for k in fields)
+    conn.execute(f"UPDATE agents SET {cols} WHERE id = ?",
+                 (*fields.values(), agent_id))
+    conn.commit()
+
+
+def archive_agent(conn, agent_id):
+    """하드 삭제하지 않는다 — 과거 메시지·잡·태스크가 이 행을 역참조하고 있어
+    지우면 "누가 한 말인지"가 사라진다. 목록·호출에서만 빠진다."""
+    update_agent(conn, agent_id, status="archived")
+    conn.execute("DELETE FROM channel_members WHERE agent_id = ?", (agent_id,))
+    conn.commit()
+
+
+# --- 채널 멤버십 ------------------------------------------------------------
+
+def add_channel_member(conn, channel_id, agent_id):
+    conn.execute(
+        "INSERT OR IGNORE INTO channel_members (channel_id, agent_id, "
+        "created_at) VALUES (?, ?, ?)", (channel_id, agent_id, now_iso()))
+    conn.commit()
+
+
+def remove_channel_member(conn, channel_id, agent_id):
+    conn.execute(
+        "DELETE FROM channel_members WHERE channel_id = ? AND agent_id = ?",
+        (channel_id, agent_id))
+    conn.commit()
+
+
+def list_channel_members(conn, channel_id):
+    """채널에 배치된 활성 에이전트 목록(등록 순)."""
+    return conn.execute(
+        "SELECT a.* FROM agents a JOIN channel_members m ON m.agent_id = a.id "
+        "WHERE m.channel_id = ? AND a.status = 'active' ORDER BY m.created_at",
+        (channel_id,)).fetchall()
+
+
+def is_channel_member(conn, channel_id, agent_id):
+    return conn.execute(
+        "SELECT 1 FROM channel_members WHERE channel_id = ? AND agent_id = ?",
+        (channel_id, agent_id)).fetchone() is not None
 
 
 # --- 실행 트레이스: 메시지 하나의 실행 중간 과정(생각/도구 호출/로그) --------

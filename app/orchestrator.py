@@ -50,10 +50,26 @@ TASK_PROMPT = """당신은 프로젝트의 태스크 하나를 수행하는 에�
 ## 당신의 태스크: {title}
 
 {description}
-{upstream}{extra}
+{upstream}{extra}{handoff}
 ## 지시
 
 태스크 설명에 충실하게 최종 결과물만 출력하세요. 계획이나 사족 없이."""
+
+# 실행 중 위임 — 태스크가 끝나면서 후속 작업을 다른 에이전트에게 넘길 수 있게
+# 하는 규약. 부를 수 있는 에이전트가 하나라도 있을 때만 프롬프트에 실린다.
+HANDOFF_SECTION = """
+## 다른 에이전트에게 넘기기 (선택)
+
+당신이 직접 하기 어렵거나 다른 역할이 맡아야 하는 **후속 작업**이 있으면, 결과물
+끝에 아래 형식의 JSON 코드블록을 하나만 덧붙이세요. 필요 없으면 붙이지 마세요
+(대부분의 경우 필요 없습니다).
+
+```json
+{{"handoff": {{"to": "슬러그", "title": "후속 태스크 제목", "description": "구체적 작업 지시", "reason": "왜 넘기는지"}}}}
+```
+
+넘길 수 있는 에이전트: {roster}
+"""
 
 EXTRA_INSTRUCTION_SECTION = """
 ## 추가 지시 (사용자가 직접 덧붙임 — 반드시 지킬 것)
@@ -291,10 +307,11 @@ def _opt(row, key):
         return None
 
 
-def build_task_prompt(project, task, upstream_tasks):
+def build_task_prompt(project, task, upstream_tasks, roster=()):
     """태스크 실행 프롬프트 — 목표 + 태스크 설명 + 선행 결과(stateless 핸드오프).
 
     오류 조치로 추가 지시(extra_instruction)가 붙어 있으면 프롬프트 끝에 싣는다.
+    roster(부를 수 있는 에이전트 목록)가 있으면 실행 중 위임 규약도 싣는다.
     """
     extra_raw = (_opt(task, "extra_instruction") or "").strip()
     if task["provider"] == MEDIA:
@@ -312,9 +329,104 @@ def build_task_prompt(project, task, upstream_tasks):
         upstream = "\n## 선행 태스크 결과\n\n" + "\n\n".join(sections) + "\n"
     extra = (EXTRA_INSTRUCTION_SECTION.format(instruction=extra_raw)
              if extra_raw else "")
+    handoff = ""
+    if roster:
+        names = ", ".join(f"{a['slug']}({a['name']})" for a in roster)
+        handoff = HANDOFF_SECTION.format(roster=names)
     return TASK_PROMPT.format(goal=project["goal"], title=task["title"],
                               description=task["description"],
-                              upstream=upstream, extra=extra)
+                              upstream=upstream, extra=extra, handoff=handoff)
+
+
+# --- 실행 중 위임(handoff) --------------------------------------------------
+
+def parse_handoff(text):
+    """태스크 출력에서 위임 요청을 뽑는다. (본문, handoff|None).
+
+    본문에서 위임 블록을 **제거해서** 돌려준다 — 그 출력은 하류 태스크의
+    프롬프트에 그대로 실리는 산출물이라, JSON 이 섞이면 다음 에이전트가 그것을
+    작업 지시로 착각한다.
+
+    형식이 어긋나면 조용히 무시한다(None) — 위임은 선택 기능이고, 파싱 실패로
+    태스크 결과 자체를 버리는 것이 훨씬 나쁘다.
+    """
+    text = text or ""
+    for block in _FENCE_RE.finditer(text):
+        try:
+            data = json.loads(block.group(1).strip())
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(data, dict) or not isinstance(data.get("handoff"), dict):
+            continue
+        h = data["handoff"]
+        to = str(h.get("to") or "").strip().lstrip("@")
+        title = str(h.get("title") or "").strip()
+        description = str(h.get("description") or "").strip() or title
+        if not to or not title:
+            continue
+        cleaned = (text[:block.start()] + text[block.end():]).strip()
+        return cleaned, {"to": to, "title": title, "description": description,
+                         "reason": str(h.get("reason") or "").strip()}
+    return text, None
+
+
+def _upstream_agent_ids(conn, project_id, task):
+    """이 태스크의 상류(직·간접 선행)에서 일한 에이전트 id 집합.
+
+    A→B→A 처럼 되돌아오는 위임을 막는 데 쓴다.
+    """
+    by_seq = {t["seq"]: t for t in db.list_tasks(conn, project_id)}
+    seen, stack, out = set(), list(_deps(task)), set()
+    while stack:
+        seq = stack.pop()
+        if seq in seen or seq not in by_seq:
+            continue
+        seen.add(seq)
+        up = by_seq[seq]
+        if _opt(up, "agent_id"):
+            out.add(up["agent_id"])
+        stack.extend(_deps(up))
+    return out
+
+
+def spawn_handoff_task(conn, project, origin_task, handoff):
+    """위임 요청 → 새 태스크. 만들었으면 task_id, 거절했으면 None.
+
+    add_task 는 쓸 수 없다 — _editable_project 가 running 프로젝트를 막는다.
+    이건 사용자의 그래프 편집이 아니라 오케스트레이터의 내부 동작이다.
+    """
+    from app import agents
+
+    agent = db.get_agent_by_slug(conn, handoff["to"])
+    if agent is None:
+        return None
+    # 자기 자신이나 상류로 되돌리는 위임은 순환이다 — 거절한다.
+    if _opt(origin_task, "agent_id") == agent["id"]:
+        return None
+    if agent["id"] in _upstream_agent_ids(conn, project["id"], origin_task):
+        return None
+
+    tasks = db.list_tasks(conn, project["id"])
+    if len(tasks) >= config.ORCH_MAX_TASKS:
+        return None
+    dynamic = sum(1 for t in tasks if _opt(t, "origin_task_id"))
+    if dynamic >= config.ORCH_MAX_DYNAMIC_TASKS:
+        return None
+
+    try:
+        provider, _reason = agents.resolve_provider(
+            conn, agent, handoff["description"], usage_state=council.usage_snapshot())
+    except agents.AgentError:
+        return None
+
+    task_id = db.create_task(
+        conn, project["id"], db.next_task_seq(conn, project["id"]),
+        handoff["title"], handoff["description"], "text", provider,
+        depends_on=str(origin_task["seq"]), agent_id=agent["id"],
+        origin_task_id=origin_task["id"])
+    db.get_or_create_board_tab(conn, project["id"], handoff["title"], "task",
+                               task_id, status="pending", activate=False)
+    return task_id
 
 
 def build_task_chat_prompt(task, history, message):
@@ -452,6 +564,13 @@ def _sync_tasks(conn, project, tasks):
         if new_status == "done":
             fields["output"] = job["output"]
             fields["finished_at"] = job["finished_at"] or db.now_iso()
+            # 실행 중 위임 — 출력에서 요청을 뽑고 본문에서는 지운다.
+            # 상한·순환에 걸리면 spawn_handoff_task 가 조용히 거절한다.
+            if task["provider"] != MEDIA:
+                cleaned, handoff = parse_handoff(job["output"])
+                if handoff is not None:
+                    fields["output"] = cleaned
+                    spawn_handoff_task(conn, project, task, handoff)
             if task["provider"] == MEDIA:
                 # 미디어 잡의 output 마지막 줄 = 산출물 절대 경로 (media.py 계약)
                 lines = [ln for ln in job["output"].strip().splitlines() if ln.strip()]
@@ -513,7 +632,11 @@ def _advance_running(conn, project):
         if any(by_seq[d]["status"] != "done" for d in deps if d in by_seq):
             continue
         upstream = [by_seq[d] for d in deps if d in by_seq]
-        prompt = build_task_prompt(project, task, upstream)
+        # 위임 규약은 넘길 상대가 실제로 있을 때만 프롬프트에 싣는다 —
+        # 에이전트를 하나도 안 만든 사용자에게 쓸데없는 지시가 가지 않게.
+        roster = [a for a in db.list_agents(conn)
+                  if a["id"] != _opt(task, "agent_id")]
+        prompt = build_task_prompt(project, task, upstream, roster=roster)
         # 미디어 잡은 model 컬럼에 종류(image|video|audio)를 실어 보낸다(media.py 계약).
         # 텍스트 태스크는 사용자가 교체한 모델이 있으면 그걸 쓴다.
         job_id = db.create_job(
@@ -521,7 +644,8 @@ def _advance_running(conn, project):
             model=(task["task_type"] if task["provider"] == MEDIA
                    else _opt(task, "model") or None),
             workdir=project["workdir"],
-            route_reason=f"비전 보드 태스크 #{task['seq']}")
+            route_reason=f"비전 보드 태스크 #{task['seq']}",
+            agent_id=_opt(task, "agent_id"))
         db.update_task(conn, task["id"], status="queued", job_id=job_id)
         _open_task_run(conn, project, task)
         inflight += 1

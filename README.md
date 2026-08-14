@@ -56,6 +56,17 @@ subscription account and read/write files in permitted folders.
   local Hermes to save cloud usage. Live recommendation hint as you type
 - **Agent + model picker** — model lists are pulled live from each CLI
   (no hardcoded versions), refreshed periodically
+- **Custom agents** — build agents with a role (persona), a CLI to run on, a
+  workspace, and an optional read-only flag under **⚙︎ Agents**. Leave the CLI
+  on *Auto* and the role stays fixed while each run goes to whichever CLI has
+  the most quota left. Read-only is enforced on claude (plan mode, no Bash);
+  on other CLIs it is passed as an instruction only
+- **Agents that talk to each other** — put agents in a channel and call one
+  with `@slug`. Turn on *Let agents call each other* and an agent that
+  `@`-mentions another in its reply hands the work over. It's **off by
+  default**, and the chain stops at a hop/turn/ping-pong limit with a note in
+  the thread — a runaway chain would burn your subscription quota
+  (`AOS_AGENT_HOP_MAX`, `AOS_AGENT_CHAIN_MAX`, `AOS_AGENT_PINGPONG_MAX`)
 - **Council mode** — hard questions get proposed on by several agents in
   parallel → each critiques the others' (anonymized) answers → the agent
   with the most remaining quota synthesizes a final answer (Hermes
@@ -351,6 +362,7 @@ agentic-os/
 │   ├── media.py         # vision board media provider (image/video CLI, audio TTS)
 │   ├── providers.py     # CLI adapters + model flags + quota-based auto-routing
 │   ├── council.py       # Council mode — multi-agent propose/critique/synthesize
+│   ├── agents.py        # Custom agents — persona injection, @mentions, chain limits
 │   ├── settings.py      # user settings (enabled agents) — data/settings.json
 │   ├── setup.py         # first-run setup — CLI/tool install detection
 │   ├── health.py        # diagnostics for /api/health and `aos doctor`

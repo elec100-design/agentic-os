@@ -19,6 +19,28 @@
 {% if channel['topic'] %}<p class="channel-topic">{{ channel['topic'] }}</p>{% endif %}
 {% if channel['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ channel['workdir'] }}</code></p>{% endif %}
 
+{# 채널에 배치된 에이전트 — 여기 있는 에이전트만 @로 부를 수 있다. #}
+<div class="channel-members" id="channel-members">
+  <span class="job-meta">{{ '멤버' | t }}:</span>
+  {% for m in members %}
+  <button type="button" class="channel-member-chip" data-slug="{{ m['slug'] }}"
+          title="{{ m['name'] }} — {{ '클릭하면 입력창에 @가 들어갑니다' | t }}">@{{ m['slug'] }}</button>
+  {% else %}
+  <span class="job-meta">{{ '채널에 배치된 에이전트가 없습니다. 에이전트 설정에서 만든 뒤 여기에 추가하세요.' | t }}</span>
+  {% endfor %}
+  {% if addable_agents %}
+  <select id="member-add-select" class="ws-select" aria-label="{{ '추가할 에이전트' | t }}">
+    <option value="">＋ {{ '추가할 에이전트' | t }}</option>
+    {% for a in addable_agents %}<option value="{{ a['id'] }}">@{{ a['slug'] }} — {{ a['name'] }}</option>{% endfor %}
+  </select>
+  {% endif %}
+  <label class="channel-agent-chat"
+         title="{{ '에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다. 꺼 두면 @는 그냥 텍스트입니다.' | t }}">
+    <input type="checkbox" id="agent-chat-toggle"{% if channel['agent_chat'] %} checked{% endif %}>
+    {{ '에이전트 간 대화 허용' | t }}
+  </label>
+</div>
+
 <div class="channel-threads" id="thread-list"></div>
 
 <form class="composer channel-new-thread" id="new-thread-form">

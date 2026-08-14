@@ -9,7 +9,12 @@ if (threadList && typeof CHANNEL !== "undefined") {
   }
 
   function roleName(m) {
-    return m.role === "user" ? t("나") : (m.author || m.provider || "agent");
+    if (m.role === "user") return t("나");
+    if (m.role === "system") return t("시스템");
+    // 커스텀 에이전트가 답한 메시지는 CLI 이름이 아니라 에이전트 이름으로
+    // 보여준다 — 같은 CLI 를 쓰는 에이전트가 둘일 수 있다.
+    if (m.author_agent_id) return "@" + (m.author || "agent");
+    return m.author || m.provider || "agent";
   }
 
   function setBadge(row, status) {
@@ -21,7 +26,8 @@ if (threadList && typeof CHANNEL !== "undefined") {
   function buildMessageEl(m, opts) {
     opts = opts || {};
     const row = document.createElement("div");
-    row.className = "chat-turn msg-row " + (m.role === "user" ? "user" : "assistant");
+    row.className = "chat-turn msg-row " +
+      (m.role === "user" ? "user" : (m.role === "system" ? "system" : "assistant"));
     row.id = (opts.idPrefix || "msg-") + m.id;
     row.dataset.msgId = m.id;
     row.dataset.status = m.status;
@@ -376,5 +382,35 @@ if (threadList && typeof CHANNEL !== "undefined") {
     if (!confirm(t("이 채널과 모든 대화를 삭제할까요? 되돌릴 수 없습니다."))) return;
     await fetch(`/api/channels/${CHANNEL.id}`, { method: "DELETE" });
     window.location.href = "/";
+  });
+
+  // ---- 멤버(에이전트) 칩 · 에이전트 간 대화 토글 -------------------------
+  // 칩을 누르면 입력창에 @슬러그를 넣는다(멘션 자동완성 대용).
+  document.querySelectorAll(".channel-member-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const box = newThreadPrompt;
+      const mention = "@" + chip.dataset.slug + " ";
+      box.value = box.value ? box.value.replace(/\s*$/, " ") + mention : mention;
+      box.focus();
+    });
+  });
+
+  document.getElementById("member-add-select")?.addEventListener("change", async (e) => {
+    const agentId = e.target.value;
+    if (!agentId) return;
+    await fetch(`/api/channels/${CHANNEL.id}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: Number(agentId) }),
+    });
+    window.location.reload();  // 칩 목록·선택지를 서버 렌더로 다시 받는다
+  });
+
+  document.getElementById("agent-chat-toggle")?.addEventListener("change", async (e) => {
+    await fetch(`/api/channels/${CHANNEL.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_chat: e.target.checked }),
+    });
   });
 }

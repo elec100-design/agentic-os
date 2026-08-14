@@ -482,4 +482,46 @@ EN = {
         "Send a job from the right and its progress opens here as a tab.",
     "아직 작업이 없습니다. 아래에서 첫 작업을 보내 보세요.":
         "No jobs yet. Send your first one below.",
+
+    # --- 커스텀 에이전트 ---
+    # "에이전트"(단수 "Agent")는 위쪽 카탈로그에 이미 있다 — 목록 화면 제목은
+    # 복수형이 자연스러워 별도 문구를 쓴다.
+    "에이전트 관리": "Agents",
+    "🧑‍💻 에이전트": "🧑‍💻 Agents",
+    "역할을 가진 에이전트 만들기·편집": "Create and edit agents with roles",
+    "역할을 가진 에이전트를 만들어 두면 채널에서 @슬러그로 부를 수 있습니다. 실행 CLI를 「자동」으로 두면 역할은 그대로 두고 그때그때 사용량이 가장 여유 있는 CLI에서 실행됩니다.":
+        "Agents with roles can be called by @slug in channels. Leave the CLI on "
+        "\"Auto\" and the role stays fixed while each run goes to whichever CLI "
+        "has the most quota left.",
+    "등록된 에이전트": "Your agents",
+    "아직 에이전트가 없습니다. 아래에서 추가하세요.":
+        "No agents yet. Add one below.",
+    "에이전트 추가": "Add an agent",
+    "역할 (페르소나)": "Role (persona)",
+    "이 에이전트가 무엇을 하는 사람인지, 무엇을 하지 말아야 하는지":
+        "What this agent does, and what it must not do",
+    "실행 CLI": "Runs on",
+    "자동 (사용량이 가장 여유 있는 곳)": "Auto (whichever has the most quota)",
+    "(채널 설정을 따름)": "(follow the channel)",
+    "읽기 전용 — 파일을 고치지 않습니다 (claude 에서만 강제되고, 다른 CLI 에서는 지시로만 전달됩니다)":
+        "Read-only — never edits files (enforced on claude; other CLIs get it as "
+        "an instruction only)",
+    "읽기 전용": "Read-only",
+    "보관 (목록에서 숨김)": "Archive (hide from list)",
+    "예: 리서처": "e.g. Researcher",
+    "이름은 비울 수 없습니다": "Name can't be empty",
+
+    # --- 채널의 에이전트 ---
+    "멤버": "Members",
+    "에이전트 간 대화 허용": "Let agents call each other",
+    "에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다. 꺼 두면 @는 그냥 텍스트입니다.":
+        "When on, an agent that @-mentions another in its reply will trigger that "
+        "agent too. When off, @ is just text.",
+    "채널에 배치된 에이전트가 없습니다. 에이전트 설정에서 만든 뒤 여기에 추가하세요.":
+        "No agents in this channel yet. Create them in agent settings, then add "
+        "them here.",
+    "추가할 에이전트": "Agent to add",
+    "채널에서 빼기": "Remove from channel",
+    "클릭하면 입력창에 @가 들어갑니다": "Click to insert @ into the composer",
+    "시스템": "System",
 }

@@ -16,7 +16,10 @@ from app.providers import PROVIDERS
 ALL = list(PROVIDERS)  # 정식 순서 = providers.PROVIDERS 등록 순서
 
 _DEFAULTS = {"version": 1, "enabled_providers": ALL,
-             "setup_completed": False, "completed_at": None}
+             "setup_completed": False, "completed_at": None,
+             # 프리셋 에이전트를 이미 한 번 넣었는지 — 사용자가 지운 프리셋이
+             # 재시작마다 되살아나지 않게 하는 표시(app/agents.py:seed_presets).
+             "agents_seeded": False}
 
 
 def load():
@@ -43,13 +46,27 @@ def save(enabled):
     enabled = _canonical(enabled)
     if not enabled:
         raise ValueError("에이전트를 최소 1개 선택해야 합니다")
-    data = {"version": 1, "enabled_providers": enabled,
+    # 기존 값 위에 덮어쓴다 — 여기서 관리하지 않는 키(agents_seeded 등)가
+    # 셋업을 다시 저장할 때마다 지워지면 안 된다.
+    data = {**load(), "version": 1, "enabled_providers": enabled,
             "setup_completed": True,
             "completed_at": datetime.now(timezone.utc).isoformat(
                 timespec="seconds")}
+    _write(data)
+    return data
+
+
+def _write(data):
     path = Path(config.SETTINGS_PATH)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def mark_agents_seeded():
+    """프리셋 에이전트 시드 완료를 기록한다(멱등)."""
+    data = load()
+    data["agents_seeded"] = True
+    _write(data)
     return data
 
 

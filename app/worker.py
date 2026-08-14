@@ -4,8 +4,8 @@ import os
 from datetime import datetime, timezone
 
 from app import (
-    config, db, gitcheckpoint, instructions, mcp_servers, memory, stream_hub,
-    workspace,
+    agents, config, db, gitcheckpoint, instructions, mcp_servers, memory,
+    stream_hub, workspace,
 )
 from app.providers import CONTINUE_PROMPT, COUNCIL, PROVIDERS
 
@@ -114,6 +114,14 @@ def _clean_env():
     return env
 
 
+def _opt(row, key):
+    """Row/dict 에서 없을 수도 있는 컬럼을 안전하게 읽는다 (구 DB·테스트용 dict)."""
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        return None
+
+
 async def _pump(stream, sink):
     while True:
         line = await stream.readline()
@@ -168,6 +176,13 @@ async def run_job(conn, job, providers=None, save=True):
     instr_prefix, instr_applied = instructions.build_context(workdir, provider)
     if instr_prefix:
         send_prompt = instr_prefix + send_prompt
+
+    # 커스텀 에이전트의 역할(페르소나)은 지침보다 앞에 온다 — 정체성이 먼저고
+    # 프로젝트 지침은 그 역할이 지켜야 할 규칙이다. agent_id 가 없는 잡(기존
+    # 경로)은 아무것도 붙지 않는다(app/agents.py 상단 설계 참고).
+    agent = db.get_agent(conn, job["agent_id"]) if _opt(job, "agent_id") else None
+    if agent is not None:
+        send_prompt = agents.persona_prefix(agent) + send_prompt
     # 결과와 무관하게(도중에 죽어도) 무엇이 적용됐는지 남긴다 — 실행 전에
     # 이미 확정되는 값이라 여기서 바로 기록한다.
     db.update_job(conn, job["id"],
@@ -179,8 +194,15 @@ async def run_job(conn, job, providers=None, save=True):
     if getattr(provider, "supports_mcp", False):
         mcp_config_path = mcp_servers.write_config_file(workdir)
 
+    # read_only 는 claude 에서만 실제로 강제된다 — 다른 CLI 는 이 인자를 받지
+    # 않으므로(3메서드 인터페이스 유지) 페르소나 문구로만 방어한다.
+    build_kwargs = {}
+    if agent is not None and agent["read_only"] and getattr(
+            provider, "supports_read_only", False):
+        build_kwargs["read_only"] = True
     cmd = provider.build_command(send_prompt, session_id=job["session_id"],
-                                 model=job["model"], mcp_config_path=mcp_config_path)
+                                 model=job["model"],
+                                 mcp_config_path=mcp_config_path, **build_kwargs)
     start = datetime.now(timezone.utc)
 
     # 승인 없이 워크스페이스에 직접 쓰는 잡이 많다(codex는 샌드박스까지 끔) —
@@ -351,6 +373,17 @@ def _sync_message(conn, job_id):
             conn, message_id, status="done", body=job["output"],
             session_id=job["session_id"] or None,
             finished_at=job["finished_at"] or db.now_iso())
+        # 응답 본문이 다른 에이전트를 @로 불렀으면 그 에이전트를 깨운다.
+        # 여기가 잡의 모든 종료 경로가 지나는 유일한 지점이라(_run_tracked 의
+        # finally) 훅을 걸 자리다. 채널이 opt-in 하지 않았거나 연쇄 한도에
+        # 걸리면 조용히 no-op 이다(app/agents.py:dispatch_mentions).
+        try:
+            agents.dispatch_mentions(conn, message_id)
+        except Exception as e:
+            # 연쇄 실패가 방금 끝난 잡의 결과를 덮어써선 안 된다 — 로그만 남긴다.
+            db.create_execution_step(
+                conn, message_id, kind="error", title="에이전트 호출 실패",
+                detail=repr(e), status="done", job_id=job_id)
     elif status == "failed":
         canceled = job["error"] == "cancelled"
         db.update_message(

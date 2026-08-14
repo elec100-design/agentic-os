@@ -21,9 +21,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import (
-    codexbar, config, council, db, github_cli, gitcheckpoint, health, i18n,
-    mcp_servers, memory, models, orchestrator, settings, setup, stream_hub,
-    workspace, worker,
+    agents, codexbar, config, council, db, github_cli, gitcheckpoint, health,
+    i18n, mcp_servers, memory, models, orchestrator, settings, setup,
+    stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -95,6 +95,8 @@ async def lifespan(app):
             pass
         # 그룹 없는 기존 노트를 작업 위치 기준으로 소급 자동 그룹핑 (멱등)
         memory.backfill_auto_groups(db.list_note_workdirs(db.get_conn()))
+        # 첫 실행에 프리셋 에이전트를 넣어 둔다 — 한 번만(멱등, agents.py 참고)
+        agents.seed_presets(db.get_conn())
         tasks.append(asyncio.create_task(worker.worker_loop(stop)))
         tasks.append(asyncio.create_task(orchestrator.orchestrator_loop(stop)))
         tasks.append(asyncio.create_task(codexbar.refresh_loop(stop)))
@@ -340,6 +342,99 @@ def mcp_settings_remove(server_id: str):
     return RedirectResponse("/settings/mcp", status_code=303)
 
 
+# --- 에이전트 설정 -----------------------------------------------------------
+# 에이전트 = 사용자가 만든 "역할". 실행 CLI(provider)는 고르거나 auto 로 둔다.
+
+def _agents_settings_ctx(error=None):
+    conn = db.get_conn()
+    return {
+        "agents": db.list_agents(conn),
+        "agent_order": settings.enabled_providers(),
+        "workspaces": workspace.list_workspaces(),
+        "error": error,
+    }
+
+
+@app.get("/settings/agents", response_class=HTMLResponse)
+def agents_settings_page(request: Request):
+    return templates.TemplateResponse(request, "agents_settings.html",
+                                      _agents_settings_ctx())
+
+
+def _agent_form_fields(name, persona, provider, model, workdir, read_only):
+    """폼 입력 → DB 필드. 유효하지 않은 값은 안전한 기본값으로 떨어뜨린다."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("이름은 비울 수 없습니다")
+    provider = provider if provider in PROVIDERS or provider == "auto" else "auto"
+    if provider != "auto" and provider not in settings.enabled_providers():
+        raise ValueError("비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+    if not models.is_valid_model(provider, model or ""):
+        model = ""
+    if workdir and not workspace.valid_path(workdir):
+        workdir = ""
+    return {"name": name, "persona": (persona or "").strip(),
+            "provider": provider, "model": model or None,
+            "workdir": workdir or None, "read_only": 1 if read_only else 0}
+
+
+@app.post("/settings/agents/add", response_class=HTMLResponse)
+def agents_settings_add(
+    request: Request,
+    name: str = Form(...),
+    persona: str = Form(""),
+    provider: str = Form("auto"),
+    model: str = Form(""),
+    workdir: str = Form(""),
+    read_only: str = Form(""),
+):
+    conn = db.get_conn()
+    try:
+        fields = _agent_form_fields(name, persona, provider, model, workdir,
+                                    read_only)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "agents_settings.html", _agents_settings_ctx(error=str(e)),
+            status_code=400)
+    db.create_agent(conn, agents.unique_slug(conn, fields["name"]), **fields)
+    return RedirectResponse("/settings/agents", status_code=303)
+
+
+@app.post("/settings/agents/{agent_id}/edit", response_class=HTMLResponse)
+def agents_settings_edit(
+    request: Request,
+    agent_id: int,
+    name: str = Form(...),
+    persona: str = Form(""),
+    provider: str = Form("auto"),
+    model: str = Form(""),
+    workdir: str = Form(""),
+    read_only: str = Form(""),
+):
+    conn = db.get_conn()
+    if db.get_agent(conn, agent_id) is None:
+        raise HTTPException(status_code=404)
+    try:
+        fields = _agent_form_fields(name, persona, provider, model, workdir,
+                                    read_only)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "agents_settings.html", _agents_settings_ctx(error=str(e)),
+            status_code=400)
+    # slug 는 바꾸지 않는다 — 과거 대화의 @멘션이 가리키던 이름이 어긋난다.
+    db.update_agent(conn, agent_id, **fields)
+    return RedirectResponse("/settings/agents", status_code=303)
+
+
+@app.post("/settings/agents/{agent_id}/archive")
+def agents_settings_archive(agent_id: int):
+    conn = db.get_conn()
+    if db.get_agent(conn, agent_id) is None:
+        raise HTTPException(status_code=404)
+    db.archive_agent(conn, agent_id)
+    return RedirectResponse("/settings/agents", status_code=303)
+
+
 @app.get("/api/health")
 def api_health():
     """서버·CLI·설정 진단. `aos doctor`도 이 정보를 사용한다."""
@@ -494,6 +589,11 @@ class ChannelUpdate(BaseModel):
     title: str | None = None
     topic: str | None = None
     default_provider: str | None = None
+    agent_chat: bool | None = None
+
+
+class ChannelMemberAdd(BaseModel):
+    agent_id: int
 
 
 class MessageCreate(BaseModel):
@@ -600,6 +700,34 @@ def api_update_channel(channel_id: int, payload: ChannelUpdate):
     return dict(db.get_channel(conn, channel_id))
 
 
+@app.get("/api/channels/{channel_id}/members")
+def api_list_channel_members(channel_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    return [dict(a) for a in db.list_channel_members(conn, channel_id)]
+
+
+@app.post("/api/channels/{channel_id}/members", status_code=201)
+def api_add_channel_member(channel_id: int, payload: ChannelMemberAdd):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    if db.get_agent(conn, payload.agent_id) is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    db.add_channel_member(conn, channel_id, payload.agent_id)
+    return [dict(a) for a in db.list_channel_members(conn, channel_id)]
+
+
+@app.delete("/api/channels/{channel_id}/members/{agent_id}")
+def api_remove_channel_member(channel_id: int, agent_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    db.remove_channel_member(conn, channel_id, agent_id)
+    return [dict(a) for a in db.list_channel_members(conn, channel_id)]
+
+
 @app.post("/api/channels/{channel_id}/archive")
 def api_archive_channel(channel_id: int):
     conn = db.get_conn()
@@ -638,27 +766,38 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
     if not payload.body.strip():
         raise HTTPException(status_code=400, detail="empty body")
 
+    # @멘션이 채널 멤버를 가리키면 그 에이전트가 답한다 — provider 선택보다
+    # 우선한다(사용자가 사람 이름을 부른 셈이므로). 아무 에이전트에도 해당하지
+    # 않는 @는 그냥 텍스트다(app/agents.py:mention_for_channel).
+    try:
+        mentioned = agents.mention_for_channel(conn, channel_id, payload.body)
+    except agents.AgentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     provider = payload.provider or channel["default_provider"] or "auto"
     enabled = settings.enabled_providers()
     route_reason = None
-    if provider == "auto":
-        provider, route_reason = route_auto(
-            payload.body, usage_state=usage_state()["usage"], enabled=enabled)
-    if provider == COUNCIL:
-        try:
-            council.select_members(usage_state()["usage"], enabled=enabled)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    elif provider not in PROVIDERS:
-        raise HTTPException(status_code=400, detail="unknown provider")
-    elif provider not in enabled:
-        raise HTTPException(
-            status_code=400,
-            detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
-
-    model = payload.model or ""
-    if not models.is_valid_model(provider, model):
-        model = ""
+    model = ""
+    if mentioned is None:
+        # 지목된 에이전트가 없을 때만 provider 를 여기서 정한다 — 있으면
+        # agents.spawn 이 그 에이전트 설정(고정 CLI 또는 auto)대로 고른다.
+        if provider == "auto":
+            provider, route_reason = route_auto(
+                payload.body, usage_state=usage_state()["usage"], enabled=enabled)
+        if provider == COUNCIL:
+            try:
+                council.select_members(usage_state()["usage"], enabled=enabled)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        elif provider not in PROVIDERS:
+            raise HTTPException(status_code=400, detail="unknown provider")
+        elif provider not in enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+        model = payload.model or ""
+        if not models.is_valid_model(provider, model):
+            model = ""
     workdir = channel["workdir"]
     if not workdir or not workspace.valid_path(workdir):
         workdir = None
@@ -671,10 +810,13 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
         if parent is None or parent["channel_id"] != channel_id:
             raise HTTPException(status_code=404, detail="parent message not found")
         thread_root_id = parent["root_id"] or parent["id"]
-        inherited_session, inherited_provider = db.latest_thread_session(
-            conn, thread_root_id)
-        if inherited_session and inherited_provider == provider:
-            session_id = inherited_session
+        # 에이전트가 답할 때의 세션 승계는 agents.spawn 이 자기 에이전트 것만
+        # 골라서 처리한다(다른 에이전트의 맥락을 흡수하지 않도록).
+        if mentioned is None:
+            inherited_session, inherited_provider = db.latest_thread_session(
+                conn, thread_root_id)
+            if inherited_session and inherited_provider == provider:
+                session_id = inherited_session
 
     user_message_id = db.create_message(
         conn, channel_id, role="user", body=payload.body, author="user",
@@ -683,6 +825,18 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
     # 채널의 새 루트 대화라면(부모 없음) 방금 만든 사용자 메시지가 쓰레드
     # 루트가 되고, 에이전트 응답은 그 아래 첫 답장으로 들어간다.
     agent_parent_id = thread_root_id or user_message_id
+
+    if mentioned is not None:
+        try:
+            agent_message_id, job_id = agents.spawn(
+                conn, channel, agent_parent_id,
+                db.get_message(conn, user_message_id), mentioned)
+        except agents.AgentError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"message_id": agent_message_id, "job_id": job_id,
+                "user_message_id": user_message_id,
+                "agent_id": mentioned["id"]}
+
     agent_message_id = db.create_message(
         conn, channel_id, role="agent", body="", author=provider,
         parent_id=agent_parent_id, status="queued", provider=provider,
@@ -802,11 +956,16 @@ def channel_page(request: Request, channel_id: int):
         raise HTTPException(status_code=404)
     roots = db.list_root_messages(conn, channel_id, limit=200)
     threads = [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots]
+    members = [dict(a) for a in db.list_channel_members(conn, channel_id)]
+    member_ids = {a["id"] for a in members}
     return templates.TemplateResponse(
         request, "channel.html",
         {"channel": dict(channel), "threads": threads,
          "provider_models": models.get_provider_models(),
-         "agent_order": settings.enabled_providers()})
+         "agent_order": settings.enabled_providers(),
+         "members": members,
+         "addable_agents": [dict(a) for a in db.list_agents(conn)
+                            if a["id"] not in member_ids]})
 
 
 @app.get("/note", response_class=HTMLResponse)
