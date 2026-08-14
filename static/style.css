@@ -2647,7 +2647,12 @@ h2.section-label {
 }
 
 /* ─── 채널 상세 페이지 ──────────────────────────────────────────── */
-.channel-page .job-title { display: flex; align-items: center; gap: 0.6rem; }
+/* 전용 페이지와 중앙 탭이 같은 조각을 쓰므로 .channel-page 가 아니라
+   .channel-view 를 기준으로 잡는다 — 탭 안에는 .channel-page 가 없다. */
+.channel-view .job-title { display: flex; align-items: center; gap: 0.6rem; }
+/* 대화 화면이 탭 안에 들어갈 때는 페이지 여백 대신 패널에 맞춘다 */
+.orca-tab-panel .channel-new-thread { margin-bottom: 1rem; }
+.orca-tab-panel .channel-view .job-title { font-size: 1.05rem; margin-top: 0; }
 .channel-topic { color: var(--muted); margin: -0.3rem 0 0.8rem; }
 .channel-threads {
   display: flex;

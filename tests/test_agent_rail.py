@@ -101,9 +101,9 @@ def test_dm_page_hides_group_only_controls(tmp_env, completed_setup):
                         persona="조사를 담당합니다")
         page = client.get("/dm/researcher", follow_redirects=True).text
         # 상대가 한 명뿐이라 멤버 추가·에이전트 간 대화·에이전트 선택이 없다
-        assert 'id="member-add-select"' not in page
-        assert 'id="agent-chat-toggle"' not in page
-        assert 'id="new-thread-provider"' not in page
+        assert "member-add-select" not in page
+        assert "agent-chat-toggle" not in page
+        assert "new-thread-provider" not in page
         assert "조사를 담당합니다" in page
 
 
@@ -253,3 +253,97 @@ def test_collapsed_body_is_hidden_by_the_browser_not_by_css(tmp_env):
     js = Path("static/agent-rail.js").read_text(encoding="utf-8")
     assert "body.hidden = collapsed" in js
     assert "localStorage" in js   # 페이지를 옮겨도 접힌 상태가 유지돼야 한다
+
+
+# --- 중앙 탭으로 열기 ---------------------------------------------------------
+
+def test_channel_view_partial_renders_without_page_chrome(tmp_env, completed_setup):
+    """중앙 탭에 얹을 조각 — 사이드바·<html> 껍데기 없이 대화만 나와야 한다."""
+    with _client(tmp_env) as client:
+        conn = db.get_conn()
+        _three_agents(conn)
+        cid = db.create_channel(conn, "팀")
+        db.add_channel_member(conn, cid, db.get_agent_by_slug(conn, "researcher")["id"])
+
+        r = client.get(f"/partials/channel/{cid}")
+        assert r.status_code == 200
+        body = r.text
+        assert "<html" not in body and 'class="sidebar"' not in body
+        assert 'class="channel-view"' in body
+        assert f'data-channel-id="{cid}"' in body and 'data-channel-title="팀"' in body
+        # 마운트에 필요한 데이터가 조각 안에 실려 있다(전역 상수를 쓰지 않는다)
+        assert 'class="channel-data"' in body
+        assert "@researcher" in body
+
+        assert client.get("/partials/channel/9999").status_code == 404
+        # 탭 복원 시 살아 있는지 확인하는 probe
+        assert client.head(f"/partials/channel/{cid}").status_code == 200
+
+
+def test_rail_items_carry_what_the_tab_opener_needs(tmp_env, completed_setup):
+    """홈에서는 링크를 따라가지 않고 중앙 탭을 연다 — 그러려면 채널 id 가 필요하다.
+    아직 대화한 적 없는 에이전트는 채널이 없으므로 슬러그로 만들어야 한다."""
+    with _client(tmp_env) as client:
+        conn = db.get_conn()
+        _three_agents(conn)
+        cid = db.create_channel(conn, "팀")
+
+        home = client.get("/").text
+        assert 'data-dm-slug="researcher"' in home     # DM 은 슬러그로 연다
+        assert f'data-channel-id="{cid}"' in home      # 채널은 id 를 바로 들고 있다
+        assert 'data-rail-title="팀"' in home
+        # 링크(href)도 남아 있어야 한다 — JS 가 없거나 다른 화면이면 그대로 이동한다
+        assert 'href="/dm/researcher"' in home
+
+
+def test_api_dm_returns_channel_id_and_is_idempotent(tmp_env, completed_setup):
+    with _client(tmp_env) as client:
+        conn = db.get_conn()
+        _three_agents(conn)
+
+        r = client.get("/api/dm/researcher")
+        assert r.status_code == 200
+        first = r.json()["channel_id"]
+        assert r.json()["kind"] == "dm"
+
+        assert client.get("/api/dm/researcher").json()["channel_id"] == first
+        assert len(db.list_channels(conn, kind="dm")) == 1
+        assert client.get("/api/dm/nobody").status_code == 404
+
+
+def test_home_can_mount_a_channel_tab(tmp_env, completed_setup):
+    """홈은 mountChannelView 를 쓸 수 있어야 하고, 로더가 조각을 받아 온다."""
+    with _client(tmp_env) as client:
+        home = client.get("/").text
+        assert "channels.js" in home        # 마운트 함수 제공
+        assert "agent-rail.js" in home      # 목록 클릭 → 탭 열기
+
+    from pathlib import Path
+    js = Path("static/home.js").read_text(encoding="utf-8")
+    assert "/partials/channel/" in js
+    assert "mountChannelView" in js
+    ch = Path("static/channels.js").read_text(encoding="utf-8")
+    # 탭을 여러 개 열어도 섞이지 않게 root 안쪽만 본다
+    assert "window.mountChannelView = function" in ch
+    assert 'getElementById("thread-list")' not in ch
+    # 탭을 닫으면 스트림을 끊어야 한다 — 안 그러면 닫은 대화가 계속 흘러든다
+    assert "for (const es of streams) es.close()" in ch
+
+
+def test_channel_view_handles_the_thread_api_shape(tmp_env, completed_setup):
+    """/api/messages/{id}/thread 는 {root_id, messages} 를 준다.
+
+    예전 channels.js 는 응답을 배열로 순회해서 쓰레드 답장 패널이 열리지 않았다
+    (이 리팩터링 전부터의 버그). 두 형태를 모두 받는지 확인한다.
+    """
+    from pathlib import Path
+    js = Path("static/channels.js").read_text(encoding="utf-8")
+    assert "function threadMessages(payload)" in js
+    assert "payload.messages" in js
+
+    with _client(tmp_env) as client:
+        conn = db.get_conn()
+        cid = db.create_channel(conn, "c")
+        root = db.create_message(conn, cid, "user", "질문", author="user")
+        payload = client.get(f"/api/messages/{root}/thread").json()
+        assert isinstance(payload, dict) and "messages" in payload

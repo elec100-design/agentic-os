@@ -29,7 +29,9 @@
       {% for a in rail_agents %}
       <li>
         <a class="rail-item{% if a['channel_id'] and a['channel_id'] == active_channel_id %} active{% endif %}"
-           href="/dm/{{ a['slug'] }}">
+           href="/dm/{{ a['slug'] }}" data-dm-slug="{{ a['slug'] }}"
+           data-rail-title="{{ a['name'] }}"
+           {% if a['channel_id'] %}data-channel-id="{{ a['channel_id'] }}"{% endif %}>
           <span class="rail-avatar" style="background: {{ a['color'] }}"></span>
           <span class="rail-body">
             <span class="rail-title">{{ a['name'] }}<span class="rail-slug">@{{ a['slug'] }}</span></span>
@@ -61,7 +63,8 @@
       {% for c in rail_channels %}
       <li>
         <a class="rail-item{% if c['id'] == active_channel_id %} active{% endif %}"
-           href="/channels/{{ c['id'] }}">
+           href="/channels/{{ c['id'] }}" data-channel-id="{{ c['id'] }}"
+           data-rail-title="{{ c['title'] }}">
           <span class="rail-hash">#</span>
           <span class="rail-body">
             <span class="rail-title">{{ c['title'] }}{% if c['member_count'] %}<span class="rail-slug">{{ c['member_count'] }}</span>{% endif %}</span>

@@ -117,10 +117,15 @@ def test_note_partial_head_probe_and_404(completed_setup):
 
 
 def test_home_js_no_longer_opens_note_tabs():
-    """노트 탭을 걷어내면서 노트를 여는 진입점이 사라졌다 —
-    중앙 탭 로더도 작업·비전보드(둘 다 숫자 id)만 남는다."""
+    """노트 탭을 걷어내면서 노트를 여는 진입점이 사라졌다.
+
+    중앙 탭 로더는 전부 숫자 id 를 참조한다(노트는 경로 문자열이라 되살아나면
+    바로 티가 난다). 대화(channel) 탭은 좌측 목록에서 고른 DM·채널을 여는
+    정식 로더다 — 노트 탭과는 무관하다.
+    """
     home = Path("static/home.js").read_text(encoding="utf-8")
     for gone in ("note: {", "/partials/note?path=", "textRef",
                  '.note-link[href^="/note?path="]'):
         assert gone not in home, f"노트 탭 잔재가 남아 있다: {gone}"
-    assert re.findall(r"^    (\w+): \{$", home, re.M) == ["job", "project"]
+    assert re.findall(r"^    (\w+): \{$", home, re.M) == [
+        "job", "channel", "project"]

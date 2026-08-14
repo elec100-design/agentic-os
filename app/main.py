@@ -515,6 +515,22 @@ def open_dm(slug: str):
     return RedirectResponse(f"/channels/{channel['id']}", status_code=303)
 
 
+@app.get("/api/dm/{slug}")
+def api_open_dm(slug: str):
+    """DM 채널 id 를 돌려준다(없으면 만든다).
+
+    홈에서 에이전트를 누르면 페이지를 옮기는 대신 중앙 탭으로 여는데, 그때
+    채널 id 가 먼저 필요하다 — 아직 대화한 적 없는 에이전트는 채널이 없다.
+    """
+    conn = db.get_conn()
+    agent = db.get_agent_by_slug(conn, slug)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    channel = db.get_or_create_dm_channel(conn, agent)
+    return {"channel_id": channel["id"], "title": channel["title"],
+            "kind": channel["kind"]}
+
+
 @app.get("/channels/new", response_class=HTMLResponse)
 def new_channel_page(request: Request, error: str = ""):
     conn = db.get_conn()
@@ -1129,28 +1145,55 @@ async def api_message_stream(message_id: int):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
-@app.get("/channels/{channel_id}", response_class=HTMLResponse)
-def channel_page(request: Request, channel_id: int):
-    conn = db.get_conn()
+def _channel_view_ctx(conn, channel_id):
+    """대화 화면 조각(partials/channel_view.html)에 필요한 것들.
+
+    전용 페이지와 홈 중앙 탭이 같은 조각을 쓰므로 컨텍스트도 한 곳에서 만든다.
+    채널이 없으면 None.
+    """
     channel = db.get_channel(conn, channel_id)
     if channel is None:
-        raise HTTPException(status_code=404)
+        return None
     roots = db.list_root_messages(conn, channel_id, limit=200)
-    threads = [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots]
     members = [dict(a) for a in db.list_channel_members(conn, channel_id)]
     member_ids = {a["id"] for a in members}
     dm_agent = (db.get_agent(conn, channel["agent_id"])
                 if channel["kind"] == "dm" and channel["agent_id"] else None)
+    return {
+        "channel": dict(channel),
+        "threads": [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots],
+        "members": members,
+        "addable_agents": [dict(a) for a in db.list_agents(conn)
+                           if a["id"] not in member_ids],
+        "dm_agent": dict(dm_agent) if dm_agent is not None else None,
+        "dm_color": avatar_color(dm_agent["slug"]) if dm_agent is not None else "",
+        "agent_order": settings.enabled_providers(),
+    }
+
+
+@app.api_route("/partials/channel/{channel_id}", methods=["GET", "HEAD"],
+               response_class=HTMLResponse)
+def partial_channel_view(request: Request, channel_id: int):
+    """홈 중앙 탭에 얹을 대화 화면 조각(페이지 껍데기 없음).
+
+    HEAD 는 탭 복원 때 "아직 살아 있나"를 묻는 probe 다(home.js).
+    """
+    ctx = _channel_view_ctx(db.get_conn(), channel_id)
+    if ctx is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(request, "partials/channel_view.html", ctx)
+
+
+@app.get("/channels/{channel_id}", response_class=HTMLResponse)
+def channel_page(request: Request, channel_id: int):
+    conn = db.get_conn()
+    ctx = _channel_view_ctx(conn, channel_id)
+    if ctx is None:
+        raise HTTPException(status_code=404)
     return templates.TemplateResponse(
         request, "channel.html",
-        {"channel": dict(channel), "threads": threads,
+        {**ctx,
          "provider_models": models.get_provider_models(),
-         "agent_order": settings.enabled_providers(),
-         "members": members,
-         "addable_agents": [dict(a) for a in db.list_agents(conn)
-                            if a["id"] not in member_ids],
-         "dm_agent": dict(dm_agent) if dm_agent is not None else None,
-         "dm_color": avatar_color(dm_agent["slug"]) if dm_agent is not None else "",
          **_rail_ctx(conn, active_channel_id=channel_id)})
 
 

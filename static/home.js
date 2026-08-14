@@ -128,6 +128,26 @@
         return dispose;
       },
     },
+    // 좌측 사이드바에서 고른 에이전트(DM)·채널 대화. 전용 페이지로 나가는 대신
+    // 여기 탭으로 열려서, 작업 탭들과 나란히 오갈 수 있다.
+    channel: {
+      icon: "💬",
+      defaultTitle: (id) => `${tt("대화")} #${id}`,
+      probe: (id) => fetch(`/partials/channel/${id}`, { method: "HEAD" }),
+      async mount(panel, tb) {
+        const res = await fetch(`/partials/channel/${tb.refId}`);
+        if (!res.ok) throw new Error(res.status === 404
+          ? tt("대화가 삭제되었습니다.") : `HTTP ${res.status}`);
+        panel.innerHTML = await res.text();
+        const view = panel.querySelector(".channel-view");
+        // 새로고침으로 복원된 탭은 제목을 모른다 — 조각을 받은 뒤 채워 넣는다.
+        const title = view?.dataset.channelTitle;
+        if (title && title !== tb.title) { tb.title = title; renderTabbar(); saveTabs(); }
+        const dispose = window.mountChannelView?.(view);
+        panel.scrollTop = panel.scrollHeight;   // 최신 발화가 보이는 맨 아래에서 시작
+        return dispose;
+      },
+    },
     project: {
       icon: "🗂",
       defaultTitle: (id) => `${tt("비전 보드")} #${id}`,
@@ -254,6 +274,20 @@
 
   // 비전보드 채팅·프로젝트 카드가 중앙에 보드 탭을 열 때 쓴다.
   window.openHomeTab = function (spec) { return openTab(spec); };
+
+  // 대화 화면에서 채널을 지우면, 페이지를 옮기는 대신 그 탭만 닫는다.
+  // preventDefault 로 "여기서 처리했다"를 알린다(channels.js 가 이동을 건너뛴다).
+  document.body.addEventListener("orca-channel-deleted", (e) => {
+    e.preventDefault();
+    closeTab(tabKey("channel", +e.detail.channelId));
+    document.body.dispatchEvent(new Event("refresh-channels"));
+  });
+
+  // 멤버를 더하면 칩 목록·선택지를 서버가 다시 그려야 한다 — 그 탭만 새로 받는다.
+  document.body.addEventListener("orca-channel-reload", (e) => {
+    const tb = findTab(tabKey("channel", +e.detail.channelId));
+    if (tb) loadPanel(tb);
+  });
 
   scrollTrack.addEventListener("click", (e) => {
     const closeBtn = e.target.closest("[data-tab-close]");

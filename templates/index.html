@@ -221,6 +221,8 @@ const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 <script src="/static/board-editor.js?v={{ asset_v() }}"></script>
 <!-- 노드를 클릭하면 좌측 사이드바가 태스크 편집·채팅으로 바뀐다 -->
 <script src="/static/task-inspector.js?v={{ asset_v() }}"></script>
+{# 중앙 탭에 대화 화면을 얹기 위해 — 마운트 함수만 제공하고 홈에서 자동 실행되진 않는다 #}
+<script src="/static/channels.js?v={{ asset_v() }}"></script>
 <script src="/static/home.js?v={{ asset_v() }}"></script>
 <script src="/static/agent-rail.js?v={{ asset_v() }}"></script>
 </body>

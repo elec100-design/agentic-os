@@ -47,4 +47,35 @@
       save(state);
     });
   });
+
+  // ---- 목록에서 고른 대화를 중앙 탭으로 열기 -------------------------------
+  // 홈에서는 페이지를 옮기지 않고 중앙 워크스페이스에 탭으로 띄운다 — 작업 탭과
+  // 나란히 두고 오갈 수 있어야 하기 때문이다. 홈이 아닌 화면(전용 채널 페이지)
+  // 에서는 window.openHomeTab 이 없으므로 링크가 평소대로 동작한다.
+  document.addEventListener("click", async (e) => {
+    const item = e.target.closest(".rail-item");
+    if (!item || !window.openHomeTab) return;
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;  // 새 탭 열기는 그대로
+    e.preventDefault();
+
+    let channelId = item.dataset.channelId;
+    if (!channelId) {
+      // 아직 한 번도 말을 걸지 않은 에이전트는 DM 채널이 없다 — 여기서 만든다.
+      const slug = item.dataset.dmSlug;
+      if (!slug) return;
+      try {
+        const res = await fetch(`/api/dm/${encodeURIComponent(slug)}`);
+        if (!res.ok) { window.location.href = item.href; return; }
+        channelId = (await res.json()).channel_id;
+        item.dataset.channelId = channelId;   // 다음 클릭은 곧바로 연다
+      } catch (err) {
+        window.location.href = item.href;     // 네트워크가 죽으면 평소 이동으로
+        return;
+      }
+    }
+    window.openHomeTab({ kind: "channel", refId: +channelId,
+                         title: item.dataset.railTitle || undefined });
+    document.querySelectorAll(".rail-item.active").forEach((el) => el.classList.remove("active"));
+    item.classList.add("active");
+  });
 })();

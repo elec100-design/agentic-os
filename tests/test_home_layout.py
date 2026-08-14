@@ -164,9 +164,11 @@ def test_sessions_tab_is_gone(completed_setup):
     """
     with _client() as client:
         body = client.get("/").text
+    # channels.js 는 이제 홈에도 실린다 — 우측 레일의 '세션' 목록을 되살린 게
+    # 아니라, 중앙 탭에 대화 화면을 얹는 mountChannelView 를 제공하기 위해서다.
+    # 세션 탭의 실제 흔적(레일 탭·목록 조각·모달)만 계속 막는다.
     for gone in ('data-rail-tab="sessions"', 'data-rail-panel="sessions"',
-                 'id="channels"', "/partials/channels", "channels.js",
-                 'id="channel-modal"'):
+                 'id="channels"', "/partials/channels", 'id="channel-modal"'):
         assert gone not in body, f"세션 잔재가 남아 있다: {gone}"
     # 남은 탭은 채팅·프로젝트·태스크
     assert re.findall(r'data-rail-tab="(\w+)"', body) == [
