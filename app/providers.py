@@ -224,7 +224,12 @@ class AntigravityProvider:
         # 자가 발급 옵션 부재, -p 출력에 conversation ID 미포함). `-c`(전역 최신
         # 대화 이어가기)는 다른 대화가 끼면 오염되므로 이어가기를 지원하지 않는다
         # → 항상 단발 실행. session_id를 받아도 무시한다.
-        cmd = ["agy", "-p", prompt]
+        #
+        # --dangerously-skip-permissions 없이는 헤드리스에서 read_file 등 모든
+        # 도구 호출이 프롬프트할 수 없어 자동 거부된다("no output produced" 로
+        # 끝난다) — app/media.py의 이미지/비디오 생성 경로에서 스파이크로 확인된
+        # 것과 같은 제약이다. 일반 텍스트 대화도 도구를 쓰므로 똑같이 필요하다.
+        cmd = ["agy", "--dangerously-skip-permissions", "-p", prompt]
         if model:
             cmd += ["--model", model]
         return cmd

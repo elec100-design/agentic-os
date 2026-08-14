@@ -129,8 +129,8 @@ def test_antigravity_never_resumes():
     p = AntigravityProvider()
     # agy는 헤드리스 세션 재개가 불가능 → 이어가기 미지원. session_id를 줘도
     # 무시하고 항상 단발 실행(-c 안 붙음).
-    assert p.build_command("hi") == ["agy", "-p", "hi"]
-    assert p.build_command("hi", session_id="latest") == ["agy", "-p", "hi"]
+    assert p.build_command("hi") == ["agy", "--dangerously-skip-permissions", "-p", "hi"]
+    assert p.build_command("hi", session_id="latest") == ["agy", "--dangerously-skip-permissions", "-p", "hi"]
     assert "-c" not in p.build_command("hi", session_id="whatever")
 
 
@@ -314,7 +314,7 @@ def test_claude_build_model_and_resume():
 def test_antigravity_build_with_model():
     mid = "Gemini 3.5 Flash (Medium)"
     cmd = AntigravityProvider().build_command("hi", model=mid)
-    assert cmd == ["agy", "-p", "hi", "--model", mid]
+    assert cmd == ["agy", "--dangerously-skip-permissions", "-p", "hi", "--model", mid]
 
 
 def test_grok_build_with_model():
@@ -512,4 +512,4 @@ def test_other_providers_do_not_declare_mcp_support():
 def test_other_providers_accept_and_ignore_mcp_config_path():
     """인터페이스는 모든 provider 가 같아야 worker 가 분기 없이 호출할 수 있다."""
     assert CodexProvider().build_command("hi", mcp_config_path="/tmp/x.json")[:2] == ["codex", "exec"]
-    assert AntigravityProvider().build_command("hi", mcp_config_path="/tmp/x.json") == ["agy", "-p", "hi"]
+    assert AntigravityProvider().build_command("hi", mcp_config_path="/tmp/x.json") == ["agy", "--dangerously-skip-permissions", "-p", "hi"]
