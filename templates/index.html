@@ -197,20 +197,7 @@
 
 </div><!-- /.orca-home-shell -->
 
-<!-- 작업 위치 추가 모달 (폴더 탐색 / GitHub 리포) -->
-<div class="modal-overlay" id="ws-modal" hidden>
-  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ws-modal-title">
-    <div class="modal-head">
-      <div class="modal-tabs">
-        <button type="button" class="modal-tab active" data-tab="folder">{{ '📁 폴더 선택' | t }}</button>
-        <button type="button" class="modal-tab" data-tab="github">{{ '⑂ GitHub 리포' | t }}</button>
-      </div>
-      <button type="button" class="modal-close" id="ws-modal-close" aria-label="{{ '닫기' | t }}">✕</button>
-    </div>
-    <div class="modal-body" id="ws-modal-body"></div>
-    <div class="modal-foot" id="ws-modal-foot"></div>
-  </div>
-</div>
+{% include "partials/ws_modal.html" %}
 
 <!-- 새 채널 만들기 모달 -->
 

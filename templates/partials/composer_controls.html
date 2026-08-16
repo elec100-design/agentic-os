@@ -1,9 +1,12 @@
 {#- 컴포저 공용 컨트롤 — 첨부·에이전트·모델·작업위치.
     한 페이지에 컴포저가 둘 이상 있을 수 있어(홈: 우측 작업 채팅 + 좌측 비전보드
-    채팅) app.js는 여기 붙은 class로만 요소를 찾는다. id는 기존 화면과의 호환용
-    이라 페이지당 한 번만(ids=true) 내보낸다.
-    params: ids(bool) / hint(bool) / send_label(str) -#}
+    채팅 + 중앙 탭의 대화창들) app.js는 여기 붙은 class로만 요소를 찾는다. id는
+    기존 화면과의 호환용이라 페이지당 한 번만(ids=true) 내보낸다.
+    params: ids(bool) / hint(bool) / send_label(str) / agent(bool)
+    agent=false — 1:1 대화처럼 상대가 정해진 곳. 에이전트·모델 칩을 감춘다
+    (hidden input 은 남긴다 — app.js가 컴포저를 알아보는 표식이다). -#}
 {% set ids = ids | default(false) %}
+{% set agent = agent | default(true) %}
 <div class="file-chips"{% if ids %} id="file-chips"{% endif %}></div>
 {% if hint | default(false) %}<div class="auto-hint"{% if ids %} id="auto-hint"{% endif %} hidden></div>{% endif %}
 
@@ -17,7 +20,7 @@
   </button>
 
   {#- 에이전트 선택 칩 -#}
-  <button type="button" class="cbar-chip agent-btn"{% if ids %} id="agent-btn"{% endif %} aria-haspopup="true">
+  <button type="button" class="cbar-chip agent-btn"{% if ids %} id="agent-btn"{% endif %} aria-haspopup="true"{% if not agent %} hidden{% endif %}>
     <span class="chip-agent agent-label"{% if ids %} id="agent-label"{% endif %}>{{ '자동' | t }}</span>
     <svg class="pill-caret" viewBox="0 0 12 12" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6 7.5 9 4.5"/></svg>
   </button>
@@ -49,6 +52,10 @@
     </svg>
     <span>{{ '파일 첨부…' | t }}</span>
   </label>
+  {#- 메모리·타임아웃은 폼 제출(POST /jobs)로만 전달된다. JSON 으로 보내는
+      대화창에서는 아직 받는 쪽이 없어 감춘다 — 눌러도 아무 일 없는 항목을
+      두지 않는다. -#}
+  {% if extra_tools | default(true) %}
   <label class="tools-row">
     <input type="checkbox" name="attach_memory" value="true">
     <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 3 4.5v4c0 3 2.2 4.6 5 5.5 2.8-.9 5-2.5 5-5.5v-4z"/></svg>
@@ -59,6 +66,7 @@
     <span>{{ '타임아웃' | t }}</span>
     <input type="number" name="timeout_min" min="1" placeholder="{{ '자동' | t }}"> {{ '분' | t }}
   </label>
+  {% endif %}
 </div>
 
 {#- 에이전트 팝업 (JS가 채움) -#}

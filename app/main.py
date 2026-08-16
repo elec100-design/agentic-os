@@ -1242,7 +1242,9 @@ def channel_page(request: Request, channel_id: int):
     return templates.TemplateResponse(
         request, "channel.html",
         {**ctx,
+         # 컴포저(에이전트·모델 칩)가 홈과 같은 목록을 써야 한다
          "provider_models": models.get_provider_models(),
+         "council_enabled": settings.council_available(),
          **_rail_ctx(conn, active_channel_id=channel_id)})
 
 

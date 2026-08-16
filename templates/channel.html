@@ -34,10 +34,19 @@
 {% include "partials/channel_view.html" %}
 </main>
 
+{# 컴포저의 폴더 칩 ＋ 가 여는 모달 — app.js 가 전역 id 로 찾는다 #}
+{% include "partials/ws_modal.html" %}
+
+<script>
+// 컴포저(에이전트·모델 칩)가 쓰는 목록 — 홈과 같은 값을 넘긴다.
+const MODELS = {{ provider_models | tojson }};
+const AGENT_ORDER = {{ agent_order | tojson }};
+const COUNCIL_ENABLED = {{ council_enabled | tojson }};
+</script>
+<script src="/static/app.js?v={{ asset_v() }}"></script>
 <script src="/static/marked.min.js?v={{ asset_v() }}"></script>
 <script src="/static/highlight.min.js?v={{ asset_v() }}"></script>
 <script src="/static/render.js?v={{ asset_v() }}"></script>
-<script src="/static/nav.js?v={{ asset_v() }}"></script>
 <script src="/static/agent-rail.js?v={{ asset_v() }}"></script>
 <script src="/static/channels.js?v={{ asset_v() }}"></script>
 </body>

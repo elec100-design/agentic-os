@@ -449,6 +449,7 @@ EN = {
     "이 채널에 새 주제로 말을 걸어보세요…": "Start a new topic in this channel…",
     "답장…": "Reply…",
     "전송하지 못했습니다": "Couldn't send",
+    "파일을 올리지 못했습니다": "Couldn't upload the file",
     "실행 중…": "Working…",
     "이 채널과 모든 대화를 삭제할까요? 되돌릴 수 없습니다.":
         "Delete this channel and all its conversations? This can't be undone.",

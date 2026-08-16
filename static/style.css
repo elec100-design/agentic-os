@@ -2687,6 +2687,19 @@ h2.section-label {
 }
 .channel-thread .chat-thread { margin: 0 0 0.6rem; }
 .channel-new-thread { margin-bottom: 3rem; }
+/* 대화창 컴포저는 좁은 탭 안에도 들어간다 — 컨트롤 줄을 접히게 둔다
+   (비전보드 컴포저와 같은 처리). */
+.channel-new-thread .composer-bar { flex-wrap: wrap; gap: 0.3rem; }
+.channel-new-thread .composer-bar .spacer { display: none; }
+.channel-new-thread .composer-bar .send { margin-left: auto; }
+.channel-new-thread .cbar-chip > span:not(.pill-caret) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 발화에 딸린 첨부 — 파일명만 보여주고 전체 경로는 툴팁으로 */
+.msg-attachments { margin-top: 0.4rem; }
+.msg-attachments .chip { font-size: 0.72rem; }
 .thread-reply-count {
   display: flex;
   align-items: center;

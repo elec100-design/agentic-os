@@ -121,7 +121,11 @@ subscription account and read/write files in permitted folders.
 - **Workspace integration** — pick a local folder via a Finder-style browser,
   or clone a GitHub repo/branch (via your `gh` login) and run jobs there
 - **File attachments** — drag-and-drop into the composer (configurable size
-  limit)
+  limit). Agent DMs and channels have the same composer: attach files, pick the
+  agent/model, and choose the folder or GitHub repo the reply runs in — the
+  folder you pick sticks as that conversation's default
+- **Resizable sidebar** — drag the left sidebar between 180 and 360px, or
+  collapse it to a 64px icon rail; the width is remembered
 - **Usage panel** — real per-agent usage % and time-to-reset
 - **Optional launchd auto-start** — background on login, restarts on crash
 - **English / Korean UI** — defaults to English (or your browser's language);

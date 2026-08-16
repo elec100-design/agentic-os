@@ -1426,10 +1426,12 @@ body.orca-home { --aos-side-w: 240px; }
 
   /* ── 폭 조절 핸들 — 우측 레일(.orca-side-rail-handle)의 좌측 대칭판 ──── */
   body.orca-home .sidebar { position: relative; }
+  /* .sidebar 는 overflow:hidden 이라 우측 레일처럼 밖으로(-3px) 내밀면 잘려서
+     잡히지 않는다 — 안쪽 가장자리에 붙인다. */
   .side-resize-handle {
     position: absolute;
     top: 0;
-    right: -3px;
+    right: 0;
     bottom: 0;
     width: 6px;
     z-index: 5;
@@ -1439,6 +1441,9 @@ body.orca-home { --aos-side-w: 240px; }
   .side-resize-handle:hover,
   .sidebar.is-resizing .side-resize-handle { background: var(--orca-accent, var(--accent)); opacity: 0.35; }
   body.orca-home .sidebar.is-collapsed .side-resize-handle { display: none; }
+
+  /* 최소 폭(180px)에서 브랜드가 두 줄로 접히면 목록이 아래로 밀린다 */
+  .sidebar.is-narrow .wordmark { white-space: nowrap; font-size: 0.92rem; }
 
   /* ── 접기 — 아바타/해시만 남는 아이콘 레일 ──────────────────────────── */
   body.orca-home .sidebar.is-collapsed { --aos-side-w: 64px; }

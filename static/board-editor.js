@@ -429,7 +429,9 @@
   // 탭을 다시 활성화했을 때 — 상태가 안 바뀌어 selectTask를 다시 타지 않는
   // 경우, 비활성 상태에서 쌓인 로그로 스크롤이 바닥에 붙어 있어야 한다.
   document.body.addEventListener("orca-tab-activated", (e) => {
-    const panel = document.getElementById(window.OrcaWorkspace.getTaskPanelId(e.detail?.refId));
+    // OrcaWorkspace 는 프로젝트 페이지에만 있다 — 홈에서도 탭 이벤트는 온다.
+    const panelId = window.OrcaWorkspace?.getTaskPanelId(e.detail?.refId);
+    const panel = panelId ? document.getElementById(panelId) : null;
     const state = panel && taskLogStreams.get(panel);
     if (state && state.autoStick) {
       const stream = panel.querySelector(".task-log-stream");
@@ -481,7 +483,8 @@
     if (kind !== "task" || refId === selTask) return;
     const node = qs(`.graph-node[data-task="${refId}"]`);
     const liveStatus = node ? node.dataset.status : null;
-    const panel = document.getElementById(window.OrcaWorkspace.getTaskPanelId(refId));
+    const panelId = window.OrcaWorkspace?.getTaskPanelId(refId);
+    const panel = panelId ? document.getElementById(panelId) : null;
     selTask = refId;
     selStatus = liveStatus;
     if (panel && panel.dataset.contentStatus !== liveStatus) {
