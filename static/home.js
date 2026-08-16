@@ -725,33 +725,97 @@
   });
   try {
     if (localStorage.getItem(LS_RAIL_COLLAPSED) === "1") rail?.classList.add("is-collapsed");
-    const w = +localStorage.getItem(LS_RAIL_W);
-    if (w >= 280 && w <= 560) rail.style.width = `${w}px`;
   } catch (e) { /* ignore */ }
 
-  // 우측 레일이므로 핸들을 왼쪽으로 끌 때 넓어진다.
-  const handle = document.getElementById("home-rail-resize");
-  handle?.addEventListener("pointerdown", (e) => {
-    if (isNarrow() || rail.classList.contains("is-collapsed")) return;
-    e.preventDefault();
-    const startX = e.clientX;
-    const startW = rail.getBoundingClientRect().width;
-    rail.classList.add("is-resizing");
-    document.body.classList.add("orca-resizing");
-    const onMove = (ev) => {
-      const next = Math.min(560, Math.max(280, startW - (ev.clientX - startX)));
-      rail.style.width = `${next}px`;
-    };
-    const onUp = () => {
-      rail.classList.remove("is-resizing");
-      document.body.classList.remove("orca-resizing");
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      try { localStorage.setItem(LS_RAIL_W, String(Math.round(rail.getBoundingClientRect().width))); } catch (err) { /* ignore */ }
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+  // ── 폭 조절 핸들 (좌측 사이드바·우측 레일 공용) ──────────────────────
+  // dir: 핸들이 붙은 쪽. "left"면 왼쪽으로 끌 때 넓어진다(우측 레일).
+  function mountResizer({ el, handle, min, max, key, dir, apply, locked }) {
+    if (!el || !handle) return;
+    const setWidth = apply || ((w) => { el.style.width = `${w}px`; });
+    try {
+      const saved = +localStorage.getItem(key);
+      if (saved >= min && saved <= max) setWidth(saved);
+    } catch (e) { /* ignore */ }
+
+    handle.addEventListener("pointerdown", (e) => {
+      if (locked?.()) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = el.getBoundingClientRect().width;
+      let last = startW;
+      el.classList.add("is-resizing");
+      document.body.classList.add("orca-resizing");
+      const onMove = (ev) => {
+        const delta = dir === "left" ? startX - ev.clientX : ev.clientX - startX;
+        last = Math.min(max, Math.max(min, startW + delta));
+        setWidth(last);
+      };
+      const onUp = () => {
+        el.classList.remove("is-resizing");
+        document.body.classList.remove("orca-resizing");
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        try { localStorage.setItem(key, String(Math.round(last))); } catch (err) { /* ignore */ }
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+  }
+
+  mountResizer({
+    el: rail,
+    handle: document.getElementById("home-rail-resize"),
+    min: 280, max: 560, key: LS_RAIL_W, dir: "left",
+    locked: () => isNarrow() || rail.classList.contains("is-collapsed"),
   });
+
+  // ── 좌측 사이드바 — 폭 조절 + 접기(아이콘 전용) ──────────────────────
+  // 고정 200px 이던 시절엔 에이전트 이름이 잘리는데 손쓸 방법이 없었다.
+  const sidebar = document.querySelector(".sidebar");
+  const LS_SIDE_W = "aos-home-side-width";
+  const LS_SIDE_COLLAPSED = "aos-home-side-collapsed";
+  const SIDE_MIN = 180;
+  const SIDE_MAX = 360;
+  // 서랍(≤900px)일 때는 사이드바가 오프캔버스라 폭 조절·접기가 의미 없다.
+  function isDrawer() { return window.innerWidth <= 900; }
+
+  // 좁으면 @슬러그를 접어 이름을 살린다(style.css: .sidebar.is-narrow).
+  function syncSideNarrow() {
+    if (!sidebar) return;
+    const w = sidebar.getBoundingClientRect().width;
+    sidebar.classList.toggle("is-narrow", !isDrawer() && w <= 220);
+  }
+
+  function setSideWidth(w) {
+    document.body.style.setProperty("--aos-side-w", `${w}px`);
+    syncSideNarrow();
+  }
+
+  mountResizer({
+    el: sidebar,
+    handle: document.getElementById("home-side-resize"),
+    min: SIDE_MIN, max: SIDE_MAX, key: LS_SIDE_W, dir: "right",
+    apply: setSideWidth,
+    locked: () => isDrawer() || sidebar.classList.contains("is-collapsed"),
+  });
+
+  function setSideCollapsed(collapsed) {
+    sidebar?.classList.toggle("is-collapsed", collapsed);
+    try { localStorage.setItem(LS_SIDE_COLLAPSED, collapsed ? "1" : "0"); } catch (e) { /* ignore */ }
+    syncSideNarrow();
+  }
+  try {
+    if (localStorage.getItem(LS_SIDE_COLLAPSED) === "1") sidebar?.classList.add("is-collapsed");
+  } catch (e) { /* ignore */ }
+
+  // 브랜드 줄의 되접기 버튼: 서랍에서는 닫기(app.js), 데스크톱에서는 접기.
+  document.getElementById("nav-close")?.addEventListener("click", () => {
+    if (isDrawer()) return;
+    setSideCollapsed(!sidebar.classList.contains("is-collapsed"));
+  });
+
+  window.addEventListener("resize", syncSideNarrow);
+  syncSideNarrow();
 
   // ── 초기 복원 ────────────────────────────────────────────────────────
   // 새로고침해도 열려 있던 탭을 되살린다. 삭제된 작업의 탭은 조용히 버린다.

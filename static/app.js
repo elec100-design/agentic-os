@@ -162,8 +162,13 @@ function mountComposer(form) {
   }
 
   // ── 에이전트/모델 칩 ──────────────────────────────────────────────────
+  // 1:1 대화처럼 상대가 정해진 컴포저는 에이전트 칩을 숨긴 채로 온다
+  // (composer_controls.html agent=false) — 모델 칩도 같이 접어 둔다.
+  const agentFixed = !!agentBtn?.hidden;
+
   function refreshChipLabels() {
     if (!agentLabel || !modelBtn || !modelChipLabel) return;
+    if (agentFixed) { modelBtn.hidden = true; return; }
     const p = providerInput.value;
     agentLabel.textContent = agentName(p);
     if (modelChipVisible(p)) {

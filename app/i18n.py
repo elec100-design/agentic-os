@@ -449,6 +449,7 @@ EN = {
     "이 채널에 새 주제로 말을 걸어보세요…": "Start a new topic in this channel…",
     "답장…": "Reply…",
     "전송하지 못했습니다": "Couldn't send",
+    "파일을 올리지 못했습니다": "Couldn't upload the file",
     "실행 중…": "Working…",
     "이 채널과 모든 대화를 삭제할까요? 되돌릴 수 없습니다.":
         "Delete this channel and all its conversations? This can't be undone.",
@@ -555,6 +556,11 @@ EN = {
     "역할 편집 →": "Edit role →",
     "목록 접기/펼치기": "Collapse or expand the list",
     "⚙︎ 모델 설정": "⚙︎ Models",
+    # 접히는 사이드바에서는 아이콘과 라벨을 따로 그린다(index.html)
+    "모델 설정": "Models",
+    "MCP 서버": "MCP servers",
+    "사이드바 너비 조절": "Resize sidebar",
+    "사이드바 접기/펼치기": "Collapse or expand the sidebar",
     "쓰는 CLI 와 모델을 고른다": "Pick the CLIs and models you use",
     "%(name)s 에게 말 걸기…": "Message %(name)s…",
     "이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)":

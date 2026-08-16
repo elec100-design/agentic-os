@@ -44,6 +44,19 @@ window.mountChannelView = function mountChannelView(root) {
     return m.author || m.provider || "agent";
   }
 
+  // messages.attachments 는 JSON 배열 문자열로 온다(API 가 행을 그대로 준다).
+  function messageAttachments(m) {
+    const raw = m.attachments;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw;
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
   function setBadge(row, status) {
     const badge = row.querySelector(".badge");
     if (badge) { badge.className = "badge badge-" + status; badge.textContent = status; }
@@ -85,6 +98,24 @@ window.mountChannelView = function mountChannelView(root) {
     const placeholder = (m.status === "queued" || m.status === "running") && !m.body
       ? "_" + t("실행 중…") + "_" : (m.body || "");
     renderMarkdown(bubble, placeholder);
+
+    // 첨부는 경로로 전달된다 — 화면에는 파일명만, 전체 경로는 툴팁으로.
+    const files = messageAttachments(m);
+    if (files.length) {
+      const chips = document.createElement("div");
+      chips.className = "file-chips msg-attachments";
+      for (const path of files) {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        // 저장 파일명 앞에는 충돌 방지용 타임스탬프가 붙는다 — 사람에게는
+        // 자기가 올린 이름으로 보여준다(전체 경로는 툴팁).
+        chip.textContent = path.split("/").pop()
+          .replace(/^\d{8}-\d{6,}-/, "");
+        chip.title = path;
+        chips.appendChild(chip);
+      }
+      bubbleWrap.appendChild(chips);
+    }
 
     if (m.error) {
       const errEl = document.createElement("div");
@@ -149,11 +180,17 @@ window.mountChannelView = function mountChannelView(root) {
     }
   }
 
-  async function sendMessage(body, parentId, provider) {
+  async function sendMessage(body, parentId, provider, opts) {
+    opts = opts || {};
+    const payload = { body, provider: provider || "auto",
+                      parent_id: parentId || null };
+    // 안 고른 값은 보내지 않는다 — 서버가 방·에이전트 기본값을 쓰게 둔다.
+    if (opts.workdir !== undefined) payload.workdir = opts.workdir;
+    if (opts.attachments?.length) payload.attachments = opts.attachments;
     const res = await fetch(`/api/channels/${CHANNEL.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ body, provider: provider || "auto", parent_id: parentId || null }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const detail = await res.json().then((d) => d.detail).catch(() => null);
@@ -397,24 +434,83 @@ window.mountChannelView = function mountChannelView(root) {
   const newThreadForm = $(".new-thread-form");
   const newThreadPrompt = $(".new-thread-prompt");
   bindEnterSubmit(newThreadPrompt);
+
+  // ---- 컴포저(첨부·에이전트·모델·작업 위치) ------------------------------
+  // app.js 의 일괄 마운트는 페이지 로드 때 한 번뿐이다 — 탭으로 나중에 열리는
+  // 대화창은 여기서 직접 붙여야 첨부·드래그앤드롭·칩이 살아난다.
+  const composer = window.mountComposer?.(newThreadForm) || null;
+  const wsPicker = newThreadForm.querySelector(".workspace-picker");
+  if (wsPicker) {
+    // 작업 위치 목록은 직접 받아 온다 — 탭 패널은 innerHTML 로 붙어 htmx 가
+    // 처리하지 않고, 전용 페이지에는 htmx 자체가 없다.
+    fetch("/partials/workspaces")
+      .then((r) => r.text())
+      .then((html) => {
+        wsPicker.innerHTML = html;
+        composer?.initWsPicker(CHANNEL.workdir || "");
+      })
+      .catch(() => { /* 작업 위치를 못 받아도 대화는 된다 */ });
+  }
+
+  function pickedWorkdir() {
+    return newThreadForm.querySelector(".ws-workdir")?.value || "";
+  }
+
+  // 고른 폴더는 이 방의 기본값으로 남는다 — 매번 다시 고르게 하지 않는다.
+  async function rememberWorkdir(workdir) {
+    if (workdir === (CHANNEL.workdir || "")) return;
+    CHANNEL.workdir = workdir;
+    const line = $(".channel-workdir");
+    if (line) {
+      line.hidden = !workdir;
+      const code = line.querySelector("code");
+      if (code) code.textContent = workdir;
+    }
+    await fetch(`/api/channels/${CHANNEL.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workdir }),
+    }).catch(() => { /* 저장에 실패해도 이번 발화에는 이미 실려 갔다 */ });
+  }
+
+  // 파일은 먼저 올리고 경로만 메시지에 싣는다(POST /api/uploads).
+  async function uploadAttachments() {
+    const input = newThreadForm.querySelector(".composer-files");
+    if (!input || !input.files.length) return [];
+    const fd = new FormData();
+    for (const f of input.files) fd.append("files", f);
+    const res = await fetch("/api/uploads", { method: "POST", body: fd });
+    if (!res.ok) {
+      const detail = await res.json().then((d) => d.detail).catch(() => null);
+      alert(detail || t("파일을 올리지 못했습니다"));
+      return null;
+    }
+    return (await res.json()).map((f) => f.path);
+  }
+
   newThreadForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const body = newThreadPrompt.value.trim();
     if (!body) return;
     // DM 에는 에이전트 선택이 없다 — 상대가 정해져 있고 실행 CLI 는 그
     // 에이전트 설정이 정한다(서버가 채널 종류를 보고 라우팅한다).
-    const provider = $(".new-thread-provider")?.value || "auto";
+    const provider = newThreadForm.querySelector(".composer-provider")?.value || "auto";
+    const workdir = pickedWorkdir();
     const btn = newThreadForm.querySelector("button.send");
     btn.disabled = true;
     try {
-      const result = await sendMessage(body, null, provider);
+      const attachments = await uploadAttachments();
+      if (attachments === null) return;    // 업로드 실패 — 발화를 잃지 않게 멈춘다
+      const result = await sendMessage(body, null, provider, { workdir, attachments });
       if (result) {
         const wrap = buildThreadEl([result.userMsg, result.agentMsg]);
         threadList.appendChild(wrap);
         wrap.scrollIntoView({ behavior: "smooth", block: "start" });
         document.body.dispatchEvent(new Event("refresh-channels"));
+        newThreadPrompt.value = "";
+        composer?.clearAttachments();
+        rememberWorkdir(workdir);
       }
-      newThreadPrompt.value = "";
     } finally {
       btn.disabled = false;
     }

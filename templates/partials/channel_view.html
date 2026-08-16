@@ -24,7 +24,8 @@
       <button type="button" class="btn-ghost btn-del channel-delete-btn">{{ '삭제' | t }}</button>
     </h1>
     {% if channel['topic'] %}<p class="channel-topic">{{ channel['topic'] }}</p>{% endif %}
-    {% if channel['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ channel['workdir'] }}</code></p>{% endif %}
+    {# 컴포저의 폴더 칩에서 바꾸면 이 줄이 따라 바뀐다(channels.js) #}
+    <p class="job-meta channel-workdir"{% if not channel['workdir'] %} hidden{% endif %}>📁 {{ '작업 위치' | t }}: <code>{{ channel['workdir'] or '' }}</code></p>
 
     {% if channel['kind'] == 'dm' %}
     {# 1:1 대화 — 멤버를 더하거나 에이전트끼리 대화시킬 일이 없다. 대신 상대가
@@ -61,26 +62,16 @@
 
   <div class="channel-threads thread-list"></div>
 
+  {# 우측 작업 채팅과 같은 컨트롤 한 벌 — 첨부·에이전트·모델·작업 위치.
+     한 페이지에 컴포저가 여럿이므로 id 없이(class 만) 내보낸다. DM 은 상대가
+     정해져 있어 에이전트·모델 칩을 감춘다(실행 CLI 는 그 에이전트 설정이 정한다). #}
   <form class="composer channel-new-thread new-thread-form">
     <textarea class="new-thread-prompt" rows="3" required
               placeholder="{% if channel['kind'] == 'dm' %}{{ '%(name)s 에게 말 걸기…' | t | replace('%(name)s', channel['title']) }}{% else %}{{ '이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)' | t }}{% endif %}"></textarea>
-    <div class="composer-bar">
-      {# DM 은 상대가 정해져 있다 — 실행 CLI 는 그 에이전트 설정이 정한다. #}
-      {% if channel['kind'] != 'dm' %}
-      <label class="resume-opt">{{ '에이전트' | t }}
-        <select class="ws-select new-thread-provider">
-          <option value="auto">{{ '자동' | t }}</option>
-          {% for a in agent_order %}<option value="{{ a }}">{{ a|capitalize }}</option>{% endfor %}
-        </select>
-      </label>
-      {% endif %}
-      <span class="spacer"></span>
-      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
-        </svg>
-      </button>
-    </div>
+    {% with ids = false, hint = false, send_label = '전송', extra_tools = false,
+            agent = channel['kind'] != 'dm' %}
+      {% include 'partials/composer_controls.html' %}
+    {% endwith %}
   </form>
 
   {# 쓰레드 답글 패널 — 대화 한 벌마다 하나씩(탭을 여러 개 열어도 섞이지 않는다) #}

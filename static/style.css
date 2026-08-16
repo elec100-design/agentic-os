@@ -1105,6 +1105,7 @@ h2.section-label {
   font-size: 0.78rem;
   text-decoration: none;
 }
+.side-settings-icon { margin-right: 0.3rem; }
 .side-settings:hover { color: var(--accent); }
 .theme-toggle {
   flex: none;
@@ -1692,6 +1693,8 @@ h2.section-label {
 /* ---- 사이드바: 에이전트(DM)·채널 목록 ---- */
 .side-scroll { flex: 1; overflow-y: auto; margin: 0.4rem -0.35rem 0.6rem; padding: 0 0.35rem; }
 .rail-group { margin-bottom: 1.1rem; }
+/* 목록이 짧을 때 마지막 그룹 아래가 휑하게 벌어지지 않게 */
+.rail-group:last-child { margin-bottom: 0.4rem; }
 .rail-group-head {
   display: flex;
   align-items: center;
@@ -1755,7 +1758,10 @@ h2.section-label {
   color: var(--muted);
   font-weight: 600;
 }
-.rail-body { display: flex; flex-direction: column; min-width: 0; gap: 0.05rem; }
+.rail-body { display: flex; flex-direction: column; min-width: 0; flex: 1; gap: 0.05rem; }
+/* 이름이 먼저다 — 슬러그(@slug)가 자리를 먼저 가져가 이름이 잘리던 문제.
+   이름은 남는 폭을 다 쓰고 넘치면 말줄임, 슬러그는 그 뒤에 붙는다.
+   (말줄임은 flex 아이템에만 걸리므로 이름을 .rail-name 으로 감쌌다.) */
 .rail-title {
   font-size: 0.85rem;
   font-weight: 500;
@@ -1764,20 +1770,33 @@ h2.section-label {
   gap: 0.35rem;
   min-width: 0;
 }
+.rail-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .rail-slug {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   color: var(--muted);
   font-weight: normal;
   white-space: nowrap;
+  flex: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+/* 사이드바가 좁으면(≤220px) 슬러그를 접는다 — 이름이 살아남아야 한다. */
+.sidebar.is-narrow .rail-slug { display: none; }
+/* 고정 max-width 는 사이드바보다 넓어(13rem=208px > 내부폭) 목록을 밀어냈다.
+   컨테이너 폭에 맞춰 말줄임한다. */
 .rail-preview {
   font-size: 0.73rem;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 13rem;
+  min-width: 0;
 }
 .dm-persona {
   max-width: 34rem;
@@ -2668,6 +2687,19 @@ h2.section-label {
 }
 .channel-thread .chat-thread { margin: 0 0 0.6rem; }
 .channel-new-thread { margin-bottom: 3rem; }
+/* 대화창 컴포저는 좁은 탭 안에도 들어간다 — 컨트롤 줄을 접히게 둔다
+   (비전보드 컴포저와 같은 처리). */
+.channel-new-thread .composer-bar { flex-wrap: wrap; gap: 0.3rem; }
+.channel-new-thread .composer-bar .spacer { display: none; }
+.channel-new-thread .composer-bar .send { margin-left: auto; }
+.channel-new-thread .cbar-chip > span:not(.pill-caret) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 발화에 딸린 첨부 — 파일명만 보여주고 전체 경로는 툴팁으로 */
+.msg-attachments { margin-top: 0.4rem; }
+.msg-attachments .chip { font-size: 0.72rem; }
 .thread-reply-count {
   display: flex;
   align-items: center;
