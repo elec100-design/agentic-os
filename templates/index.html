@@ -60,8 +60,11 @@
 
   <div class="side-foot">
     {#- 에이전트 만들기·편집은 위 목록의 ＋ 로 들어간다 — 하단에 또 두지 않는다. -#}
-    <a class="side-settings" href="/setup" title="{{ '쓰는 CLI 와 모델을 고른다' | t }}">{{ '⚙︎ 모델 설정' | t }}</a>
-    <a class="side-settings" href="/settings/mcp" title="{{ '워크스페이스별 MCP 서버 관리' | t }}">{{ '🔌 MCP 서버' | t }}</a>
+    {#- 접힌 사이드바(64px)에서는 아이콘만 남는다 — 라벨을 따로 감싼다. -#}
+    <a class="side-settings" href="/setup" title="{{ '쓰는 CLI 와 모델을 고른다' | t }}"
+       ><span class="side-settings-icon">⚙︎</span><span class="side-settings-label">{{ '모델 설정' | t }}</span></a>
+    <a class="side-settings" href="/settings/mcp" title="{{ '워크스페이스별 MCP 서버 관리' | t }}"
+       ><span class="side-settings-icon">🔌</span><span class="side-settings-label">{{ 'MCP 서버' | t }}</span></a>
     <div class="side-foot-btns">
       <a class="lang-toggle" href="/lang/{{ 'ko' if lang() == 'en' else 'en' }}" title="{{ '언어 전환 (한국어/English)' | t }}">{{ '한국어' if lang() == 'en' else 'EN' }}</a>
       <button type="button" class="theme-toggle" id="theme-toggle" aria-label="{{ '라이트/다크 테마 전환' | t }}" title="{{ '테마 전환' | t }}">
@@ -70,6 +73,10 @@
       </button>
     </div>
   </div>
+
+  <!-- 데스크톱에서 사이드바 폭을 끌어서 정한다(우측 레일과 같은 조작) -->
+  <div class="side-resize-handle" id="home-side-resize" role="separator"
+       aria-orientation="vertical" aria-label="{{ '사이드바 너비 조절' | t }}" tabindex="0"></div>
 </aside>
 
 <!-- ══ 중앙 메인뷰 — 진행과정·코드를 여는 멀티 탭 워크스페이스 ══════════ -->

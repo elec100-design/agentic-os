@@ -457,6 +457,20 @@ def avatar_color(slug):
 templates.env.globals["avatar_color"] = avatar_color
 
 
+def _strip_markdown(text):
+    """목록 한 줄 미리보기에서 마크다운 기호를 걷어낸다.
+
+    본문을 그대로 넣으면 `안녕하세요. 저는 **Ch…` 처럼 별표가 그대로 보인다.
+    렌더링이 아니라 한 줄 요약이므로 기호만 지우고 글자는 남긴다.
+    """
+    s = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", text)       # [텍스트](url)
+    s = re.sub(r"^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+)", "", s)   # 제목·인용·목록 접두
+    s = re.sub(r"(\*\*|__|~~)", "", s)                        # 굵게·취소선
+    s = re.sub(r"`+", "", s)                                  # 코드
+    s = re.sub(r"\*(?!\s)([^*\n]+?)(?<!\s)\*", r"\1", s)      # *기울임*
+    return s
+
+
 def _preview(conn, channel_id, limit=60):
     """목록에 한 줄로 보여줄 마지막 발화.
 
@@ -471,11 +485,12 @@ def _preview(conn, channel_id, limit=60):
         return ""
     if msg["status"] in ("queued", "running"):
         return i18n.t("실행 중…")
-    body = " ".join((msg["body"] or "").split())
+    body = _strip_markdown(" ".join((msg["body"] or "").split()))
     if not body:
         prefix = i18n.t("실패") + " · " if msg["status"] == "failed" else ""
         fallback = db.last_message_with_body(conn, channel_id)
-        body = " ".join((fallback["body"] or "").split()) if fallback else ""
+        body = _strip_markdown(
+            " ".join((fallback["body"] or "").split())) if fallback else ""
         if not body:
             return prefix.rstrip(" ·") or ""
         body = prefix + body

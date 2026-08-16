@@ -34,7 +34,7 @@
            {% if a['channel_id'] %}data-channel-id="{{ a['channel_id'] }}"{% endif %}>
           <span class="rail-avatar" style="background: {{ a['color'] }}"></span>
           <span class="rail-body">
-            <span class="rail-title">{{ a['name'] }}<span class="rail-slug">@{{ a['slug'] }}</span></span>
+            <span class="rail-title"><span class="rail-name">{{ a['name'] }}</span><span class="rail-slug">@{{ a['slug'] }}</span></span>
             <span class="rail-preview">{{ a['preview'] or ('대화를 시작해 보세요' | t) }}</span>
           </span>
         </a>
@@ -67,7 +67,7 @@
            data-rail-title="{{ c['title'] }}">
           <span class="rail-hash">#</span>
           <span class="rail-body">
-            <span class="rail-title">{{ c['title'] }}{% if c['member_count'] %}<span class="rail-slug">{{ c['member_count'] }}</span>{% endif %}</span>
+            <span class="rail-title"><span class="rail-name">{{ c['title'] }}</span>{% if c['member_count'] %}<span class="rail-slug">{{ c['member_count'] }}</span>{% endif %}</span>
             <span class="rail-preview">{{ c['preview'] or ('아직 대화가 없습니다' | t) }}</span>
           </span>
         </a>

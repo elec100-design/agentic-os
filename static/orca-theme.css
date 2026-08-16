@@ -1404,22 +1404,59 @@ body.orca-home.with-sidebar main {
 /* 팝업이 좁은 레일 밖으로 넘치지 않게 (placePopup이 뷰포트로 다시 잡아준다) */
 .vision-composer .cbar-popup { max-width: min(20rem, calc(100vw - 1.5rem)); }
 
+/* 좌측 사이드바 폭 — 우측 레일과 같이 사용자가 끌어서 정하고 기억한다.
+   home.js 가 이 변수를 직접 쓴다(px 단위 문자열). */
+body.orca-home { --aos-side-w: 240px; }
+
 @media (min-width: 901px) {
-  /* 데스크톱에서는 고정 사이드바를 flex 트랙으로 되돌린다(≤900px는 오프캔버스 유지).
-     프로젝트·태스크가 우측 레일로 옮겨간 뒤로는 브랜드와 설정 줄만 남아 좁아도 된다. */
+  /* 데스크톱에서는 고정 사이드바를 flex 트랙으로 되돌린다(≤900px는 오프캔버스 유지). */
   body.orca-home .sidebar {
     position: relative;
     inset: auto;
-    flex: 0 0 200px;
-    width: 200px;
+    flex: 0 0 var(--aos-side-w);
+    width: var(--aos-side-w);
     height: auto;
   }
-  /* 200px에서는 설정·언어·테마가 한 줄에 안 들어간다 */
+  /* 좁은 폭에서는 설정·언어·테마가 한 줄에 안 들어간다 */
   body.orca-home .side-foot {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.4rem;
   }
+
+  /* ── 폭 조절 핸들 — 우측 레일(.orca-side-rail-handle)의 좌측 대칭판 ──── */
+  body.orca-home .sidebar { position: relative; }
+  .side-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    bottom: 0;
+    width: 6px;
+    z-index: 5;
+    cursor: col-resize;
+    background: transparent;
+  }
+  .side-resize-handle:hover,
+  .sidebar.is-resizing .side-resize-handle { background: var(--orca-accent, var(--accent)); opacity: 0.35; }
+  body.orca-home .sidebar.is-collapsed .side-resize-handle { display: none; }
+
+  /* ── 접기 — 아바타/해시만 남는 아이콘 레일 ──────────────────────────── */
+  body.orca-home .sidebar.is-collapsed { --aos-side-w: 64px; }
+  .sidebar.is-collapsed { padding-left: 0.5rem; padding-right: 0.5rem; }
+  .sidebar.is-collapsed .wordmark,
+  .sidebar.is-collapsed .rail-body,
+  .sidebar.is-collapsed .rail-group-head h2,
+  .sidebar.is-collapsed .rail-collapse,
+  .sidebar.is-collapsed .rail-empty,
+  .sidebar.is-collapsed .side-settings-label,
+  .sidebar.is-collapsed .lang-toggle { display: none; }
+  .sidebar.is-collapsed .brand { justify-content: center; padding-left: 0; padding-right: 0; }
+  .sidebar.is-collapsed .rail-group-head { justify-content: center; }
+  .sidebar.is-collapsed .rail-item { justify-content: center; padding-left: 0; padding-right: 0; }
+  .sidebar.is-collapsed .side-foot { align-items: center; }
+  /* 접혔을 때는 되접기 버튼이 펼치기 버튼이 된다 — 브랜드 줄 아래 중앙. */
+  body.orca-home .sidebar .side-close-btn { display: inline-flex; }
+  .sidebar.is-collapsed .side-close-btn { margin: 0 auto; transform: rotate(180deg); }
 }
 
 .orca-home-main {
