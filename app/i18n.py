@@ -482,4 +482,106 @@ EN = {
         "Send a job from the right and its progress opens here as a tab.",
     "아직 작업이 없습니다. 아래에서 첫 작업을 보내 보세요.":
         "No jobs yet. Send your first one below.",
+
+    # --- 커스텀 에이전트 ---
+    # "에이전트"(단수 "Agent")는 위쪽 카탈로그에 이미 있다 — 목록 화면 제목은
+    # 복수형이 자연스러워 별도 문구를 쓴다.
+    "에이전트 관리": "Agents",
+    "🧑‍💻 에이전트": "🧑‍💻 Agents",
+    "역할을 가진 에이전트 만들기·편집": "Create and edit agents with roles",
+    "역할을 가진 에이전트를 만들어 두면 채널에서 @슬러그로 부를 수 있습니다. 실행 CLI를 「자동」으로 두면 역할은 그대로 두고 그때그때 사용량이 가장 여유 있는 CLI에서 실행됩니다.":
+        "Agents with roles can be called by @slug in channels. Leave the CLI on "
+        "\"Auto\" and the role stays fixed while each run goes to whichever CLI "
+        "has the most quota left.",
+    "등록된 에이전트": "Your agents",
+    "아직 에이전트가 없습니다. 아래에서 추가하세요.":
+        "No agents yet. Add one below.",
+    "에이전트 추가": "Add an agent",
+    "역할 (페르소나)": "Role (persona)",
+    "이 에이전트가 무엇을 하는 사람인지, 무엇을 하지 말아야 하는지":
+        "What this agent does, and what it must not do",
+    "실행 CLI": "Runs on",
+    "자동 (사용량이 가장 여유 있는 곳)": "Auto (whichever has the most quota)",
+    "(채널 설정을 따름)": "(follow the channel)",
+    "읽기 전용 — 파일을 고치지 않습니다 (claude 에서만 강제되고, 다른 CLI 에서는 지시로만 전달됩니다)":
+        "Read-only — never edits files (enforced on claude; other CLIs get it as "
+        "an instruction only)",
+    "읽기 전용": "Read-only",
+    "보관 (목록에서 숨김)": "Archive (hide from list)",
+    "예: 리서처": "e.g. Researcher",
+    "이름은 비울 수 없습니다": "Name can't be empty",
+
+    # --- 채널의 에이전트 ---
+    "멤버": "Members",
+    "에이전트 간 대화 허용": "Let agents call each other",
+    "에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다. 꺼 두면 @는 그냥 텍스트입니다.":
+        "When on, an agent that @-mentions another in its reply will trigger that "
+        "agent too. When off, @ is just text.",
+    "채널에 배치된 에이전트가 없습니다. 에이전트 설정에서 만든 뒤 여기에 추가하세요.":
+        "No agents in this channel yet. Create them in agent settings, then add "
+        "them here.",
+    "추가할 에이전트": "Agent to add",
+    "채널에서 빼기": "Remove from channel",
+    "클릭하면 입력창에 @가 들어갑니다": "Click to insert @ into the composer",
+    "시스템": "System",
+
+    # --- 에이전트 DM · 채널 목록 ---
+    # "채널"은 위쪽 카탈로그에 이미 있다.
+    "에이전트 만들기·편집": "Create and edit agents",
+    "아직 에이전트가 없습니다. ＋ 로 만들어 보세요.":
+        "No agents yet. Use ＋ to create one.",
+    "대화를 시작해 보세요": "Start a conversation",
+    "여러 에이전트를 부를 채널 만들기": "Create a channel to call several agents",
+    "채널 만들기": "Create a channel",
+    "채널을 만들면 여러 에이전트를 한자리에 부를 수 있습니다.":
+        "Create a channel to bring several agents together.",
+    "아직 대화가 없습니다": "No messages yet",
+    "채널에 부른 에이전트끼리 한자리에서 대화합니다. 여기 없는 에이전트는 그 채널에서 @로 부를 수 없습니다.":
+        "Agents you add talk together in one place. Agents not in the channel "
+        "can't be called with @ there.",
+    "먼저 에이전트를 만들어야 합니다.": "You need to create an agent first.",
+    "에이전트 만들기 →": "Create an agent →",
+    "채널 이름": "Channel name",
+    "채널 이름은 비울 수 없습니다": "Channel name can't be empty",
+    "예: 신제품 출시": "e.g. Product launch",
+    "주제 (선택)": "Topic (optional)",
+    "이 채널에서 무엇을 다루는지": "What this channel is about",
+    "작업 위치 (선택)": "Workspace (optional)",
+    "(없음)": "(none)",
+    "부를 에이전트": "Agents to add",
+    "에이전트 간 대화 허용 — 에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다":
+        "Let agents call each other — an agent that @-mentions another in its "
+        "reply will trigger that agent too",
+    "역할 편집 →": "Edit role →",
+    "목록 접기/펼치기": "Collapse or expand the list",
+    "⚙︎ 모델 설정": "⚙︎ Models",
+    "쓰는 CLI 와 모델을 고른다": "Pick the CLIs and models you use",
+    "%(name)s 에게 말 걸기…": "Message %(name)s…",
+    "이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)":
+        "Start a new topic in this channel… (use @slug to call an agent)",
+
+    # --- 승인 게이트 ---
+    "✋ 승인": "✋ Approvals",
+    "승인 인박스": "Approval inbox",
+    "에이전트가 승인을 기다리는 동작": "Actions agents are waiting on you for",
+    "에이전트가 되돌릴 수 없다고 판단한 동작입니다. 승인하면 그 에이전트가 그 동작만 실행합니다.":
+        "Actions an agent flagged as irreversible. Approve and that agent runs "
+        "just that action.",
+    "대기 중": "Pending",
+    "승인 대기 중인 동작이 없습니다.": "Nothing is waiting for approval.",
+    "덧붙일 지시나 거절 사유 (선택)": "Extra instructions, or why you're rejecting (optional)",
+    # "✓ 승인하고 실행"은 비전 보드 계획 승인에서 이미 쓰는 문구다(위쪽 카탈로그).
+    "거절": "Reject",
+    "처리됨": "Decided",
+    "승인됨": "Approved",
+    "거절됨": "Rejected",
+    "처리하지 못했습니다.": "Couldn't process it.",
+    "승인 게이트": "Approval gate",
+    "없음 — 스스로 실행합니다": "None — acts on its own",
+    "되돌릴 수 없는 동작은 승인받고 실행": "Ask before irreversible actions",
+    "승인 필요": "Needs approval",
+    "승인 게이트는 프롬프트로 전달되는 지시입니다. 정말로 실행을 막으려면 읽기 전용을 함께 켜고 실행 CLI를 claude 로 두세요 — 그 조합만 실제로 강제됩니다.":
+        "The approval gate is an instruction passed in the prompt. To actually "
+        "prevent execution, also turn on read-only and pin the CLI to claude — "
+        "only that combination is enforced.",
 }

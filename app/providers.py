@@ -53,10 +53,14 @@ class ClaudeProvider:
     # 있다(실측 확인, app/mcp_servers.py 상단 주석). codex/gemini 는 전역
     # 설정 파일에 영구히 쓰는 방식뿐이라 지원하지 않는다.
     supports_mcp = True
+    # 실행 단위로 쓰기 권한을 뺄 수 있는 유일한 CLI — 읽기 전용 에이전트
+    # (app/agents.py 의 read_only)를 여기서만 실제로 강제할 수 있다.
+    supports_read_only = True
     _limit_re = re.compile(r"usage limit reached|rate.?limit", re.I)
     _epoch_re = re.compile(r"limit reached\|(\d{9,})")
 
-    def build_command(self, prompt, session_id=None, model=None, mcp_config_path=None):
+    def build_command(self, prompt, session_id=None, model=None,
+                      mcp_config_path=None, read_only=False):
         # 헤드리스(-p)는 권한 프롬프트를 못 띄우므로 웹 도구를 사전 허용.
         # --allowedTools 는 <tools...> 가변 옵션이라, 뒤에 오는 비옵션 인자를
         # 전부 도구 이름으로 삼킨다. 프롬프트가 거기 끼면
@@ -72,8 +76,13 @@ class ClaudeProvider:
         #
         # stream-json 은 한 줄에 이벤트 하나(JSONL)를 흘려 도구 호출·결과가
         # 실시간으로 보인다. --print 와 함께 쓰려면 --verbose 가 필요하다.
+        #
+        # read_only 는 그 반대다 — plan 모드는 파일을 고치지 않고 계획만 세우게
+        # 하므로, 쓰기를 막아야 하는 에이전트에 쓴다. Bash 도 사전 허용에서 뺀다
+        # (읽기용 명령과 상태를 바꾸는 명령을 구분할 수 없기 때문).
+        mode = "plan" if read_only else "acceptEdits"
         cmd = ["claude", "-p", "--output-format", "stream-json", "--verbose",
-               "--permission-mode", "acceptEdits",
+               "--permission-mode", mode,
                "--settings", '{"disableAllHooks": true}']
         if model:
             cmd += ["--model", model]
@@ -81,7 +90,8 @@ class ClaudeProvider:
             cmd += ["--resume", session_id]
         if mcp_config_path:
             cmd += ["--mcp-config", str(mcp_config_path)]
-        cmd += ["--allowedTools", "WebSearch", "WebFetch", "Bash", "--", prompt]
+        tools = ["WebSearch", "WebFetch"] if read_only else ["WebSearch", "WebFetch", "Bash"]
+        cmd += ["--allowedTools", *tools, "--", prompt]
         return cmd
 
     # --- 실행 타임라인 --------------------------------------------------
@@ -214,7 +224,12 @@ class AntigravityProvider:
         # 자가 발급 옵션 부재, -p 출력에 conversation ID 미포함). `-c`(전역 최신
         # 대화 이어가기)는 다른 대화가 끼면 오염되므로 이어가기를 지원하지 않는다
         # → 항상 단발 실행. session_id를 받아도 무시한다.
-        cmd = ["agy", "-p", prompt]
+        #
+        # --dangerously-skip-permissions 없이는 헤드리스에서 read_file 등 모든
+        # 도구 호출이 프롬프트할 수 없어 자동 거부된다("no output produced" 로
+        # 끝난다) — app/media.py의 이미지/비디오 생성 경로에서 스파이크로 확인된
+        # 것과 같은 제약이다. 일반 텍스트 대화도 도구를 쓰므로 똑같이 필요하다.
+        cmd = ["agy", "--dangerously-skip-permissions", "-p", prompt]
         if model:
             cmd += ["--model", model]
         return cmd

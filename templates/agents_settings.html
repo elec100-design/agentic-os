@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="{{ lang() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ '에이전트 관리' | t }} — Agentic OS</title>
+<link rel="stylesheet" href="/static/style.css?v={{ asset_v() }}">
+<script>(function(){try{var t=localStorage.getItem("aos-theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}})();</script>
+<script>window.LANG={{ lang() | tojson }};window.I18N={{ i18n_map() | tojson }};function t(s){return (window.LANG==="en"&&window.I18N[s])||s;}</script>
+</head>
+<body>
+<main class="page">
+<a class="back-link" href="/">{{ '← 대시보드' | t }}</a>
+<h1 class="job-title">{{ '에이전트 관리' | t }}</h1>
+<p class="job-meta">
+  {{ '역할을 가진 에이전트를 만들어 두면 채널에서 @슬러그로 부를 수 있습니다. 실행 CLI를 「자동」으로 두면 역할은 그대로 두고 그때그때 사용량이 가장 여유 있는 CLI에서 실행됩니다.' | t }}
+</p>
+
+{% if error %}<p class="mcp-error">{{ error }}</p>{% endif %}
+
+<h2 class="section-label">{{ '등록된 에이전트' | t }}</h2>
+{% if not agents %}
+<p class="job-meta">{{ '아직 에이전트가 없습니다. 아래에서 추가하세요.' | t }}</p>
+{% else %}
+<ul class="mcp-server-list">
+  {% for a in agents %}
+  <li class="agent-item">
+    <details>
+      <summary>
+        <span class="agent-slug">@{{ a['slug'] }}</span>
+        <span class="mcp-server-name">{{ a['name'] }}</span>
+        <span class="agent-badges">
+          <span class="agent-badge">{{ a['provider'] if a['provider'] != 'auto' else ('자동' | t) }}</span>
+          {% if a['read_only'] %}<span class="agent-badge ro">{{ '읽기 전용' | t }}</span>{% endif %}
+          {% if a['approval_policy'] == 'ask' %}<span class="agent-badge ro">{{ '승인 필요' | t }}</span>{% endif %}
+        </span>
+      </summary>
+      <form method="post" action="/settings/agents/{{ a['id'] }}/edit" class="mcp-add-form">
+        <label>{{ '이름' | t }}
+          <input type="text" name="name" value="{{ a['name'] }}" required>
+        </label>
+        <label>{{ '역할 (페르소나)' | t }}
+          <textarea name="persona" rows="4" placeholder="{{ '이 에이전트가 무엇을 하는 사람인지, 무엇을 하지 말아야 하는지' | t }}">{{ a['persona'] }}</textarea>
+        </label>
+        <label>{{ '실행 CLI' | t }}
+          <select name="provider">
+            <option value="auto"{% if a['provider'] == 'auto' %} selected{% endif %}>{{ '자동 (사용량이 가장 여유 있는 곳)' | t }}</option>
+            {% for p in agent_order %}<option value="{{ p }}"{% if a['provider'] == p %} selected{% endif %}>{{ p|capitalize }}</option>{% endfor %}
+          </select>
+        </label>
+        <label>{{ '작업 위치' | t }}
+          <select name="workdir">
+            <option value="">{{ '(채널 설정을 따름)' | t }}</option>
+            {% for ws in workspaces %}<option value="{{ ws['path'] }}"{% if a['workdir'] == ws['path'] %} selected{% endif %}>{{ ws['name'] }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="agent-check">
+          <input type="checkbox" name="read_only" value="1"{% if a['read_only'] %} checked{% endif %}>
+          <span>{{ '읽기 전용 — 파일을 고치지 않습니다 (claude 에서만 강제되고, 다른 CLI 에서는 지시로만 전달됩니다)' | t }}</span>
+        </label>
+        <label>{{ '승인 게이트' | t }}
+          <select name="approval_policy">
+            <option value="auto"{% if a['approval_policy'] != 'ask' %} selected{% endif %}>{{ '없음 — 스스로 실행합니다' | t }}</option>
+            <option value="ask"{% if a['approval_policy'] == 'ask' %} selected{% endif %}>{{ '되돌릴 수 없는 동작은 승인받고 실행' | t }}</option>
+          </select>
+        </label>
+        <div class="agent-actions">
+          <button type="submit" class="btn-primary">{{ '저장' | t }}</button>
+        </div>
+      </form>
+      <form method="post" action="/settings/agents/{{ a['id'] }}/archive" class="mcp-remove-form">
+        <button type="submit" class="btn-ghost">{{ '보관 (목록에서 숨김)' | t }}</button>
+      </form>
+    </details>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<h2 class="section-label">{{ '에이전트 추가' | t }}</h2>
+<form method="post" action="/settings/agents/add" class="mcp-add-form">
+  <label>{{ '이름' | t }}
+    <input type="text" name="name" required placeholder="{{ '예: 리서처' | t }}">
+  </label>
+  <label>{{ '역할 (페르소나)' | t }}
+    <textarea name="persona" rows="4" placeholder="{{ '이 에이전트가 무엇을 하는 사람인지, 무엇을 하지 말아야 하는지' | t }}"></textarea>
+  </label>
+  <label>{{ '실행 CLI' | t }}
+    <select name="provider">
+      <option value="auto">{{ '자동 (사용량이 가장 여유 있는 곳)' | t }}</option>
+      {% for p in agent_order %}<option value="{{ p }}">{{ p|capitalize }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>{{ '작업 위치' | t }}
+    <select name="workdir">
+      <option value="">{{ '(채널 설정을 따름)' | t }}</option>
+      {% for ws in workspaces %}<option value="{{ ws['path'] }}">{{ ws['name'] }}</option>{% endfor %}
+    </select>
+  </label>
+  <label class="agent-check">
+    <input type="checkbox" name="read_only" value="1">
+    <span>{{ '읽기 전용 — 파일을 고치지 않습니다 (claude 에서만 강제되고, 다른 CLI 에서는 지시로만 전달됩니다)' | t }}</span>
+  </label>
+  <label>{{ '승인 게이트' | t }}
+    <select name="approval_policy">
+      <option value="auto">{{ '없음 — 스스로 실행합니다' | t }}</option>
+      <option value="ask">{{ '되돌릴 수 없는 동작은 승인받고 실행' | t }}</option>
+    </select>
+  </label>
+  <p class="agent-hint">{{ '승인 게이트는 프롬프트로 전달되는 지시입니다. 정말로 실행을 막으려면 읽기 전용을 함께 켜고 실행 CLI를 claude 로 두세요 — 그 조합만 실제로 강제됩니다.' | t }}</p>
+  <button type="submit" class="btn-primary">{{ '추가' | t }}</button>
+</form>
+</main>
+</body>
+</html>

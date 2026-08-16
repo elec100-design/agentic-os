@@ -51,11 +51,16 @@
       <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8h-11M6.5 4l-4 4 4 4"/></svg>
     </button>
   </div>
-  {#- 비전보드(프로젝트 목록·컴포저)와 태스크 인스펙터는 우측 레일의 탭으로 옮겼다 —
-      좌측은 브랜드와 설정 줄만 남는다. -#}
+  {#- 비전보드(프로젝트 목록·컴포저)와 태스크 인스펙터는 우측 레일의 탭으로 옮겼다.
+      좌측에는 대화 상대(에이전트 DM·채널) 목록이 온다 — 누구에게 말을 거는지가
+      이 앱의 첫 화면이어야 한다. -#}
+  <div class="side-scroll">
+    {% include "partials/agent_rail.html" %}
+  </div>
 
   <div class="side-foot">
-    <a class="side-settings" href="/setup" title="{{ '에이전트 활성화·설치 상태 재설정' | t }}">{{ '⚙︎ 에이전트 설정' | t }}</a>
+    {#- 에이전트 만들기·편집은 위 목록의 ＋ 로 들어간다 — 하단에 또 두지 않는다. -#}
+    <a class="side-settings" href="/setup" title="{{ '쓰는 CLI 와 모델을 고른다' | t }}">{{ '⚙︎ 모델 설정' | t }}</a>
     <a class="side-settings" href="/settings/mcp" title="{{ '워크스페이스별 MCP 서버 관리' | t }}">{{ '🔌 MCP 서버' | t }}</a>
     <div class="side-foot-btns">
       <a class="lang-toggle" href="/lang/{{ 'ko' if lang() == 'en' else 'en' }}" title="{{ '언어 전환 (한국어/English)' | t }}">{{ '한국어' if lang() == 'en' else 'EN' }}</a>
@@ -216,6 +221,9 @@ const COUNCIL_ENABLED = {{ council_enabled | tojson }};
 <script src="/static/board-editor.js?v={{ asset_v() }}"></script>
 <!-- 노드를 클릭하면 좌측 사이드바가 태스크 편집·채팅으로 바뀐다 -->
 <script src="/static/task-inspector.js?v={{ asset_v() }}"></script>
+{# 중앙 탭에 대화 화면을 얹기 위해 — 마운트 함수만 제공하고 홈에서 자동 실행되진 않는다 #}
+<script src="/static/channels.js?v={{ asset_v() }}"></script>
 <script src="/static/home.js?v={{ asset_v() }}"></script>
+<script src="/static/agent-rail.js?v={{ asset_v() }}"></script>
 </body>
 </html>

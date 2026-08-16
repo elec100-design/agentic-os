@@ -769,3 +769,108 @@ def test_layout_ports_match_edge_endpoints():
     edge = g["edges"][0]
     assert edge["path"].startswith(f"M {nodes[1]['out_x']} {nodes[1]['out_y']}")
     assert edge["path"].endswith(f"{nodes[2]['in_x']} {nodes[2]['in_y']}")
+
+
+# --- 실행 중 위임(handoff) ----------------------------------------------------
+
+def _handoff_output(to="reviewer", title="구현 검토", body="구현을 마쳤습니다."):
+    return (body + '\n\n```json\n{"handoff": {"to": "' + to + '", "title": "'
+            + title + '", "description": "방금 바꾼 것을 검토", '
+            '"reason": "내 코드를 내가 검토할 수 없음"}}\n```\n')
+
+
+def test_parse_handoff_extracts_and_strips_the_block(tmp_env):
+    """산출물은 하류 프롬프트에 그대로 실린다 — JSON 이 남으면 다음 에이전트가
+    그것을 작업 지시로 착각한다."""
+    cleaned, handoff = orchestrator.parse_handoff(_handoff_output())
+    assert handoff["to"] == "reviewer" and handoff["title"] == "구현 검토"
+    assert "handoff" not in cleaned and "구현을 마쳤습니다." in cleaned
+
+
+def test_parse_handoff_ignores_malformed_blocks(tmp_env):
+    """위임 파싱 실패로 태스크 결과 자체를 버리면 안 된다."""
+    for text in ("결과물만 있음",
+                 "결과\n```json\n{여기서 깨짐\n```",
+                 '결과\n```json\n{"handoff": {"to": "x"}}\n```',   # title 없음
+                 '결과\n```json\n{"tasks": []}\n```'):             # 다른 JSON
+        cleaned, handoff = orchestrator.parse_handoff(text)
+        assert handoff is None
+        assert cleaned == text
+
+
+def _running_project_with_agents(conn):
+    builder = db.create_agent(conn, "builder", "Builder", provider="claude")
+    reviewer = db.create_agent(conn, "reviewer", "Reviewer", provider="claude")
+    pid = db.create_project(conn, "목표")
+    db.update_project(conn, pid, status="running")
+    task_id = db.create_task(conn, pid, 1, "구현", "구현하라", "text", "claude",
+                             agent_id=builder)
+    return db.get_project(conn, pid), db.get_task(conn, task_id), builder, reviewer
+
+
+def test_spawn_handoff_task_grows_the_graph(tmp_env):
+    conn = db.get_conn()
+    project, origin, _builder, reviewer = _running_project_with_agents(conn)
+    _cleaned, handoff = orchestrator.parse_handoff(_handoff_output())
+
+    new_id = orchestrator.spawn_handoff_task(conn, project, origin, handoff)
+    task = db.get_task(conn, new_id)
+    assert task["depends_on"] == "1"          # 위임한 태스크가 선행
+    assert task["agent_id"] == reviewer
+    assert task["origin_task_id"] == origin["id"]
+    # 보드 탭도 함께 생긴다(계획으로 만든 태스크와 같은 경로)
+    assert any(t["ref_id"] == new_id for t in db.list_board_tabs(conn, project["id"]))
+
+
+def test_spawn_handoff_rejects_cycles_and_unknown_agents(tmp_env):
+    conn = db.get_conn()
+    project, origin, _builder, _reviewer = _running_project_with_agents(conn)
+    base = {"title": "x", "description": "x", "reason": ""}
+
+    # 자기 자신에게
+    assert orchestrator.spawn_handoff_task(
+        conn, project, origin, {**base, "to": "builder"}) is None
+    # 없는 에이전트
+    assert orchestrator.spawn_handoff_task(
+        conn, project, origin, {**base, "to": "nobody"}) is None
+    # 상류로 되돌리기 (builder → reviewer → builder)
+    mid = orchestrator.spawn_handoff_task(
+        conn, project, origin, {**base, "to": "reviewer"})
+    assert orchestrator.spawn_handoff_task(
+        conn, project, db.get_task(conn, mid), {**base, "to": "builder"}) is None
+
+
+def test_spawn_handoff_respects_the_dynamic_cap(tmp_env, monkeypatch):
+    monkeypatch.setattr(config, "ORCH_MAX_DYNAMIC_TASKS", 1)
+    conn = db.get_conn()
+    project, origin, _builder, _reviewer = _running_project_with_agents(conn)
+    base = {"title": "x", "description": "x", "reason": "", "to": "reviewer"}
+    assert orchestrator.spawn_handoff_task(conn, project, origin, base) is not None
+    assert orchestrator.spawn_handoff_task(conn, project, origin, base) is None
+
+
+def test_sync_tasks_applies_handoff_on_completion(tmp_env):
+    """잡이 끝나면 위임이 그래프에 반영되고, 저장된 output 은 깨끗해야 한다."""
+    conn = db.get_conn()
+    project, origin, _builder, _reviewer = _running_project_with_agents(conn)
+    job_id = db.create_job(conn, "p", "claude")
+    db.update_job(conn, job_id, status="done", output=_handoff_output())
+    db.update_task(conn, origin["id"], status="running", job_id=job_id)
+
+    orchestrator._sync_tasks(conn, project, db.list_tasks(conn, project["id"]))
+
+    tasks = db.list_tasks(conn, project["id"])
+    assert len(tasks) == 2
+    done = db.get_task(conn, origin["id"])
+    assert done["status"] == "done"
+    assert "handoff" not in done["output"] and "구현을 마쳤습니다." in done["output"]
+
+
+def test_handoff_section_only_when_there_is_someone_to_call(tmp_env):
+    conn = db.get_conn()
+    project, origin, _builder, _reviewer = _running_project_with_agents(conn)
+    with_roster = orchestrator.build_task_prompt(
+        project, origin, [], roster=db.list_agents(conn))
+    assert "다른 에이전트에게 넘기기" in with_roster and "reviewer(Reviewer)" in with_roster
+    assert "다른 에이전트에게 넘기기" not in orchestrator.build_task_prompt(
+        project, origin, [])

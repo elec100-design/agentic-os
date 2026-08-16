@@ -1,15 +1,47 @@
 "use strict";
 
-// ---- 채널 상세 페이지: 쓰레드 렌더링·답장·실행 트레이스 스트리밍 ---------
-const threadList = document.getElementById("thread-list");
-if (threadList && typeof CHANNEL !== "undefined") {
+// ---- 대화 화면(채널·DM) — 쓰레드 렌더링·답장·실행 트레이스 스트리밍 -------
+//
+// 전용 페이지(/channels/{id})와 홈 중앙 탭이 이 코드를 함께 쓴다. 그래서 전역
+// id 를 찾지 않고 **넘겨받은 root 안쪽만** 본다 — 탭을 여러 개 열면 같은 id 가
+// 여러 벌 생기기 때문이다. 데이터도 전역 상수가 아니라 root 안의
+// <script class="channel-data"> 에서 읽는다.
+//
+// mountChannelView(root) 는 정리 함수(dispose)를 돌려준다. 탭을 닫을 때 열어 둔
+// EventSource 와 문서 수준 리스너를 반드시 끊어야 한다 — 안 그러면 닫은 대화가
+// 백그라운드에서 계속 스트리밍을 받는다.
+window.mountChannelView = function mountChannelView(root) {
+  if (!root || root.dataset.mounted === "1") return null;
+  root.dataset.mounted = "1";
+
+  let CHANNEL, THREADS;
+  try {
+    const raw = JSON.parse(root.querySelector(".channel-data").textContent);
+    CHANNEL = raw.channel;
+    THREADS = raw.threads || [];
+  } catch (e) {
+    return null;   // 데이터가 없으면 붙일 것도 없다
+  }
+
+  const $ = (sel) => root.querySelector(sel);
+  const threadList = $(".thread-list");
+  if (!threadList) return null;
+
+  // 이 화면이 연 스트림·리스너 — dispose 에서 전부 끊는다.
+  const streams = new Set();
+  const teardown = [];
 
   function escapeHtml(s) {
     return (s || "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
   }
 
   function roleName(m) {
-    return m.role === "user" ? t("나") : (m.author || m.provider || "agent");
+    if (m.role === "user") return t("나");
+    if (m.role === "system") return t("시스템");
+    // 커스텀 에이전트가 답한 메시지는 CLI 이름이 아니라 에이전트 이름으로
+    // 보여준다 — 같은 CLI 를 쓰는 에이전트가 둘일 수 있다.
+    if (m.author_agent_id) return "@" + (m.author || "agent");
+    return m.author || m.provider || "agent";
   }
 
   function setBadge(row, status) {
@@ -21,8 +53,8 @@ if (threadList && typeof CHANNEL !== "undefined") {
   function buildMessageEl(m, opts) {
     opts = opts || {};
     const row = document.createElement("div");
-    row.className = "chat-turn msg-row " + (m.role === "user" ? "user" : "assistant");
-    row.id = (opts.idPrefix || "msg-") + m.id;
+    row.className = "chat-turn msg-row " +
+      (m.role === "user" ? "user" : (m.role === "system" ? "system" : "assistant"));
     row.dataset.msgId = m.id;
     row.dataset.status = m.status;
 
@@ -64,9 +96,8 @@ if (threadList && typeof CHANNEL !== "undefined") {
     if (m.status === "queued" || m.status === "running") {
       const trace = document.createElement("div");
       trace.className = "msg-trace";
-      trace.id = (opts.idPrefix ? "panel-trace-" : "trace-") + m.id;
       row.appendChild(trace);
-      openTrace(m.id, trace.id);
+      openTrace(m.id, trace);
     }
     return row;
   }
@@ -80,21 +111,13 @@ if (threadList && typeof CHANNEL !== "undefined") {
     });
   }
 
-  function threadProvider(messages) {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].provider) return messages[i].provider;
-    }
-    return "auto";
-  }
-
   // 메인 채널 뷰: 각 쓰레드는 첫 질문/응답만 접어서 보여주고,
   // 답장은 우측 슬라이드아웃 패널에서 주고받는다 (Slack 쓰레드 패턴).
   function buildThreadEl(messages) {
-    const root = messages[0];
+    const rootMsg = messages[0];
     const wrap = document.createElement("div");
     wrap.className = "channel-thread";
-    wrap.id = "thread-" + root.id;
-    wrap.dataset.rootId = root.id;
+    wrap.dataset.rootId = rootMsg.id;
     const chat = document.createElement("div");
     chat.className = "chat-thread";
     wrap.appendChild(chat);
@@ -102,17 +125,17 @@ if (threadList && typeof CHANNEL !== "undefined") {
     replyBar.type = "button";
     replyBar.className = "thread-reply-count";
     wrap.appendChild(replyBar);
-    replyBar.addEventListener("click", () => openThreadPanel(root.id));
+    replyBar.addEventListener("click", () => openThreadPanel(rootMsg.id));
     updateThreadCard(wrap, messages);
     return wrap;
   }
 
   function updateThreadCard(wrap, messages) {
-    const root = messages[0];
+    const rootMsg = messages[0];
     const preview = messages.length > 1 ? messages.slice(0, 2) : messages;
     const chat = wrap.querySelector(".chat-thread");
     chat.innerHTML = "";
-    for (const m of preview) chat.appendChild(buildMessageEl(m, { rootId: root.id }));
+    for (const m of preview) chat.appendChild(buildMessageEl(m, { rootId: rootMsg.id }));
     const replyCount = messages.length - preview.length;
     const replyBar = wrap.querySelector(".thread-reply-count");
     if (replyCount > 0) {
@@ -133,7 +156,8 @@ if (threadList && typeof CHANNEL !== "undefined") {
       body: JSON.stringify({ body, provider: provider || "auto", parent_id: parentId || null }),
     });
     if (!res.ok) {
-      alert(t("전송하지 못했습니다"));
+      const detail = await res.json().then((d) => d.detail).catch(() => null);
+      alert(detail || t("전송하지 못했습니다"));
       return null;
     }
     const data = await res.json();
@@ -145,10 +169,16 @@ if (threadList && typeof CHANNEL !== "undefined") {
   }
 
   async function refreshThreadCard(rootId) {
-    const wrap = document.getElementById("thread-" + rootId);
+    const wrap = threadList.querySelector(`.channel-thread[data-root-id="${rootId}"]`);
     if (!wrap) return;
     const messages = await (await fetch(`/api/messages/${rootId}/thread`)).json();
-    updateThreadCard(wrap, messages);
+    updateThreadCard(wrap, threadMessages(messages));
+  }
+
+  // /api/messages/{id}/thread 는 {root_id, messages} 를 준다. 초기 THREADS 는
+  // 배열이라 두 형태를 모두 받아 준다.
+  function threadMessages(payload) {
+    return Array.isArray(payload) ? payload : (payload.messages || []);
   }
 
   // ---- 실행 과정 타임라인(아코디언) ------------------------------------
@@ -211,8 +241,12 @@ if (threadList && typeof CHANNEL !== "undefined") {
     }
   }
 
-  function openTrace(messageId, traceElId) {
-    const trace = document.getElementById(traceElId || "trace-" + messageId);
+  // 같은 메시지가 본문 카드와 쓰레드 패널에 동시에 있을 수 있다 — 둘 다 갱신한다.
+  function rowsFor(messageId) {
+    return root.querySelectorAll(`[data-msg-id="${messageId}"]`);
+  }
+
+  function openTrace(messageId, trace) {
     if (!trace || trace.dataset.wired) return;
     trace.dataset.wired = "1";
 
@@ -238,6 +272,7 @@ if (threadList && typeof CHANNEL !== "undefined") {
     const steps = {};
     let latestId = null;
     const es = new EventSource(`/api/messages/${messageId}/stream`);
+    streams.add(es);
 
     es.addEventListener("step", (e) => {
       const step = JSON.parse(e.data);
@@ -259,14 +294,15 @@ if (threadList && typeof CHANNEL !== "undefined") {
 
     es.addEventListener("status", (e) => {
       const status = JSON.parse(e.data);
-      for (const row of document.querySelectorAll(`[data-msg-id="${messageId}"]`)) setBadge(row, status);
+      for (const row of rowsFor(messageId)) setBadge(row, status);
     });
 
     es.addEventListener("done", async () => {
       es.close();
+      streams.delete(es);
       try {
         const fresh = await (await fetch(`/api/messages/${messageId}`)).json();
-        for (const row of document.querySelectorAll(`[data-msg-id="${messageId}"]`)) {
+        for (const row of rowsFor(messageId)) {
           renderMarkdown(row.querySelector(".chat-bubble"), fresh.body || "");
           setBadge(row, fresh.status);
           if (fresh.error && !row.querySelector(".msg-error")) {
@@ -277,85 +313,97 @@ if (threadList && typeof CHANNEL !== "undefined") {
           }
         }
       } finally {
+        // 사이드바 미리보기·채팅 목록이 방금 끝난 대화를 반영하게 한다.
         document.body.dispatchEvent(new Event("refresh-channels"));
       }
     });
   }
 
-  // ---- 우측 쓰레드 답글 패널 ------------------------------------------
-  const threadPanel = document.getElementById("thread-panel");
-  const threadPanelScrim = document.getElementById("thread-panel-scrim");
-  const threadPanelBody = document.getElementById("thread-panel-body");
-  const threadPanelSub = document.getElementById("thread-panel-sub");
-  const threadPanelForm = document.getElementById("thread-panel-form");
-  const threadPanelTa = threadPanelForm.querySelector("textarea");
+  // ---- 쓰레드 답글 패널 ------------------------------------------------
+  const threadPanel = $(".thread-panel");
+  const threadPanelScrim = $(".thread-panel-scrim");
+  const threadPanelBody = $(".thread-panel-body");
+  const threadPanelSub = $(".thread-panel-sub");
+  const threadPanelForm = $(".thread-panel-form");
+  const threadPanelTa = threadPanelForm?.querySelector("textarea");
   let panelRootId = null;
 
   function closeThreadPanel() {
     panelRootId = null;
+    if (!threadPanel) return;
     threadPanel.hidden = true;
     threadPanelScrim.hidden = true;
     threadPanel.classList.remove("open");
   }
 
   async function openThreadPanel(rootId) {
+    if (!threadPanel) return;
     panelRootId = rootId;
     threadPanel.hidden = false;
     threadPanelScrim.hidden = false;
     requestAnimationFrame(() => threadPanel.classList.add("open"));
     threadPanelBody.innerHTML = `<p class="modal-loading">${escapeHtml(t("불러오는 중…"))}</p>`;
-    const messages = await (await fetch(`/api/messages/${rootId}/thread`)).json();
+    const messages = threadMessages(
+      await (await fetch(`/api/messages/${rootId}/thread`)).json());
     if (panelRootId !== rootId) return;
     threadPanelSub.textContent = (messages[0]?.body || "").slice(0, 48);
     threadPanelBody.innerHTML = "";
-    for (const m of messages) threadPanelBody.appendChild(buildMessageEl(m, { idPrefix: "panel-msg-" }));
+    for (const m of messages) threadPanelBody.appendChild(buildMessageEl(m));
     threadPanelBody.scrollTop = threadPanelBody.scrollHeight;
     threadPanelTa.value = "";
     threadPanelTa.focus();
   }
 
-  document.getElementById("thread-panel-close")?.addEventListener("click", closeThreadPanel);
+  $(".thread-panel-close")?.addEventListener("click", closeThreadPanel);
   threadPanelScrim?.addEventListener("click", closeThreadPanel);
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !threadPanel.hidden) closeThreadPanel();
-  });
+  // 문서 수준 리스너는 dispose 에서 반드시 떼어낸다 — 탭을 닫아도 남으면
+  // Esc 가 이미 사라진 패널을 건드린다.
+  const onKeydown = (e) => {
+    if (e.key === "Escape" && threadPanel && !threadPanel.hidden) closeThreadPanel();
+  };
+  document.addEventListener("keydown", onKeydown);
+  teardown.push(() => document.removeEventListener("keydown", onKeydown));
 
-  bindEnterSubmit(threadPanelTa);
-  threadPanelForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const body = threadPanelTa.value.trim();
-    if (!body || !panelRootId) return;
-    const rootId = panelRootId;
-    const btn = threadPanelForm.querySelector("button");
-    btn.disabled = true;
-    try {
-      const result = await sendMessage(body, rootId, "auto");
-      if (result && panelRootId === rootId) {
-        threadPanelBody.appendChild(buildMessageEl(result.userMsg, { idPrefix: "panel-msg-" }));
-        threadPanelBody.appendChild(buildMessageEl(result.agentMsg, { idPrefix: "panel-msg-" }));
-        threadPanelBody.scrollTop = threadPanelBody.scrollHeight;
-        threadPanelTa.value = "";
+  if (threadPanelTa) {
+    bindEnterSubmit(threadPanelTa);
+    threadPanelForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = threadPanelTa.value.trim();
+      if (!body || !panelRootId) return;
+      const rootId = panelRootId;
+      const btn = threadPanelForm.querySelector("button");
+      btn.disabled = true;
+      try {
+        const result = await sendMessage(body, rootId, "auto");
+        if (result && panelRootId === rootId) {
+          threadPanelBody.appendChild(buildMessageEl(result.userMsg));
+          threadPanelBody.appendChild(buildMessageEl(result.agentMsg));
+          threadPanelBody.scrollTop = threadPanelBody.scrollHeight;
+          threadPanelTa.value = "";
+        }
+        if (result) {
+          await refreshThreadCard(rootId);
+          document.body.dispatchEvent(new Event("refresh-channels"));
+        }
+      } finally {
+        btn.disabled = false;
       }
-      if (result) {
-        await refreshThreadCard(rootId);
-        document.body.dispatchEvent(new Event("refresh-channels"));
-      }
-    } finally {
-      btn.disabled = false;
-    }
-  });
+    });
+  }
 
   for (const messages of THREADS) threadList.appendChild(buildThreadEl(messages));
   threadList.scrollTop = threadList.scrollHeight;
 
-  const newThreadForm = document.getElementById("new-thread-form");
-  const newThreadPrompt = document.getElementById("new-thread-prompt");
+  const newThreadForm = $(".new-thread-form");
+  const newThreadPrompt = $(".new-thread-prompt");
   bindEnterSubmit(newThreadPrompt);
   newThreadForm.addEventListener("submit", async (e) => {
     e.preventDefault();
     const body = newThreadPrompt.value.trim();
     if (!body) return;
-    const provider = document.getElementById("new-thread-provider").value;
+    // DM 에는 에이전트 선택이 없다 — 상대가 정해져 있고 실행 CLI 는 그
+    // 에이전트 설정이 정한다(서버가 채널 종류를 보고 라우팅한다).
+    const provider = $(".new-thread-provider")?.value || "auto";
     const btn = newThreadForm.querySelector("button.send");
     btn.disabled = true;
     try {
@@ -372,9 +420,60 @@ if (threadList && typeof CHANNEL !== "undefined") {
     }
   });
 
-  document.getElementById("channel-delete-btn")?.addEventListener("click", async () => {
+  $(".channel-delete-btn")?.addEventListener("click", async () => {
     if (!confirm(t("이 채널과 모든 대화를 삭제할까요? 되돌릴 수 없습니다."))) return;
     await fetch(`/api/channels/${CHANNEL.id}`, { method: "DELETE" });
-    window.location.href = "/";
+    // 탭 안에서 열려 있으면 탭만 닫고 홈에 머문다. 전용 페이지라면 홈으로.
+    const handled = !document.body.dispatchEvent(new CustomEvent("orca-channel-deleted", {
+      detail: { channelId: CHANNEL.id }, cancelable: true,
+    }));
+    if (!handled) window.location.href = "/";
   });
-}
+
+  // ---- 멤버(에이전트) 칩 · 에이전트 간 대화 토글 -------------------------
+  // 칩을 누르면 입력창에 @슬러그를 넣는다(멘션 자동완성 대용).
+  root.querySelectorAll(".channel-member-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const box = newThreadPrompt;
+      const mention = "@" + chip.dataset.slug + " ";
+      box.value = box.value ? box.value.replace(/\s*$/, " ") + mention : mention;
+      box.focus();
+    });
+  });
+
+  $(".member-add-select")?.addEventListener("change", async (e) => {
+    const agentId = e.target.value;
+    if (!agentId) return;
+    await fetch(`/api/channels/${CHANNEL.id}/members`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_id: Number(agentId) }),
+    });
+    // 칩 목록·선택지는 서버가 그린다 — 이 화면만 다시 받아 온다.
+    document.body.dispatchEvent(new CustomEvent("orca-channel-reload", {
+      detail: { channelId: CHANNEL.id },
+    }));
+    if (!root.closest(".orca-tab-panel")) window.location.reload();
+  });
+
+  $(".agent-chat-toggle")?.addEventListener("change", async (e) => {
+    await fetch(`/api/channels/${CHANNEL.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent_chat: e.target.checked }),
+    });
+  });
+
+  return function dispose() {
+    for (const es of streams) es.close();
+    streams.clear();
+    for (const off of teardown) off();
+  };
+};
+
+// 전용 페이지(/channels/{id})는 DOM 이 준비되면 바로 붙인다.
+// 중앙 탭은 home.js 의 로더가 조각을 받아 온 뒤 직접 호출한다.
+document.addEventListener("DOMContentLoaded", () => {
+  const page = document.querySelector(".channel-page .channel-view");
+  if (page) window.mountChannelView(page);
+});

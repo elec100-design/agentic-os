@@ -1095,6 +1095,9 @@ h2.section-label {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 좁은 사이드바에서 항목이 서로를 짓눌러 "에이전 트 설정"처럼 글자가 접히는
+     것을 막는다 — 줄바꿈이 낫다. */
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 .side-settings {
@@ -1655,6 +1658,204 @@ h2.section-label {
   color: var(--text);
 }
 .mcp-manual-add textarea { resize: vertical; font-family: var(--font-mono); }
+
+/* ---- 에이전트 설정 페이지 ---- */
+.agent-item {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin-bottom: 0.4rem;
+  padding: 0.4rem 0.6rem;
+}
+.agent-item > details > summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.agent-slug { font-family: var(--font-mono); font-size: 0.8rem; color: var(--muted); }
+.agent-badges { margin-left: auto; display: flex; gap: 0.3rem; }
+.agent-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  color: var(--muted);
+}
+.agent-badge.ro { border-color: var(--accent); color: var(--accent); }
+.agent-check { flex-direction: row !important; align-items: flex-start; gap: 0.45rem !important; }
+.agent-check input { width: auto; flex: none; margin-top: 0.15rem; }
+.agent-actions { display: flex; gap: 0.5rem; }
+
+.agent-hint { font-size: 0.75rem; color: var(--muted); margin: 0; line-height: 1.5; }
+
+/* ---- 사이드바: 에이전트(DM)·채널 목록 ---- */
+.side-scroll { flex: 1; overflow-y: auto; margin: 0.4rem -0.35rem 0.6rem; padding: 0 0.35rem; }
+.rail-group { margin-bottom: 1.1rem; }
+.rail-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+.rail-group-head h2 { margin: 0; margin-right: auto; }
+.rail-collapse {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+}
+.rail-collapse:hover { color: var(--accent); }
+.rail-collapse svg { transition: transform 0.15s ease; }
+/* 펼침은 아래쪽(⌄), 접힘은 왼쪽(‹) — 한눈에 상태가 보인다 */
+.rail-group.collapsed .rail-collapse svg { transform: rotate(90deg); }
+.rail-add {
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.4rem;
+}
+.rail-add:hover { color: var(--accent); background: var(--surface); }
+.rail-empty { font-size: 0.76rem; color: var(--muted); margin: 0.2rem 0 0; line-height: 1.5; }
+.rail-list { list-style: none; margin: 0; padding: 0; }
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 0.5rem;
+  text-decoration: none;
+  color: var(--text);
+  min-width: 0;
+}
+.rail-item:hover { background: var(--surface); }
+.rail-item.active { background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
+.rail-avatar {
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+.rail-hash {
+  width: 1.6rem;
+  text-align: center;
+  flex: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+.rail-body { display: flex; flex-direction: column; min-width: 0; gap: 0.05rem; }
+.rail-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.rail-slug {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--muted);
+  font-weight: normal;
+  white-space: nowrap;
+}
+.rail-preview {
+  font-size: 0.73rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 13rem;
+}
+.dm-persona {
+  max-width: 34rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-agent-picker {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.channel-agent-picker legend { font-size: 0.82rem; color: var(--muted); padding: 0 0.3rem; }
+.channel-agent-picker .rail-avatar { width: 1.1rem; height: 1.1rem; margin-right: 0.3rem; }
+
+/* ---- 승인 인박스 ---- */
+.approval-list { list-style: none; margin: 0.4rem 0 1.2rem; padding: 0; }
+.approval-item {
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  margin-bottom: 0.5rem;
+}
+.approval-list.decided .approval-item { opacity: 0.7; }
+.approval-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.approval-title { font-weight: 500; }
+.approval-detail { font-size: 0.85rem; margin: 0.4rem 0 0; line-height: 1.55; }
+.approval-action {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  background: var(--bg-alt, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  margin: 0.5rem 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-risk { font-size: 0.8rem; color: var(--err); margin: 0.45rem 0 0; }
+.approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+  flex-wrap: wrap;
+}
+.approval-note {
+  font: inherit;
+  font-size: 0.82rem;
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+}
+.approval-error { color: var(--err); font-size: 0.8rem; margin: 0.5rem 0 0; }
+
+/* ---- 채널 멤버(에이전트) 줄 ---- */
+.channel-members { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }
+.channel-member-chip {
+  font: inherit;
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.channel-member-chip:hover { border-color: var(--accent); color: var(--accent); }
+.channel-agent-chat { font-size: 0.78rem; color: var(--muted); display: flex; align-items: center; gap: 0.3rem; margin-left: auto; }
+.msg-row.system .chat-bubble { font-size: 0.8rem; color: var(--muted); font-style: italic; }
 
 /* ---- 자동 라우팅 이유 표시 ---- */
 .route-reason {
@@ -2446,7 +2647,12 @@ h2.section-label {
 }
 
 /* ─── 채널 상세 페이지 ──────────────────────────────────────────── */
-.channel-page .job-title { display: flex; align-items: center; gap: 0.6rem; }
+/* 전용 페이지와 중앙 탭이 같은 조각을 쓰므로 .channel-page 가 아니라
+   .channel-view 를 기준으로 잡는다 — 탭 안에는 .channel-page 가 없다. */
+.channel-view .job-title { display: flex; align-items: center; gap: 0.6rem; }
+/* 대화 화면이 탭 안에 들어갈 때는 페이지 여백 대신 패널에 맞춘다 */
+.orca-tab-panel .channel-new-thread { margin-bottom: 1rem; }
+.orca-tab-panel .channel-view .job-title { font-size: 1.05rem; margin-top: 0; }
 .channel-topic { color: var(--muted); margin: -0.3rem 0 0.8rem; }
 .channel-threads {
   display: flex;

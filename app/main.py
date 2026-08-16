@@ -21,9 +21,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import (
-    codexbar, config, council, db, github_cli, gitcheckpoint, health, i18n,
-    mcp_servers, memory, models, orchestrator, settings, setup, stream_hub,
-    workspace, worker,
+    agents, approvals, codexbar, config, council, db, github_cli, gitcheckpoint,
+    health, i18n, mcp_servers, memory, models, orchestrator, settings, setup,
+    stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -95,6 +95,8 @@ async def lifespan(app):
             pass
         # 그룹 없는 기존 노트를 작업 위치 기준으로 소급 자동 그룹핑 (멱등)
         memory.backfill_auto_groups(db.list_note_workdirs(db.get_conn()))
+        # 첫 실행에 프리셋 에이전트를 넣어 둔다 — 한 번만(멱등, agents.py 참고)
+        agents.seed_presets(db.get_conn())
         tasks.append(asyncio.create_task(worker.worker_loop(stop)))
         tasks.append(asyncio.create_task(orchestrator.orchestrator_loop(stop)))
         tasks.append(asyncio.create_task(codexbar.refresh_loop(stop)))
@@ -239,7 +241,8 @@ def index(request: Request):
         request, "index.html",
         {"provider_models": models.get_provider_models(),
          "agent_order": settings.enabled_providers(),
-         "council_enabled": settings.council_available()},
+         "council_enabled": settings.council_available(),
+         **_rail_ctx(db.get_conn())},
     )
 
 
@@ -338,6 +341,290 @@ def mcp_settings_add(
 def mcp_settings_remove(server_id: str):
     mcp_servers.remove(server_id)
     return RedirectResponse("/settings/mcp", status_code=303)
+
+
+# --- 에이전트 설정 -----------------------------------------------------------
+# 에이전트 = 사용자가 만든 "역할". 실행 CLI(provider)는 고르거나 auto 로 둔다.
+
+def _agents_settings_ctx(error=None):
+    conn = db.get_conn()
+    return {
+        "agents": db.list_agents(conn),
+        "agent_order": settings.enabled_providers(),
+        "workspaces": workspace.list_workspaces(),
+        "error": error,
+    }
+
+
+@app.get("/settings/agents", response_class=HTMLResponse)
+def agents_settings_page(request: Request):
+    return templates.TemplateResponse(request, "agents_settings.html",
+                                      _agents_settings_ctx())
+
+
+def _agent_form_fields(name, persona, provider, model, workdir, read_only,
+                       approval_policy="auto"):
+    """폼 입력 → DB 필드. 유효하지 않은 값은 안전한 기본값으로 떨어뜨린다."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("이름은 비울 수 없습니다")
+    if approval_policy not in ("auto", "ask"):
+        approval_policy = "auto"
+    provider = provider if provider in PROVIDERS or provider == "auto" else "auto"
+    if provider != "auto" and provider not in settings.enabled_providers():
+        raise ValueError("비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+    if not models.is_valid_model(provider, model or ""):
+        model = ""
+    if workdir and not workspace.valid_path(workdir):
+        workdir = ""
+    return {"name": name, "persona": (persona or "").strip(),
+            "provider": provider, "model": model or None,
+            "workdir": workdir or None, "read_only": 1 if read_only else 0,
+            "approval_policy": approval_policy}
+
+
+@app.post("/settings/agents/add", response_class=HTMLResponse)
+def agents_settings_add(
+    request: Request,
+    name: str = Form(...),
+    persona: str = Form(""),
+    provider: str = Form("auto"),
+    model: str = Form(""),
+    workdir: str = Form(""),
+    read_only: str = Form(""),
+    approval_policy: str = Form("auto"),
+):
+    conn = db.get_conn()
+    try:
+        fields = _agent_form_fields(name, persona, provider, model, workdir,
+                                    read_only, approval_policy)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "agents_settings.html", _agents_settings_ctx(error=str(e)),
+            status_code=400)
+    db.create_agent(conn, agents.unique_slug(conn, fields["name"]), **fields)
+    return RedirectResponse("/settings/agents", status_code=303)
+
+
+@app.post("/settings/agents/{agent_id}/edit", response_class=HTMLResponse)
+def agents_settings_edit(
+    request: Request,
+    agent_id: int,
+    name: str = Form(...),
+    persona: str = Form(""),
+    provider: str = Form("auto"),
+    model: str = Form(""),
+    workdir: str = Form(""),
+    read_only: str = Form(""),
+    approval_policy: str = Form("auto"),
+):
+    conn = db.get_conn()
+    if db.get_agent(conn, agent_id) is None:
+        raise HTTPException(status_code=404)
+    try:
+        fields = _agent_form_fields(name, persona, provider, model, workdir,
+                                    read_only, approval_policy)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "agents_settings.html", _agents_settings_ctx(error=str(e)),
+            status_code=400)
+    # slug 는 바꾸지 않는다 — 과거 대화의 @멘션이 가리키던 이름이 어긋난다.
+    db.update_agent(conn, agent_id, **fields)
+    return RedirectResponse("/settings/agents", status_code=303)
+
+
+@app.post("/settings/agents/{agent_id}/archive")
+def agents_settings_archive(agent_id: int):
+    conn = db.get_conn()
+    if db.get_agent(conn, agent_id) is None:
+        raise HTTPException(status_code=404)
+    db.archive_agent(conn, agent_id)
+    return RedirectResponse("/settings/agents", status_code=303)
+
+
+# --- 좌측 사이드바: 에이전트(DM) · 채널 목록 ---------------------------------
+
+# 슬러그에서 뽑는 아바타 색 — 이름마다 같은 색이 나오게 고정 해시를 쓴다.
+# 사진처럼 한눈에 구분되는 것이 목적이라 채도·명도는 고정하고 색상만 돌린다.
+_AVATAR_COLORS = ("#e05252", "#c651c6", "#5b8def", "#3fb27f", "#e0913f",
+                  "#8b5cf6", "#0ea5e9", "#d946a0")
+
+
+def avatar_color(slug):
+    return _AVATAR_COLORS[sum((slug or "").encode()) % len(_AVATAR_COLORS)]
+
+
+templates.env.globals["avatar_color"] = avatar_color
+
+
+def _preview(conn, channel_id, limit=60):
+    """목록에 한 줄로 보여줄 마지막 발화.
+
+    마지막 메시지가 실행 중이거나(본문이 아직 없음) 실패해서(본문이 영영 없음)
+    비어 있는 경우가 흔하다 — 그때 빈 줄을 보여주면 대화가 없는 것처럼 보이므로,
+    상태를 알리거나 직전에 내용이 있던 발화로 물러선다.
+    """
+    if not channel_id:
+        return ""
+    msg = db.last_message(conn, channel_id)
+    if msg is None:
+        return ""
+    if msg["status"] in ("queued", "running"):
+        return i18n.t("실행 중…")
+    body = " ".join((msg["body"] or "").split())
+    if not body:
+        prefix = i18n.t("실패") + " · " if msg["status"] == "failed" else ""
+        fallback = db.last_message_with_body(conn, channel_id)
+        body = " ".join((fallback["body"] or "").split()) if fallback else ""
+        if not body:
+            return prefix.rstrip(" ·") or ""
+        body = prefix + body
+    return body[:limit] + ("…" if len(body) > limit else "")
+
+
+def _rail_ctx(conn, active_channel_id=None):
+    """사이드바 목록 컨텍스트. 에이전트는 DM 채널을, 채널은 멤버 수를 달고 온다."""
+    rail_agents = []
+    for a in db.list_agents(conn):
+        dm = db.get_dm_channel(conn, a["id"])
+        rail_agents.append({
+            "id": a["id"], "slug": a["slug"], "name": a["name"],
+            "color": avatar_color(a["slug"]),
+            "channel_id": dm["id"] if dm is not None else None,
+            "preview": _preview(conn, dm["id"] if dm is not None else None),
+        })
+    rail_channels = []
+    for c in db.list_channels(conn, kind="channel"):
+        rail_channels.append({
+            "id": c["id"], "title": c["title"],
+            "member_count": len(db.list_channel_members(conn, c["id"])),
+            "preview": _preview(conn, c["id"]),
+        })
+    return {"rail_agents": rail_agents, "rail_channels": rail_channels,
+            "active_channel_id": active_channel_id}
+
+
+@app.get("/dm/{slug}")
+def open_dm(slug: str):
+    """에이전트와의 1:1 대화를 열어 준다(없으면 만든다)."""
+    conn = db.get_conn()
+    agent = db.get_agent_by_slug(conn, slug)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    channel = db.get_or_create_dm_channel(conn, agent)
+    return RedirectResponse(f"/channels/{channel['id']}", status_code=303)
+
+
+@app.get("/api/dm/{slug}")
+def api_open_dm(slug: str):
+    """DM 채널 id 를 돌려준다(없으면 만든다).
+
+    홈에서 에이전트를 누르면 페이지를 옮기는 대신 중앙 탭으로 여는데, 그때
+    채널 id 가 먼저 필요하다 — 아직 대화한 적 없는 에이전트는 채널이 없다.
+    """
+    conn = db.get_conn()
+    agent = db.get_agent_by_slug(conn, slug)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    channel = db.get_or_create_dm_channel(conn, agent)
+    return {"channel_id": channel["id"], "title": channel["title"],
+            "kind": channel["kind"]}
+
+
+@app.get("/channels/new", response_class=HTMLResponse)
+def new_channel_page(request: Request, error: str = ""):
+    conn = db.get_conn()
+    return templates.TemplateResponse(
+        request, "channel_new.html",
+        {"agents": [dict(a) for a in db.list_agents(conn)], "error": error,
+         "workspaces": workspace.list_workspaces(),
+         **_rail_ctx(conn)})
+
+
+@app.post("/channels/new", response_class=HTMLResponse)
+def create_channel_form(
+    request: Request,
+    title: str = Form(...),
+    topic: str = Form(""),
+    workdir: str = Form(""),
+    agent_ids: list[int] = Form(default=[]),
+    agent_chat: str = Form(""),
+):
+    conn = db.get_conn()
+    title = (title or "").strip()
+    if not title:
+        return templates.TemplateResponse(
+            request, "channel_new.html",
+            {"agents": [dict(a) for a in db.list_agents(conn)],
+             "error": i18n.t("채널 이름은 비울 수 없습니다"),
+             "workspaces": workspace.list_workspaces(), **_rail_ctx(conn)},
+            status_code=400)
+    if workdir and not workspace.valid_path(workdir):
+        workdir = ""
+    channel_id = db.create_channel(conn, title, topic=(topic or "").strip(),
+                                   workdir=workdir or None)
+    for agent_id in agent_ids:
+        if db.get_agent(conn, agent_id) is not None:
+            db.add_channel_member(conn, channel_id, agent_id)
+    if agent_chat:
+        db.update_channel(conn, channel_id, agent_chat=1)
+    return RedirectResponse(f"/channels/{channel_id}", status_code=303)
+
+
+# --- 승인 인박스 -------------------------------------------------------------
+# 에이전트가 되돌릴 수 없는 동작을 제안하면 여기 쌓이고, 승인해야 실행된다.
+
+class ApprovalDecision(BaseModel):
+    note: str = ""
+
+
+def _approval_dict(conn, row):
+    agent = db.get_agent(conn, row["agent_id"])
+    channel = db.get_channel(conn, row["channel_id"]) if row["channel_id"] else None
+    return {**dict(row),
+            "agent_slug": agent["slug"] if agent is not None else None,
+            "agent_name": agent["name"] if agent is not None else None,
+            "channel_title": channel["title"] if channel is not None else None}
+
+
+@app.get("/approvals", response_class=HTMLResponse)
+def approvals_page(request: Request):
+    conn = db.get_conn()
+    return templates.TemplateResponse(
+        request, "approvals.html",
+        {"pending": [_approval_dict(conn, r) for r in db.list_approvals(conn)],
+         "decided": [_approval_dict(conn, r) for r in
+                     db.list_approvals(conn, status=None, limit=30)
+                     if r["status"] != "pending"]})
+
+
+@app.get("/api/approvals")
+def api_list_approvals(status: str = "pending"):
+    conn = db.get_conn()
+    rows = db.list_approvals(conn, status=status or None)
+    return {"pending_count": db.count_pending_approvals(conn),
+            "items": [_approval_dict(conn, r) for r in rows]}
+
+
+@app.post("/api/approvals/{approval_id}/approve")
+def api_approve(approval_id: int, payload: ApprovalDecision | None = None):
+    conn = db.get_conn()
+    try:
+        job_id = approvals.approve(conn, approval_id,
+                                   note=(payload.note if payload else ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "approved", "job_id": job_id}
+
+
+@app.post("/api/approvals/{approval_id}/reject")
+def api_reject(approval_id: int, payload: ApprovalDecision | None = None):
+    conn = db.get_conn()
+    try:
+        approvals.reject(conn, approval_id, note=(payload.note if payload else ""))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "rejected"}
 
 
 @app.get("/api/health")
@@ -494,6 +781,11 @@ class ChannelUpdate(BaseModel):
     title: str | None = None
     topic: str | None = None
     default_provider: str | None = None
+    agent_chat: bool | None = None
+
+
+class ChannelMemberAdd(BaseModel):
+    agent_id: int
 
 
 class MessageCreate(BaseModel):
@@ -600,6 +892,34 @@ def api_update_channel(channel_id: int, payload: ChannelUpdate):
     return dict(db.get_channel(conn, channel_id))
 
 
+@app.get("/api/channels/{channel_id}/members")
+def api_list_channel_members(channel_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    return [dict(a) for a in db.list_channel_members(conn, channel_id)]
+
+
+@app.post("/api/channels/{channel_id}/members", status_code=201)
+def api_add_channel_member(channel_id: int, payload: ChannelMemberAdd):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    if db.get_agent(conn, payload.agent_id) is None:
+        raise HTTPException(status_code=404, detail="unknown agent")
+    db.add_channel_member(conn, channel_id, payload.agent_id)
+    return [dict(a) for a in db.list_channel_members(conn, channel_id)]
+
+
+@app.delete("/api/channels/{channel_id}/members/{agent_id}")
+def api_remove_channel_member(channel_id: int, agent_id: int):
+    conn = db.get_conn()
+    if db.get_channel(conn, channel_id) is None:
+        raise HTTPException(status_code=404)
+    db.remove_channel_member(conn, channel_id, agent_id)
+    return [dict(a) for a in db.list_channel_members(conn, channel_id)]
+
+
 @app.post("/api/channels/{channel_id}/archive")
 def api_archive_channel(channel_id: int):
     conn = db.get_conn()
@@ -638,27 +958,43 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
     if not payload.body.strip():
         raise HTTPException(status_code=400, detail="empty body")
 
+    # @멘션이 채널 멤버를 가리키면 그 에이전트가 답한다 — provider 선택보다
+    # 우선한다(사용자가 사람 이름을 부른 셈이므로). 아무 에이전트에도 해당하지
+    # 않는 @는 그냥 텍스트다(app/agents.py:mention_for_channel).
+    try:
+        mentioned = agents.mention_for_channel(conn, channel_id, payload.body)
+    except agents.AgentError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 1:1 대화(DM)에서는 멘션 없이 그냥 말을 걸면 그 에이전트가 답한다 —
+    # 상대가 한 명뿐인 방에서 이름을 부르게 하는 건 번거롭기만 하다.
+    if mentioned is None and channel["kind"] == "dm" and channel["agent_id"]:
+        mentioned = db.get_agent(conn, channel["agent_id"])
+
     provider = payload.provider or channel["default_provider"] or "auto"
     enabled = settings.enabled_providers()
     route_reason = None
-    if provider == "auto":
-        provider, route_reason = route_auto(
-            payload.body, usage_state=usage_state()["usage"], enabled=enabled)
-    if provider == COUNCIL:
-        try:
-            council.select_members(usage_state()["usage"], enabled=enabled)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-    elif provider not in PROVIDERS:
-        raise HTTPException(status_code=400, detail="unknown provider")
-    elif provider not in enabled:
-        raise HTTPException(
-            status_code=400,
-            detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
-
-    model = payload.model or ""
-    if not models.is_valid_model(provider, model):
-        model = ""
+    model = ""
+    if mentioned is None:
+        # 지목된 에이전트가 없을 때만 provider 를 여기서 정한다 — 있으면
+        # agents.spawn 이 그 에이전트 설정(고정 CLI 또는 auto)대로 고른다.
+        if provider == "auto":
+            provider, route_reason = route_auto(
+                payload.body, usage_state=usage_state()["usage"], enabled=enabled)
+        if provider == COUNCIL:
+            try:
+                council.select_members(usage_state()["usage"], enabled=enabled)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+        elif provider not in PROVIDERS:
+            raise HTTPException(status_code=400, detail="unknown provider")
+        elif provider not in enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="비활성화된 에이전트입니다. /setup 에서 활성화하세요")
+        model = payload.model or ""
+        if not models.is_valid_model(provider, model):
+            model = ""
     workdir = channel["workdir"]
     if not workdir or not workspace.valid_path(workdir):
         workdir = None
@@ -671,10 +1007,13 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
         if parent is None or parent["channel_id"] != channel_id:
             raise HTTPException(status_code=404, detail="parent message not found")
         thread_root_id = parent["root_id"] or parent["id"]
-        inherited_session, inherited_provider = db.latest_thread_session(
-            conn, thread_root_id)
-        if inherited_session and inherited_provider == provider:
-            session_id = inherited_session
+        # 에이전트가 답할 때의 세션 승계는 agents.spawn 이 자기 에이전트 것만
+        # 골라서 처리한다(다른 에이전트의 맥락을 흡수하지 않도록).
+        if mentioned is None:
+            inherited_session, inherited_provider = db.latest_thread_session(
+                conn, thread_root_id)
+            if inherited_session and inherited_provider == provider:
+                session_id = inherited_session
 
     user_message_id = db.create_message(
         conn, channel_id, role="user", body=payload.body, author="user",
@@ -683,6 +1022,18 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
     # 채널의 새 루트 대화라면(부모 없음) 방금 만든 사용자 메시지가 쓰레드
     # 루트가 되고, 에이전트 응답은 그 아래 첫 답장으로 들어간다.
     agent_parent_id = thread_root_id or user_message_id
+
+    if mentioned is not None:
+        try:
+            agent_message_id, job_id = agents.spawn(
+                conn, channel, agent_parent_id,
+                db.get_message(conn, user_message_id), mentioned)
+        except agents.AgentError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return {"message_id": agent_message_id, "job_id": job_id,
+                "user_message_id": user_message_id,
+                "agent_id": mentioned["id"]}
+
     agent_message_id = db.create_message(
         conn, channel_id, role="agent", body="", author=provider,
         parent_id=agent_parent_id, status="queued", provider=provider,
@@ -794,19 +1145,56 @@ async def api_message_stream(message_id: int):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+def _channel_view_ctx(conn, channel_id):
+    """대화 화면 조각(partials/channel_view.html)에 필요한 것들.
+
+    전용 페이지와 홈 중앙 탭이 같은 조각을 쓰므로 컨텍스트도 한 곳에서 만든다.
+    채널이 없으면 None.
+    """
+    channel = db.get_channel(conn, channel_id)
+    if channel is None:
+        return None
+    roots = db.list_root_messages(conn, channel_id, limit=200)
+    members = [dict(a) for a in db.list_channel_members(conn, channel_id)]
+    member_ids = {a["id"] for a in members}
+    dm_agent = (db.get_agent(conn, channel["agent_id"])
+                if channel["kind"] == "dm" and channel["agent_id"] else None)
+    return {
+        "channel": dict(channel),
+        "threads": [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots],
+        "members": members,
+        "addable_agents": [dict(a) for a in db.list_agents(conn)
+                           if a["id"] not in member_ids],
+        "dm_agent": dict(dm_agent) if dm_agent is not None else None,
+        "dm_color": avatar_color(dm_agent["slug"]) if dm_agent is not None else "",
+        "agent_order": settings.enabled_providers(),
+    }
+
+
+@app.api_route("/partials/channel/{channel_id}", methods=["GET", "HEAD"],
+               response_class=HTMLResponse)
+def partial_channel_view(request: Request, channel_id: int):
+    """홈 중앙 탭에 얹을 대화 화면 조각(페이지 껍데기 없음).
+
+    HEAD 는 탭 복원 때 "아직 살아 있나"를 묻는 probe 다(home.js).
+    """
+    ctx = _channel_view_ctx(db.get_conn(), channel_id)
+    if ctx is None:
+        raise HTTPException(status_code=404)
+    return templates.TemplateResponse(request, "partials/channel_view.html", ctx)
+
+
 @app.get("/channels/{channel_id}", response_class=HTMLResponse)
 def channel_page(request: Request, channel_id: int):
     conn = db.get_conn()
-    channel = db.get_channel(conn, channel_id)
-    if channel is None:
+    ctx = _channel_view_ctx(conn, channel_id)
+    if ctx is None:
         raise HTTPException(status_code=404)
-    roots = db.list_root_messages(conn, channel_id, limit=200)
-    threads = [[dict(m) for m in db.list_thread(conn, r["id"])] for r in roots]
     return templates.TemplateResponse(
         request, "channel.html",
-        {"channel": dict(channel), "threads": threads,
+        {**ctx,
          "provider_models": models.get_provider_models(),
-         "agent_order": settings.enabled_providers()})
+         **_rail_ctx(conn, active_channel_id=channel_id)})
 
 
 @app.get("/note", response_class=HTMLResponse)

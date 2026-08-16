@@ -1,0 +1,106 @@
+{#
+  대화 화면 한 벌 — 채널 단체 대화와 1:1 DM 이 같은 마크업을 쓴다.
+
+  전용 페이지(/channels/{id})와 홈 중앙 탭이 **이 조각 하나**를 함께 쓴다.
+  그래서 id 가 아니라 class 로 요소를 찾는다 — 탭을 여러 개 열면 id 가 겹친다.
+  channels.js 의 mountChannelView(root) 가 root 안쪽만 보고 동작한다.
+
+  기대 컨텍스트: channel, threads, members, addable_agents, dm_agent, dm_color,
+  agent_order
+#}
+<div class="channel-view" data-channel-id="{{ channel['id'] }}"
+     data-channel-title="{{ channel['title'] }}" data-channel-kind="{{ channel['kind'] }}">
+  <script type="application/json" class="channel-data">
+    {{ {"channel": channel, "threads": threads} | tojson }}
+  </script>
+
+  <div class="channel-view-head">
+    <h1 class="job-title">
+      {% if channel['kind'] == 'dm' %}
+      <span class="rail-avatar" style="background: {{ dm_color }}"></span>{{ channel['title'] }}
+      {% else %}
+      <span class="channel-hash">#</span>{{ channel['title'] }}
+      {% endif %}
+      <button type="button" class="btn-ghost btn-del channel-delete-btn">{{ '삭제' | t }}</button>
+    </h1>
+    {% if channel['topic'] %}<p class="channel-topic">{{ channel['topic'] }}</p>{% endif %}
+    {% if channel['workdir'] %}<p class="job-meta">📁 {{ '작업 위치' | t }}: <code>{{ channel['workdir'] }}</code></p>{% endif %}
+
+    {% if channel['kind'] == 'dm' %}
+    {# 1:1 대화 — 멤버를 더하거나 에이전트끼리 대화시킬 일이 없다. 대신 상대가
+       어떤 역할인지 보여주고, 설정으로 바로 갈 길을 낸다. #}
+    <div class="channel-members">
+      <span class="job-meta">@{{ dm_agent['slug'] if dm_agent else '' }}</span>
+      {% if dm_agent and dm_agent['persona'] %}<span class="job-meta dm-persona">{{ dm_agent['persona'] }}</span>{% endif %}
+      <a class="job-meta" href="/settings/agents">{{ '역할 편집 →' | t }}</a>
+    </div>
+    {% else %}
+    {# 채널에 배치된 에이전트 — 여기 있는 에이전트만 @로 부를 수 있다. #}
+    <div class="channel-members">
+      <span class="job-meta">{{ '멤버' | t }}:</span>
+      {% for m in members %}
+      <button type="button" class="channel-member-chip" data-slug="{{ m['slug'] }}"
+              title="{{ m['name'] }} — {{ '클릭하면 입력창에 @가 들어갑니다' | t }}">@{{ m['slug'] }}</button>
+      {% else %}
+      <span class="job-meta">{{ '채널에 배치된 에이전트가 없습니다. 에이전트 설정에서 만든 뒤 여기에 추가하세요.' | t }}</span>
+      {% endfor %}
+      {% if addable_agents %}
+      <select class="ws-select member-add-select" aria-label="{{ '추가할 에이전트' | t }}">
+        <option value="">＋ {{ '추가할 에이전트' | t }}</option>
+        {% for a in addable_agents %}<option value="{{ a['id'] }}">@{{ a['slug'] }} — {{ a['name'] }}</option>{% endfor %}
+      </select>
+      {% endif %}
+      <label class="channel-agent-chat"
+             title="{{ '에이전트가 답변에서 다른 에이전트를 @로 부르면 그 에이전트도 실행됩니다. 꺼 두면 @는 그냥 텍스트입니다.' | t }}">
+        <input type="checkbox" class="agent-chat-toggle"{% if channel['agent_chat'] %} checked{% endif %}>
+        {{ '에이전트 간 대화 허용' | t }}
+      </label>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="channel-threads thread-list"></div>
+
+  <form class="composer channel-new-thread new-thread-form">
+    <textarea class="new-thread-prompt" rows="3" required
+              placeholder="{% if channel['kind'] == 'dm' %}{{ '%(name)s 에게 말 걸기…' | t | replace('%(name)s', channel['title']) }}{% else %}{{ '이 채널에 새 주제로 말을 걸어보세요… (@슬러그로 특정 에이전트 호출)' | t }}{% endif %}"></textarea>
+    <div class="composer-bar">
+      {# DM 은 상대가 정해져 있다 — 실행 CLI 는 그 에이전트 설정이 정한다. #}
+      {% if channel['kind'] != 'dm' %}
+      <label class="resume-opt">{{ '에이전트' | t }}
+        <select class="ws-select new-thread-provider">
+          <option value="auto">{{ '자동' | t }}</option>
+          {% for a in agent_order %}<option value="{{ a }}">{{ a|capitalize }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <span class="spacer"></span>
+      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+        </svg>
+      </button>
+    </div>
+  </form>
+
+  {# 쓰레드 답글 패널 — 대화 한 벌마다 하나씩(탭을 여러 개 열어도 섞이지 않는다) #}
+  <div class="thread-panel-scrim" hidden></div>
+  <aside class="thread-panel" hidden>
+    <div class="thread-panel-head">
+      <div class="thread-panel-title">
+        <span>{{ '쓰레드' | t }}</span>
+        <span class="thread-panel-sub"></span>
+      </div>
+      <button type="button" class="modal-close thread-panel-close" aria-label="{{ '닫기' | t }}">✕</button>
+    </div>
+    <div class="thread-panel-body"></div>
+    <form class="thread-reply-form thread-panel-form">
+      <textarea rows="1" required placeholder="{{ '답장…' | t }}"></textarea>
+      <button type="submit" class="send" aria-label="{{ '전송' | t }}">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/>
+        </svg>
+      </button>
+    </form>
+  </aside>
+</div>

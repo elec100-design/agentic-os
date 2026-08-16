@@ -442,6 +442,26 @@ ORCH_POLL_SEC = float(os.environ.get("AOS_ORCH_POLL_SEC", "3"))
 ORCH_MAX_TASKS = int(os.environ.get("AOS_ORCH_MAX_TASKS", "10"))
 ORCH_MAX_INFLIGHT = int(os.environ.get("AOS_ORCH_MAX_INFLIGHT", "3"))
 ORCH_UPSTREAM_CLIP_CHARS = 6000  # 하류 프롬프트에 넣는 상류 출력당 최대 길이
+# 실행 중 위임(handoff)으로 그래프에 새로 붙일 수 있는 태스크 수(프로젝트당).
+# ORCH_MAX_TASKS 상한과 별개로 걸리는 이중 안전장치다.
+ORCH_MAX_DYNAMIC_TASKS = int(os.environ.get("AOS_ORCH_MAX_DYNAMIC_TASKS", "3"))
+
+# 에이전트 간 대화(@멘션 연쇄) 한도.
+#
+# 연쇄 한 번이 곧 CLI 실행 한 번 = 구독 쿼터 소모라, 한도가 이 기능의 본체다.
+# 채널의 agent_chat 이 켜져 있어도 아래 상한에 걸리면 연쇄를 멈추고 그 이유를
+# system 메시지로 남긴다(실패가 아니라 정지 — 사람이 이어서 말하면 계속된다).
+#   AGENT_HOP_MAX      : 사용자 발화(0)에서 몇 단계까지 이어갈 수 있나
+#   AGENT_CHAIN_MAX    : 한 쓰레드에서 에이전트가 말할 수 있는 총 횟수
+#   AGENT_PINGPONG_MAX : 같은 두 에이전트가 주고받을 수 있는 왕복 횟수
+AGENT_HOP_MAX = int(os.environ.get("AOS_AGENT_HOP_MAX", "3"))
+AGENT_CHAIN_MAX = int(os.environ.get("AOS_AGENT_CHAIN_MAX", "8"))
+AGENT_PINGPONG_MAX = int(os.environ.get("AOS_AGENT_PINGPONG_MAX", "2"))
+AGENT_THREAD_CLIP_CHARS = 4000  # 다음 에이전트 프롬프트에 넣는 발화당 최대 길이
+
+# 승인 게이트 — 한 번의 실행이 만들 수 있는 승인 대기 건수 상한.
+# 에이전트가 제안을 쏟아내 인박스를 채우는 것을 막는다(app/approvals.py).
+APPROVAL_MAX_PER_JOB = int(os.environ.get("AOS_APPROVAL_MAX_PER_JOB", "5"))
 MEDIA_TIMEOUT_SEC = int(os.environ.get("AOS_MEDIA_TIMEOUT_SEC", "300"))
 # API 폴백용 미디어 모델 (모델명이 자주 바뀌므로 env로 교체 가능하게)
 MEDIA_TTS_MODEL = os.environ.get("AOS_MEDIA_TTS_MODEL",
