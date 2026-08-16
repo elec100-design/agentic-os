@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import re
 
-from app import config, db, settings
+from app import attachments, config, db, settings
 from app.providers import PROVIDERS, route_auto
 
 # @멘션 — 슬러그는 소문자·숫자·하이픈. 메일주소(foo@bar)나 파이썬 데코레이터가
@@ -271,9 +271,12 @@ def build_thread_prompt(conn, channel, thread, trigger, roster=()):
     mention_note = MENTION_NOTE.format(
         roster=", ".join(f"@{a['slug']}({a['name']})" for a in roster)
     ) if roster else ""
+    # 자신을 부른 발화에 붙은 첨부는 그 에이전트가 읽어야 한다 — 경로로 넘긴다.
+    body = _clip(trigger["body"]) + attachments.block(
+        attachments.of_message(trigger))
     return THREAD_PROMPT.format(
         mention_note=mention_note, channel=channel["title"], history=history,
-        caller=_speaker(conn, trigger), body=_clip(trigger["body"]))
+        caller=_speaker(conn, trigger), body=body)
 
 
 # --- 연쇄 한도 --------------------------------------------------------------
@@ -345,10 +348,12 @@ def dispatch_mentions(conn, message_id):
         return None
 
 
-def spawn(conn, channel, root_id, trigger, agent, hop_depth=0):
+def spawn(conn, channel, root_id, trigger, agent, hop_depth=0, workdir=None):
     """에이전트를 채널 쓰레드에서 실행한다 — 메시지 자리 + 잡을 만들고
     (message_id, job_id) 를 돌려준다. 사람이 부를 때와 에이전트가 부를 때가
     같은 경로를 쓴다.
+
+    workdir 은 이번 발화에서 사용자가 고른 작업 위치다(대화창의 폴더 칩).
     """
     thread = db.list_thread(conn, root_id)
     # 채널이 에이전트 간 대화를 허용하지 않으면 부를 상대를 알려 주지 않는다 —
@@ -361,7 +366,10 @@ def spawn(conn, channel, root_id, trigger, agent, hop_depth=0):
         conn, agent, trigger["body"], usage_state=council.usage_snapshot())
     model = model_for(agent, provider)
 
-    workdir = agent["workdir"] or channel["workdir"]
+    # 사용자가 이번에 고른 위치 > 에이전트 고정 위치 > 채널 기본값.
+    # 예전엔 에이전트가 채널을 이겨서, 대화창에서 폴더를 바꿔도 workdir 이 박힌
+    # 에이전트에게는 조용히 무시됐다.
+    workdir = workdir or agent["workdir"] or channel["workdir"]
     from app import workspace
     if not workdir or not workspace.valid_path(workdir):
         workdir = None

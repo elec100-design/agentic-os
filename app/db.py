@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 from datetime import datetime, timezone
@@ -296,6 +297,10 @@ def _migrate(conn):
     message_cols = {r["name"] for r in conn.execute("PRAGMA table_info(messages)")}
     if "created_task_id" not in message_cols:
         conn.execute("ALTER TABLE messages ADD COLUMN created_task_id INTEGER REFERENCES tasks(id)")
+    # 발화에 딸린 첨부 파일의 로컬 경로 목록(JSON 배열). data/uploads/ 안에 저장된
+    # 실제 파일을 가리키고, 에이전트에게는 경로로 전달된다(POST /jobs 와 같은 방식).
+    if "attachments" not in message_cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT")
     # 태스크 사이드바 채팅의 '적용' 제안 — 초기 배포판에는 없었을 수 있는 컬럼.
     task_msg_cols = {r["name"] for r in conn.execute("PRAGMA table_info(task_messages)")}
     if "suggested_description" not in task_msg_cols:
@@ -1084,9 +1089,13 @@ def next_message_seq(conn, channel_id):
 
 def create_message(conn, channel_id, role, body, author="", parent_id=None,
                     status="done", provider=None, model=None, session_id=None,
-                    job_id=None, author_agent_id=None, hop_depth=0):
+                    job_id=None, author_agent_id=None, hop_depth=0,
+                    attachments=None):
     """parent_id는 항상 쓰레드 루트 메시지를 직접 가리켜야 한다(호출자가 정규화).
-    parent_id가 없으면 이 메시지 자신이 채널의 새 루트가 된다."""
+    parent_id가 없으면 이 메시지 자신이 채널의 새 루트가 된다.
+
+    attachments 는 첨부 파일의 로컬 경로 목록 — JSON 배열로 담는다(없으면 NULL).
+    """
     seq = next_message_seq(conn, channel_id)
     root_id = None
     if parent_id:
@@ -1096,10 +1105,11 @@ def create_message(conn, channel_id, role, body, author="", parent_id=None,
     cur = conn.execute(
         "INSERT INTO messages (channel_id, parent_id, root_id, seq, role, "
         "author, body, status, provider, model, session_id, job_id, "
-        "author_agent_id, hop_depth, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "author_agent_id, hop_depth, attachments, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         (channel_id, parent_id, root_id, seq, role, author, body, status,
          provider, model, session_id, job_id, author_agent_id, hop_depth,
+         json.dumps([str(p) for p in attachments]) if attachments else None,
          now_iso()),
     )
     conn.commit()

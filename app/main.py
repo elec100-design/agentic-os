@@ -21,9 +21,9 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from app import (
-    agents, approvals, codexbar, config, council, db, github_cli, gitcheckpoint,
-    health, i18n, mcp_servers, memory, models, orchestrator, settings, setup,
-    stream_hub, workspace, worker,
+    agents, approvals, attachments as attach, codexbar, config, council, db,
+    github_cli, gitcheckpoint, health, i18n, mcp_servers, memory, models,
+    orchestrator, settings, setup, stream_hub, workspace, worker,
 )
 from app.providers import COUNCIL, PROVIDERS, route_auto
 
@@ -683,6 +683,19 @@ async def _save_uploads(files):
     return saved
 
 
+@app.post("/api/uploads")
+async def api_upload(files: list[UploadFile] = File(default=[])):
+    """첨부 파일을 먼저 올려 두고 경로만 받는다.
+
+    채널·DM 메시지는 JSON 으로 오간다(낙관적 렌더링·쓰레드 답장이 그 위에 얹혀
+    있다). 메시지 API 를 multipart 로 바꾸는 대신 업로드를 떼어 두면, 답장·후속
+    지시 등 나중에 생길 입력창도 같은 경로를 그대로 쓸 수 있다.
+    """
+    saved = await _save_uploads(files)
+    return [{"name": p.name, "path": str(p), "size": p.stat().st_size}
+            for p in saved]
+
+
 @app.post("/jobs")
 async def create_job(
     request: Request,
@@ -752,10 +765,7 @@ async def create_job(
     if attach_memory:
         prompt = memory.build_context(prompt) + prompt
     uploads = await _save_uploads(files)
-    if uploads:
-        prompt += "\n\n첨부 파일 (로컬 경로에서 읽을 것):\n" + "\n".join(
-            f"- {p}" for p in uploads
-        )
+    prompt += attach.block(uploads)
     job_id = db.create_job(
         conn, prompt, provider,
         timeout_sec=timeout_min * 60 if timeout_min else None,
@@ -797,6 +807,8 @@ class ChannelUpdate(BaseModel):
     topic: str | None = None
     default_provider: str | None = None
     agent_chat: bool | None = None
+    # 대화창에서 작업 위치를 바꾸면 그 방의 기본값으로 남는다("" = 연동 안 함)
+    workdir: str | None = None
 
 
 class ChannelMemberAdd(BaseModel):
@@ -808,6 +820,10 @@ class MessageCreate(BaseModel):
     provider: str = "auto"
     model: str = ""
     parent_id: int | None = None
+    # 이 발화에만 적용할 작업 위치. None 이면 채널·에이전트 설정을 따른다.
+    workdir: str | None = None
+    # POST /api/uploads 가 돌려준 경로들 — 서버가 업로드 폴더 안인지 다시 본다.
+    attachments: list[str] = []
 
 
 class TestGoalCreate(BaseModel):
@@ -902,6 +918,13 @@ def api_update_channel(channel_id: int, payload: ChannelUpdate):
     if db.get_channel(conn, channel_id) is None:
         raise HTTPException(status_code=404)
     fields = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # 등록된 작업 위치만 받는다 (임의 경로 실행 방지 — POST /jobs 와 같은 규칙).
+    # ""(연동 안 함)은 유효한 값이므로 None 으로 바꿔 저장한다.
+    if "workdir" in fields:
+        path = (fields["workdir"] or "").strip()
+        if path and not workspace.valid_path(path):
+            raise HTTPException(status_code=400, detail="등록되지 않은 작업 위치입니다")
+        fields["workdir"] = path or None
     if fields:
         db.update_channel(conn, channel_id, **fields)
     return dict(db.get_channel(conn, channel_id))
@@ -1010,9 +1033,18 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
         model = payload.model or ""
         if not models.is_valid_model(provider, model):
             model = ""
-    workdir = channel["workdir"]
+    # 대화창에서 고른 작업 위치가 방 기본값을 이긴다 — 그 자리에서 고른 값이
+    # 조용히 무시되면 안 된다. 안 보냈으면(None) 방 기본값을 쓴다.
+    requested_workdir = None
+    if payload.workdir is not None:
+        requested_workdir = payload.workdir.strip()
+        if requested_workdir and not workspace.valid_path(requested_workdir):
+            raise HTTPException(status_code=400, detail="등록되지 않은 작업 위치입니다")
+    workdir = requested_workdir if requested_workdir is not None else channel["workdir"]
     if not workdir or not workspace.valid_path(workdir):
         workdir = None
+
+    attachments = attach.valid_paths(payload.attachments)
 
     # parent_id는 항상 쓰레드 루트를 직접 가리키도록 정규화해서 넘긴다.
     thread_root_id = None
@@ -1032,7 +1064,7 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
 
     user_message_id = db.create_message(
         conn, channel_id, role="user", body=payload.body, author="user",
-        parent_id=thread_root_id, status="done")
+        parent_id=thread_root_id, status="done", attachments=attachments)
 
     # 채널의 새 루트 대화라면(부모 없음) 방금 만든 사용자 메시지가 쓰레드
     # 루트가 되고, 에이전트 응답은 그 아래 첫 답장으로 들어간다.
@@ -1042,7 +1074,8 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
         try:
             agent_message_id, job_id = agents.spawn(
                 conn, channel, agent_parent_id,
-                db.get_message(conn, user_message_id), mentioned)
+                db.get_message(conn, user_message_id), mentioned,
+                workdir=requested_workdir or None)
         except agents.AgentError as e:
             raise HTTPException(status_code=400, detail=str(e))
         return {"message_id": agent_message_id, "job_id": job_id,
@@ -1055,7 +1088,8 @@ def api_create_channel_message(channel_id: int, payload: MessageCreate):
         model=model or None)
 
     job_id = db.create_job(
-        conn, payload.body, provider, session_id=session_id,
+        conn, payload.body + attach.block(attachments), provider,
+        session_id=session_id,
         model=model or None, workdir=workdir, route_reason=route_reason,
         channel_id=channel_id, message_id=agent_message_id)
     db.update_message(conn, agent_message_id, job_id=job_id)
