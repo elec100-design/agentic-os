@@ -1344,6 +1344,23 @@ def job_detail(request: Request, job_id: int):
     return templates.TemplateResponse(request, "job.html", _job_view_ctx(job))
 
 
+@app.get("/api/jobs/{job_id}")
+def api_get_job(job_id: int):
+    """작업 상태를 JSON으로 돌려준다 (외부 에이전트가 폴링하는 용도).
+
+    Hermes가 aos에 일을 던진 뒤 결과 노트 경로를 찾아오는 경로다."""
+    conn = db.get_conn()
+    job = db.get_job(conn, job_id)
+    if job is None:
+        raise HTTPException(status_code=404)
+    return {
+        "id": job["id"], "status": job["status"], "provider": job["provider"],
+        "output": job["output"][-4000:] if job["output"] else "",
+        "error": job["error"], "note_path": job["note_path"],
+        "started_at": job["started_at"], "finished_at": job["finished_at"],
+    }
+
+
 @app.post("/jobs/{job_id}/cancel")
 def cancel_job(job_id: int):
     conn = db.get_conn()
